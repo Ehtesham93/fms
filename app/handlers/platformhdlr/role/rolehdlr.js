@@ -1,0 +1,306 @@
+import z from "zod";
+import {
+  APIResponseBadRequest,
+  APIResponseInternalErr,
+  APIResponseOK,
+} from "../../../utils/responseutil.js";
+import { validateAllInputs } from "../../../utils/validationutil.js";
+import RoleHdlrImpl from "./rolehdlr_impl.js";
+
+export default class RoleHdlr {
+  constructor(roleSvcI, logger) {
+    this.roleSvcI = roleSvcI;
+    this.logger = logger;
+    this.roleHdlrImpl = new RoleHdlrImpl(roleSvcI, logger);
+  }
+
+  RegisterRoutes(router) {
+    router.post("/", this.CreateRole);
+    router.put("/:roleid", this.UpdateRole);
+    router.get("/list", this.ListRoles);
+    router.get("/:roleid", this.GetRole);
+    router.put("/:roleid/perms", this.UpdateRolePerms);
+    router.delete("/:roleid", this.DeleteRole);
+  }
+
+  CreateRole = async (req, res, next) => {
+    try {
+      const createdby = req.userid;
+      const schema = z.object({
+        rolename: z
+          .string({ message: "Invalid Role Name format" })
+          .nonempty({ message: "Role Name is required" })
+          .max(128, {
+            message: "Role Name must be at most 128 characters long",
+          })
+          .regex(/^[A-Za-z0-9 _-]+$/, {
+            message:
+              "Role Name can only contain letters, numbers, spaces, hyphens, and underscores",
+          }),
+
+        roletype: z.literal("platform", {
+          errorMap: () => ({ message: "Invalid role type" }),
+        }),
+
+        isenabled: z
+          .boolean({ message: "isenabled must be a boolean" })
+          .optional(),
+      });
+
+      const { rolename, roletype, isenabled } = validateAllInputs(schema, {
+        rolename: req.body.rolename,
+        roletype: req.body.roletype,
+        isenabled: req.body.isenabled,
+      });
+
+      const result = await this.roleHdlrImpl.CreateRoleLogic(
+        rolename,
+        roletype,
+        isenabled !== undefined ? isenabled : true,
+        createdby
+      );
+
+      APIResponseOK(req, res, result, "Role created successfully");
+    } catch (e) {
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "CREATE_ROLE_ERR",
+          e.toString(),
+          "Create role failed"
+        );
+      }
+    }
+  };
+
+  UpdateRole = async (req, res, next) => {
+    try {
+      const updatedby = req.userid;
+      const roleid = req.params.roleid;
+      const schema = z.object({
+        updatedby: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "User ID must be a valid UUID" }),
+        roleid: z
+          .string({ message: "Invalid Role ID format" })
+          .nonempty({ message: "Role ID cannot be empty" })
+          .max(128, { message: "Role ID must not exceed 128 characters" }),
+        rolename: z
+          .string({ message: "Invalid Role Name format" })
+          .max(128, { message: "Role Name must be at most 128 characters" })
+          .regex(/^[A-Za-z0-9 _-]+$/, {
+            message:
+              "Role Name can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
+          .optional(),
+
+        roletype: z
+          .enum(["platform"], { message: "Invalid Role Type format" })
+          .optional(),
+        isenabled: z
+          .boolean({ message: "isenabled must be a boolean" })
+          .optional(),
+      });
+      let { rolename, roletype, isenabled } = validateAllInputs(schema, {
+        updatedby,
+        roleid,
+        rolename: req.body.rolename,
+        roletype: req.body.roletype,
+        isenabled: req.body.isenabled,
+      });
+      if (roletype && roletype !== "platform") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_ROLE_TYPE",
+          "Invalid role type"
+        );
+        return;
+      }
+      let updateFields = {};
+      if (rolename !== undefined) updateFields.rolename = rolename;
+      if (roletype !== undefined) updateFields.roletype = roletype;
+      if (isenabled !== undefined) updateFields.isenabled = isenabled;
+
+      if (Object.keys(updateFields).length === 0) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "NO_UPDATE_FIELDS",
+          "No fields provided for update"
+        );
+        return;
+      }
+      let result = await this.roleHdlrImpl.UpdateRoleLogic(
+        roleid,
+        updateFields,
+        updatedby
+      );
+      APIResponseOK(req, res, result, "Role updated successfully");
+    } catch (e) {
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "UPDATE_ROLE_ERR",
+          e.toString(),
+          "Update role failed"
+        );
+      }
+    }
+  };
+
+  ListRoles = async (req, res, next) => {
+    try {
+      let result = await this.roleHdlrImpl.ListRolesLogic();
+      APIResponseOK(req, res, result, "Roles fetched successfully");
+    } catch (e) {
+      APIResponseInternalErr(
+        req,
+        res,
+        "LIST_ROLES_ERR",
+        e.toString(),
+        "List roles failed"
+      );
+    }
+  };
+
+  GetRole = async (req, res, next) => {
+    try {
+      const schema = z.object({
+        roleid: z
+          .string({ message: "Invalid Role ID format" })
+          .uuid({ message: "Role ID must be a valid UUID" }),
+      });
+
+      const { roleid } = validateAllInputs(schema, {
+        roleid: req.params.roleid,
+      });
+
+      const result = await this.roleHdlrImpl.GetRoleLogic(roleid);
+      APIResponseOK(req, res, result, "Role fetched successfully");
+    } catch (e) {
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ROLE_ERR",
+          e.toString(),
+          "Get role failed"
+        );
+      }
+    }
+  };
+
+  UpdateRolePerms = async (req, res, next) => {
+    try {
+      const updatedby = req.userid;
+      const schema = z.object({
+        updatedby: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "User ID must be a valid UUID" }),
+        roleid: z
+          .string({ message: "Invalid Role ID format" })
+          .nonempty({ message: "Role ID cannot be empty" })
+          .max(128, { message: "Role ID must not exceed 128 characters" }),
+        updatedperms: z
+          .array(
+            z.object({
+              moduleid: z
+                .string({ message: "Invalid Module ID format" })
+                .uuid({ message: "Module ID must be a valid UUID" }),
+              selectedpermids: z
+                .array(
+                  z
+                    .string()
+                    .min(1, { message: "Permission ID cannot be empty" })
+                )
+                .optional(),
+              deselectedpermids: z
+                .array(
+                  z
+                    .string()
+                    .min(1, { message: "Permission ID cannot be empty" })
+                )
+                .optional(),
+            })
+          )
+          
+      });
+
+      let { updatedperms } = validateAllInputs(schema, {
+        updatedby,
+        roleid: req.params.roleid,
+        updatedperms: req.body.updatedperms,
+      });
+
+      let result = await this.roleHdlrImpl.UpdateRolePermsLogic(
+        req.params.roleid,
+        updatedperms,
+        updatedby
+      );
+      APIResponseOK(req, res, result, "Role permissions updated successfully");
+    } catch (e) {
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "UPDATE_ROLE_PERMS_ERR",
+          e.toString(),
+          "Update role permissions failed"
+        );
+      }
+    }
+  };
+
+  DeleteRole = async (req, res, next) => {
+    try {
+      const schema = z.object({
+        roleid: z
+          .string({ message: "Invalid Role ID format" })
+          .uuid({ message: "Role ID must be a valid UUID" }),
+
+        deletedby: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "User ID must be a valid UUID" }),
+      });
+
+      const { roleid, deletedby } = validateAllInputs(schema, {
+        roleid: req.params.roleid,
+        deletedby: req.userid,
+      });
+
+      let result = await this.roleHdlrImpl.DeleteRoleLogic(roleid, deletedby);
+
+      APIResponseOK(req, res, result, "Role deleted successfully");
+    } catch (e) {
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "ROLE_IN_USE" ||
+        e.errcode === "ROLE_HAS_PERMISSIONS" ||
+        e.errcode === "ROLE_NOT_FOUND" ||
+        e.errcode === "CANNOT_DELETE_ADMIN_ROLE"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(
+          req,
+          res,
+          "DELETE_ROLE_ERR",
+          e.toString(),
+          "Delete role failed"
+        );
+      }
+    }
+  };
+}

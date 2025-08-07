@@ -1,0 +1,69 @@
+export default {
+  pgdb: {
+    host: "rds-nemo-stage.c55qjjjzouym.ap-south-1.rds.amazonaws.com",
+    port: 5432,
+    database: "lmmintellicar",
+    schema: "stgfmscoresch",
+    user: "lmmintellicar_admin",
+    password: "Z52DWfsAZIBtnOK",
+  },
+  redis: {
+    host: "lmm-intellicar-cluster.t9kbdt.clustercfg.aps1.cache.amazonaws.com",
+    port: 6379,
+  },
+  apiserver: {
+    port: 10004,
+  },
+  authsvc: {
+    url: "http://stg-nemo3-api-auth-svc.intellicar-frontend1:10004",
+    createConsumerPath: "/api/v1/consumer",
+    getUserTokenPath: "/api/v1/token",
+    getAccountTokenPath: "/api/v1/account/token",
+    invalidateTokenPath: "/api/v1/token/invalidate",
+    getTokenPath: "/api/v1/token",
+  },
+  // emailsvc: {
+  //   url: "https://email-service.intellicar.in",
+  //   sendEmailPath: "/api/v1/email/send",
+  //   accountid: "EA_F927E60B708F20D0F35AD667D34B3F3A8B28AB332A9F3FB384E631968867A48E",
+  //   apikey: "EB_25F98EB56D926AFDEE768417F1A1CD712B40E632FCD9B91501BBD5C3571D66B4",
+  // },
+  emailsvc: {
+    url: "http://stg-nemo3-api-email-svc.intellicar-frontend1:10004",
+    sendEmailPath: "/api/v1/email/sendemail",
+  },
+  csrf: {
+    maxAgeInSeconds: 1800,
+  },
+  mobileotpsvc: {
+    rooturl: "http://stg-nemo3-api-otp-svc.intellicar-frontend1:10004",
+    requestotppath: "/api/v1/otp/requestotp",
+    verifyotppath: "/api/v1/otp/verifyotp",
+  },
+  clickhouse: {
+    urls: [
+      "http://10.178.0.242:8123",
+      "http://10.178.0.16:8123",
+      "http://10.178.0.210:8123",
+      "http://10.178.0.45:8123",
+      //"http://10.178.0.132:8123",
+    ],
+    username: "default",
+    password: "",
+    database: "lmmdata",
+    maxBatchDataSize: 25000,
+    maxParallelRequests: 100000,
+    compression: {
+      response: true,
+      request: true,
+    },
+    keep_alive: {
+      enabled: true,
+    },
+  },
+  recaptcha: {
+    sitekey: "6LfvoH8rAAAAAAIQoIm0yRc2lfEyzrwdh0RAMeH_",
+    secretkey: "6LfvoH8rAAAAAHw1ivt1fmLTGViTQBrEtgPAsxwj",
+    siteurl: "https://www.google.com/recaptcha/api/siteverify",
+  },
+};

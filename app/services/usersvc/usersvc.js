@@ -1,0 +1,319 @@
+import UserSvcDB from "./usersvc_db.js";
+import axios from "axios"; //used for request and verify otp
+import config from "../../config/config.js"; //used for request and verify otp
+
+export default class UserSvc {
+  constructor(pgPoolI, logger) {
+    this.pgPoolI = pgPoolI;
+    this.logger = logger;
+    this.userSvcDB = new UserSvcDB(pgPoolI, logger);
+  }
+
+  async IsValidUser(userid) {
+    let user = await this.userSvcDB.getUserDetails(userid);
+    return user && user.userid;
+  }
+
+  async getUserName(userid) {
+    return await this.userSvcDB.getUserName(userid);
+  }
+
+  async CreateSuperAdmin(userid, email, password) {
+    return await this.userSvcDB.createSuperAdmin(userid, email, password);
+  }
+
+  async GetUserIdByEmail(email) {
+    return await this.userSvcDB.getUserIdByEmail(email);
+  }
+
+  async GetUserIdPassByEmail(email) {
+    return await this.userSvcDB.getUserIdPassByEmail(email);
+  }
+
+  async GetUserDetails(userid) {
+    return await this.userSvcDB.getUserDetails(userid);
+  }
+
+  async GetRolePerms(accountid, fleetid, userid) {
+    return await this.userSvcDB.getRolePermsForAccFleet(
+      accountid,
+      fleetid,
+      userid
+    );
+  }
+
+  async GetConsolePerms(userid) {
+    let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    return await this.userSvcDB.getRolePermsForAcc(accountid, userid);
+  }
+
+  async IsPlatformUser(userid) {
+    let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    let roles = await this.userSvcDB.getUserRoles(accountid, fleetid, userid);
+    return roles && roles.length > 0;
+  }
+
+  async GetUserRoles(accountid, fleetid, userid) {
+    return await this.userSvcDB.getUserRoles(accountid, fleetid, userid);
+  }
+
+  async CreateUser(user, userssoinfo, createdby) {
+    return await this.userSvcDB.createUser(user, userssoinfo, createdby);
+  }
+
+  async GetAllUsers(offset, limit) {
+    return await this.userSvcDB.getAllUsers(offset, limit);
+  }
+
+  async GetPlatformUsers() {
+    let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    return await this.userSvcDB.getAccountFleetUsers(accountid);
+  }
+
+  async GetAccountUsers() {
+    let platformaccountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    return await this.userSvcDB.getNonPlatformUsers(platformaccountid);
+  }
+
+  async GetUserAccounts(userid) {
+    return await this.userSvcDB.getUserAccounts(userid);
+  }
+
+  async EnableUser(userid, updatedby) {
+    return await this.userSvcDB.enableUser(userid, updatedby);
+  }
+
+  async DisableUser(userid, updatedby) {
+    return await this.userSvcDB.disableUser(userid, updatedby);
+  }
+
+  async SignupWithInvite(inviteid, displayname, encryptedpassword) {
+    return await this.userSvcDB.signupWithInvite(
+      inviteid,
+      displayname,
+      encryptedpassword
+    );
+  }
+
+  async DeleteUserRecords(userid, accountid, fleetid, inviteid) {
+    return await this.userSvcDB.deleteUserRecords(
+      userid,
+      accountid,
+      fleetid,
+      inviteid
+    );
+  }
+
+  async AcceptInvite(inviteid, userid) {
+    return await this.userSvcDB.acceptInvite(inviteid, userid);
+  }
+
+  async RejectInvite(inviteid, userid) {
+    return await this.userSvcDB.rejectInvite(inviteid, userid);
+  }
+
+  async AddUserToAccount(addedby, contact, accountid) {
+    return await this.userSvcDB.addUserToAccount(addedby, contact, accountid);
+  }
+
+  async RemoveUserFromAccount(removedby, contact, accountid) {
+    return await this.userSvcDB.removeUserFromAccount(
+      removedby,
+      contact,
+      accountid
+    );
+  }
+
+  async CreateUserByPlatformAdmin(
+    useridtype,
+    forceuseridtypeverified,
+    contact,
+    displayname,
+    userinfo,
+    createdby
+  ) {
+    return await this.userSvcDB.createUserByPlatformAdmin(
+      useridtype,
+      forceuseridtypeverified,
+      contact,
+      displayname,
+      userinfo,
+      createdby
+    );
+  }
+
+  async DeleteUserRecordsByUserid(userid) {
+    return await this.userSvcDB.deleteUserRecordsByUserid(userid);
+  }
+
+  // mobile
+  async GetUserIdByMobile(mobile) {
+    return await this.userSvcDB.getUserIdByMobile(mobile);
+  }
+
+  async CreateMobileVerify(verifyid, userid, otp, expiresat, info) {
+    return await this.userSvcDB.createMobileVerify(
+      verifyid,
+      userid,
+      otp,
+      expiresat,
+      info
+    );
+  }
+
+  // TODO: uncomment this after testing is done for mobile otp verification through fms-otp-svc
+  async VerifyMobileOtp(mobile, otp) {
+    const otpVerifyUrl = `${config.mobileotpsvc.rooturl}${config.mobileotpsvc.verifyotppath}`;
+    const otpVerifyHeaders = {
+      "Content-Type": "application/json",
+    };
+    const otpVerifyBody = {
+      mobilenumber: mobile,
+      otp: otp,
+    };
+
+    let verifyRes;
+    try {
+      verifyRes = await axios.post(otpVerifyUrl, otpVerifyBody, {
+        headers: otpVerifyHeaders,
+      });
+    } catch (err) {
+      // If the service returns a non-200, axios throws
+      throw new Error("OTP verification failed (service error)");
+    }
+
+    if (
+      !verifyRes.data ||
+      verifyRes.data.err !== null ||
+      verifyRes.data.msg !== "OTP verified successfully"
+    ) {
+      throw new Error("Invalid OTP");
+    }
+    return verifyRes;
+  }
+
+  // async VerifyMobileOtp(userid, otp) {
+  //   return await this.userSvcDB.verifyMobileOtp(userid, otp);
+  // }
+
+  async SetUserDefaults(userid, accountid, recursive, lat, lng, mapzoom) {
+    return await this.userSvcDB.setUserDefaults(
+      userid,
+      accountid,
+      recursive,
+      lat,
+      lng,
+      mapzoom
+    );
+  }
+
+  async GetUserInfo(userid) {
+    return await this.userSvcDB.getUserInfo(userid);
+  }
+
+  async CreatePasswordResetToken(userid, resetToken, expiresAt, email) {
+    return await this.userSvcDB.createPasswordResetToken(
+      userid,
+      resetToken,
+      expiresAt,
+      email
+    );
+  }
+
+  async ValidatePasswordResetToken(resetToken) {
+    return await this.userSvcDB.validatePasswordResetToken(resetToken);
+  }
+
+  async ResetPasswordWithToken(resetToken, newPassword) {
+    return await this.userSvcDB.resetPasswordWithToken(resetToken, newPassword);
+  }
+
+  async AddPendingEmail(emailTemplate, nextAttempt, nRetriesPending) {
+    return await this.userSvcDB.addPendingEmail(
+      emailTemplate,
+      nextAttempt,
+      nRetriesPending
+    );
+  }
+
+  async DeleteUser(userid, deletedby) {
+    return await this.userSvcDB.deleteUser(userid, deletedby);
+  }
+
+  async RecoverUser(userid, recoveredby) {
+    return await this.userSvcDB.recoverUser(userid, recoveredby);
+  }
+
+  async CheckMobileExists(mobile) {
+    return await this.userSvcDB.checkMobileExists(mobile);
+  }
+
+  async CheckUserHasMobile(userid) {
+    return await this.userSvcDB.checkUserHasMobile(userid);
+  }
+
+  async VerifyAndAddMobile(userid, otp, mobile) {
+    return await this.userSvcDB.verifyAndAddMobile(userid, otp, mobile);
+  }
+
+  async CreateEmailVerify(verifyid, userid, email, expiresat) {
+    return await this.userSvcDB.createEmailVerify(
+      verifyid,
+      userid,
+      email,
+      expiresat
+    );
+  }
+
+  async VerifyAndAddEmail(userid, verifyid, password) {
+    return await this.userSvcDB.verifyAndAddEmail(userid, verifyid, password);
+  }
+
+  async CheckEmailExists(email) {
+    return await this.userSvcDB.checkEmailExists(email);
+  }
+
+  async CheckUserHasEmail(userid) {
+    return await this.userSvcDB.checkUserHasEmail(userid);
+  }
+
+  async UpdateDisplayName(userid, displayname) {
+    return await this.userSvcDB.updateDisplayName(userid, displayname);
+  }
+
+  async ValidateEmailVerification(userid, verifyid) {
+    return await this.userSvcDB.validateEmailVerification(userid, verifyid);
+  }
+
+  async GetAcceptedTerms(userid) {
+    return await this.userSvcDB.getAcceptedTerms(userid);
+  }
+
+  async PutAcceptedTerms(userid, acceptedterms) {
+    return await this.userSvcDB.putAcceptedTerms(userid, acceptedterms);
+  }
+
+  async GetSosContacts() {
+    return await this.userSvcDB.getSosContacts();
+  }
+
+  async SetMpin(userid, encryptedMpin, isenabled) {
+    return await this.userSvcDB.setMpin(userid, encryptedMpin, isenabled);
+  }
+
+  async GetUserMpin(userid) {
+    return await this.userSvcDB.getUserMpin(userid);
+  }
+
+  async GetDocuments() {
+    return await this.userSvcDB.getDocuments();
+  }
+
+  async GetBanners() {
+    return await this.userSvcDB.getBanners();
+  }
+
+  async UpdatePasswordWithExpiry(userid, newPassword) {
+    return await this.userSvcDB.updatePasswordWithExpiry(userid, newPassword);
+  }
+}

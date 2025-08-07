@@ -1,0 +1,452 @@
+openapi: 3.0.0
+info:
+  title: Onboarding APIs
+  version: 1.0.0
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+paths:
+  /api/v1/fms/public/superadmin/token:
+    post:
+      tags:
+        - Authentication
+      summary: Get Token
+      description: |
+        Hash your password here -> https://academo.org/demos/SHA-256-hash-generator/
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  example: tejasurya@intellicar.in
+                password:
+                  type: string
+                  example: "69f9f7c745883a32502dc7d9d67b16aaa09ea9d0b19de202555cf8e1b42be693"
+              required:
+                - email
+                - password
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/account:
+    post:
+      tags:
+        - Account Management
+      summary: Create Account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                accountname:
+                  type: string
+                  example: Test Account 1
+                mobile:
+                  type: string
+                  example: "9848312193"
+                accountinfo:
+                  type: object
+                  example: {}
+                isenabled:
+                  type: boolean
+                  example: true
+              required:
+                - accountname
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/account/list:
+    get:
+      tags:
+        - Account Management
+      summary: List All Accounts
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/model/family:
+    post:
+      tags:
+        - Vehicle Models
+      summary: Create Model Family
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                familycode:
+                  type: string
+                  example: treo
+                familyname:
+                  type: string
+                  example: TREO
+              required:
+                - familycode
+                - familyname
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/model/family/list:
+    get:
+      tags:
+        - Vehicle Models
+      summary: Get All Model Family
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/model/list:
+    get:
+      tags:
+        - Vehicle Models
+      summary: Get All Models
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/model:
+    post:
+      tags:
+        - Vehicle Models
+      summary: Create Model
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                modelcode:
+                  type: string
+                  example: treo_default
+                  description: modelcode = trim(lowercase(modelname)) + "_" + trim(lowercase(modelvariant))
+                modelname:
+                  type: string
+                  example: Treo
+                modelvariant:
+                  type: string
+                  example: Default
+                modelfamilycode:
+                  type: string
+                  example: treo
+                modeldisplayname:
+                  type: string
+                  example: TREO Default
+              required:
+                - modelcode
+                - modelname
+                - modelvariant
+                - modelfamilycode
+                - modeldisplayname
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/vehicle/create:
+    post:
+      tags:
+        - Vehicle Management
+      summary: Create Vehicle
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vinno:
+                  type: string
+                  example: MA1AG2ZA7S5F76345
+                modelcode:
+                  type: string
+                  example: treo_default
+                vehicleinfo:
+                  type: object
+                  example: {}
+                mobileno:
+                  type: string
+                  example: "9848312193"
+              required:
+                - vinno
+                - modelcode
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/vehicle/{vinno}/info:
+    put:
+      tags:
+        - Vehicle Management
+      summary: Update Vehicle Information
+      parameters:
+        - in: path
+          name: vinno
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                license_plate:
+                  type: string
+                  example: abc
+                color:
+                  type: string
+                  example: blue
+                vehicle_city:
+                  type: string
+                  example: Amritsar
+                dealer:
+                  type: string
+                  example: Sangam Automobiles
+                delivered:
+                  type: string
+                  example: t
+                delivered_date:
+                  type: string
+                  example: 12/16/2019
+                data_freq:
+                  type: integer
+                  example: 120
+                tgu_model:
+                  type: string
+                  example: GEN2
+                tgu_sw_version:
+                  type: string
+                  example: eAutoSystem_3_1_3
+                tgu_phone_no:
+                  type: string
+                  example: "5754250545331"
+                tgu_imei_no:
+                  type: string
+                  example: "357851070451088"
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/account/{accountid}/vehicle/{vinno}:
+    post:
+      tags:
+        - Vehicle Management
+      summary: Assign Vehicle To Account
+      parameters:
+        - in: path
+          name: accountid
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: 08fdf30f-e0f8-458c-a7bd-55e5762f2169
+        - in: path
+          name: vinno
+          required: true
+          schema:
+            type: string
+          example: MA1AG2ZA7S5F76345
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vehicleinfo:
+                  type: object
+                  properties:
+                    regno:
+                      type: string
+                      example: MA1AG2ZA7S5F76345
+                    isowner:
+                      type: boolean
+                      example: true
+                    accvininfo:
+                      type: object
+                      example: {}
+              required:
+                - vehicleinfo
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+    delete:
+      tags:
+        - Vehicle Management
+      summary: Remove Vehicle From Account
+      parameters:
+        - in: path
+          name: accountid
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: vinno
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/user/createuser:
+    post:
+      tags:
+        - User Management
+      summary: Create User
+      description: For email users, default password is intellicar123
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                useridtype:
+                  type: string
+                  example: email
+                forceuseridtypeverified:
+                  type: boolean
+                  example: true
+                contact:
+                  type: string
+                  example: balapriyatest2@intellicar.in
+                displayname:
+                  type: string
+                  example: Bala Priya Test2
+                userinfo:
+                  type: object
+                  example: {}
+              required:
+                - useridtype
+                - contact
+                - displayname
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/account/{accountid}/user:
+    post:
+      tags:
+        - User Management
+      summary: Add User To Account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contact:
+                  type: string
+                  example: user1@nemo3.com
+                  description: mobile or email
+                accountid:
+                  type: string
+                  example: 81861428-fe9c-4937-9d7e-ea5bb5c700d8
+              required:
+                - contact
+                - accountid
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/user/account/{accountid}/user/{contact}:
+    delete:
+      tags:
+        - User Management
+      summary: Remove User From Account
+      parameters:
+        - in: path
+          name: accountid
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: contact
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+
+  /api/v1/platform/account/{accountid}:
+    delete:
+      tags:
+        - Account Management
+      summary: Delete Account
+      parameters:
+        - in: path
+          name: accountid
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}

@@ -1,0 +1,144 @@
+import { APIResponseError, APIResponseForbidden } from "./utils/responseutil.js";
+import promiserouter from "express-promise-router";
+import express from "express";
+import bodyParser from "body-parser";
+import compression from "compression";
+import morgan from "morgan";
+import requestIp from "request-ip";
+import cors from "cors";
+import fileUpload from "express-fileupload";
+import cookieParser from "cookie-parser";
+// import csurf from '@dr.pogodin/csurf';
+
+export default class APIServer {
+  constructor(publicroutehandlers, apiroutehandlers, config, logger) {
+    this.publicroutehandlers = publicroutehandlers;
+    this.apiroutehandlers = apiroutehandlers;
+    this.logger = logger;
+    this.config = config;
+    this.app = this.#getexpressapp();
+  }
+
+  Start(port) {
+    for (let eachhandler of this.publicroutehandlers) {
+      let newrouter = promiserouter();
+      eachhandler[1].RegisterRoutes(newrouter);
+      this.app.use(eachhandler[0], newrouter);
+    }
+
+    this.app.use(cookieParser());    
+    // const csrfProtection = csurf({ 
+    //   cookie: {
+    //     httpOnly: true,
+    //     secure: true,
+    //     sameSite: 'none',
+    //     maxAge: this.config.csrf.maxAgeInSeconds,
+    //     path: '/',
+    //   },
+    //   ignoreMethods: ['GET', 'HEAD', 'OPTIONS'],
+    //   value: function(req) {
+    //     return req.headers['x-csrf-token'] || req.headers['X-CSRF-TOKEN'];
+    //   }
+    // });
+    // // this.app.use(csrfProtection);
+
+    for (let eachhandler of this.apiroutehandlers) {
+      let newrouter = promiserouter();
+      eachhandler[1].RegisterRoutes(newrouter);
+      this.app.use(eachhandler[0], newrouter);
+    }
+
+    this.app.use(this.#errornotfound);
+    this.app.use(this.#errorhandler);
+
+    this.app.listen(port, () => {
+      this.logger.info("App listening on port:" + port);
+    });
+  }
+
+  // # Private functions...
+  #getexpressapp() {
+    let app = express();
+    app.use(compression());
+    app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
+    app.use(bodyParser.json({ type: "application/*+json", limit: "50mb" }));
+    app.use(bodyParser.json());
+    app.use(bodyParser.raw({ type: "application/vnd.custom-type" }));
+    app.use(
+      morgan(
+        ":remote-addr :method :url :status :res[content-length] - :response-time ms",
+        { stream: { write: (x) => this.logger.info(x) } }
+      )
+    );
+
+    const allowLocalhost = function (origin, callback) {
+
+      // List of allowed origins (can include specific ports or use regex for localhost)
+      const allowedOrigins = [
+        /^https:\/\/localhost:\d+$/,  // any port on localhost
+        /^https:\/\/.*\.mahindraelectric\.com:\d+$/,  // any subdomain and port
+        /^https:\/\/.*\.mahindralastmilemobility\.com:\d+$/,
+      ];
+
+      if (!origin) return callback(null, true); // allow non-browser requests like curl or Postman
+    
+      const isAllowed = allowedOrigins.some((pattern) => pattern.test(origin));
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    };
+
+    app.use(
+      cors({
+        origin: allowLocalhost,
+        credentials: true, // allow sending cookies
+      })
+    );
+    app.use(requestIp.mw());
+    // app.use(
+    //   fileUpload({
+    //     debug: true,
+    //     limits: { fileSize: 1024 * 1024 * 1024 },
+    //     useTempFiles: true,
+    //     tempFileDir: "/tmp/",
+    //     createParentPath: true,
+    //     uriDecodeFileNames: true,
+    //     safeFileNames: true,
+    //     preserveExtension: 4,
+    //     abortOnLimit: true,
+    //     uploadTimeout: 15000,
+    //   })
+    // );
+    return app;
+  }
+
+  #errornotfound(req, res, next) {
+    // If we have reached here, we will throw an error..
+    APIResponseForbidden(
+      req,
+      res,
+      "FORBIDDEN_API",
+      { path: req.path },
+      "non-existing path"
+    );
+  }
+
+  #errorhandler(err, req, res, next) {
+    let errstr = JSON.stringify(err);
+
+    if ("toString" in err) {
+      errstr = err.toString();
+    }
+
+    APIResponseError(
+      req,
+      res,
+      500,
+      "INTERNAL_SERVER_ERROR",
+      errstr,
+      "internal server error"
+    );
+  }
+}
