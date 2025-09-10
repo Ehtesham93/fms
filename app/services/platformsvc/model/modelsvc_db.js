@@ -1335,4 +1335,22 @@ export default class ModelSvcDB {
       throw error;
     }
   }
+
+  async getModelCodeByNameAndVariant(modelname, modelvariant) {
+    try {
+      let query = `
+        SELECT modelcode FROM vehicle_model 
+        WHERE modelname = $1 AND modelvariant = $2
+      `;
+      let result = await this.pgPoolI.Query(query, [modelname, modelvariant]);
+
+      if (result.rowCount === 0) {
+        return null;
+      }
+
+      return result.rows[0];
+    } catch (error) {
+      throw error;
+    }
+  }
 }

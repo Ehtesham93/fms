@@ -1,12 +1,12 @@
 import { v4 as uuidv4 } from "uuid";
 const { EncryptPassword } = await import("../../utils/eccutil.js");
+import { markInviteAsExpired } from "../../utils/inviteUtil.js";
 
 const EMAIL_PWD_SSO = "EMAIL_PWD"; // TODO: move these to constants util
 const MOBILE_SSO = "MOBILE";
 
 const SIGNUP_WITH_INVITE_FLOW = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 const ADMIN_ROLEID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-const USER_DEFAULT_PASSWORD = "intellicar123";
 
 const FLEET_INVITE_STATUS = {
   PENDING: "PENDING",
@@ -28,8 +28,9 @@ export default class UserSvcDB {
    *
    * @param {PgPool} pgPoolI
    */
-  constructor(pgPoolI) {
+  constructor(pgPoolI, config) {
     this.pgPoolI = pgPoolI;
+    this.config = config;
   }
 
   async isValidUser(userid) {
@@ -60,7 +61,7 @@ export default class UserSvcDB {
   }
 
   // users, emailpwdsso, usersso, user fleet , fleet user role mapping
-  async createSuperAdmin(userid, email, password) {
+  async createSuperAdmin(createdby, userid, email, password) {
     let currtime = new Date();
     let [txclient, txnerr] = await this.pgPoolI.StartTransaction();
     if (txnerr) {
@@ -69,8 +70,8 @@ export default class UserSvcDB {
 
     try {
       let query = `
-                INSERT INTO users (userid, displayname, usertype, userinfo, isenabled, isdeleted, isemailverified, ismobileverified, createdat, createdby, updatedat, updatedby) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                INSERT INTO users (userid, displayname, usertype, userinfo, isenabled, isdeleted, isemailverified, ismobileverified, createdat, createdby, updatedat, updatedby, acceptedterms) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             `;
       // TODO: should superadmin be email, mobile verified?
       let res = await txclient.query(query, [
@@ -83,9 +84,10 @@ export default class UserSvcDB {
         false,
         false,
         currtime,
-        userid,
+        createdby,
         currtime,
-        userid,
+        createdby,
+        {},
       ]);
       if (res.rowCount !== 1) {
         throw new Error("Failed to create superadmin");
@@ -261,7 +263,7 @@ export default class UserSvcDB {
 
       query = `
             SELECT permid FROM role_perm rp JOIN fleet_user_role fur ON rp.accountid = fur.accountid AND rp.roleid = fur.roleid 
-            WHERE rp.accountid = $1 AND fur.accountid = $2 AND fur.fleetid = $3 AND fur.userid = $4
+            WHERE rp.accountid = $1 AND fur.accountid = $2 AND fur.fleetid = $3 AND fur.userid = $4 AND rp.isenabled = true
         `;
       result = await this.pgPoolI.Query(query, [
         accountid,
@@ -273,7 +275,23 @@ export default class UserSvcDB {
       for (let row of result.rows) {
         perms.push(row.permid);
       }
-      return perms;
+
+      query = `
+            SELECT mp.permid FROM module m 
+            JOIN module_perm mp ON m.moduleid = mp.moduleid 
+            WHERE m.modulecode = 'consolemgmt' AND m.isenabled = true AND mp.isenabled = true
+        `;
+      result = await this.pgPoolI.Query(query);
+      let consolemgmtPerms = [];
+      for (let row of result.rows) {
+        consolemgmtPerms.push(row.permid);
+      }
+
+      let filteredPerms = perms.filter((perm) =>
+        consolemgmtPerms.includes(perm)
+      );
+
+      return filteredPerms;
     } catch (error) {
       throw new Error("Could not retrieve permissions");
     }
@@ -339,7 +357,7 @@ export default class UserSvcDB {
     }
   }
 
-  async getUserRoles(accountid, userid) {
+  async getPlatformUserRoles(accountid, userid) {
     try {
       let query = `
             SELECT fleetid FROM account_fleet WHERE accountid = $1 AND isroot = true
@@ -655,7 +673,7 @@ export default class UserSvcDB {
     try {
       // check if inviteid is valid
       let query = `
-                SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
             `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
@@ -673,22 +691,10 @@ export default class UserSvcDB {
         throw new Error("Invite is not an email invite");
       }
 
-      query = `
-                SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-            `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Invite email not found");
-      }
+      const inviteemail = invite.contact;
+      const inviteexpiresat = invite.expiresat;
 
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(inviteexpiresat) < currtime) {
         this.logger.info(
           `usersvc_db.signupWithInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${invite.inviteid}`
         );
@@ -716,24 +722,27 @@ export default class UserSvcDB {
       // move invite to done table
       query = `
           INSERT INTO fleet_invite_done (
-              accountid, fleetid, inviteid, info, invitetype, 
-              invitestatus, isexternal, createdat, createdby, 
-              updatedat, updatedby
-          )
-          SELECT 
-              accountid, fleetid, inviteid, info, invitetype,
-              $1, false, createdat, createdby,
-              $2, $3
-          FROM fleet_invite_pending
-          WHERE accountid = $4 AND fleetid = $5 AND inviteid = $6
+              inviteid, accountid, fleetid, contact, roleid, invitetype, 
+              invitestatus, createdat, createdby, updatedat, updatedby, inviteduserid
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       `;
+
+      // We'll set the inviteduserid after creating the user
+      const userid = uuidv4();
+
       result = await txclient.query(query, [
-        FLEET_INVITE_STATUS.ACCEPTED,
-        currtime,
-        SIGNUP_WITH_INVITE_FLOW,
+        inviteid,
         invite.accountid,
         invite.fleetid,
-        inviteid,
+        invite.contact,
+        invite.roleid,
+        invite.invitetype,
+        FLEET_INVITE_STATUS.ACCEPTED,
+        invite.createdat,
+        invite.createdby,
+        currtime,
+        SIGNUP_WITH_INVITE_FLOW,
+        userid,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to move invite to done table");
@@ -742,19 +751,14 @@ export default class UserSvcDB {
       // Then delete from fleet_invite_pending
       query = `
             DELETE FROM fleet_invite_pending 
-            WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
+            WHERE inviteid = $1
         `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        inviteid,
-      ]);
+      result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete from pending table");
       }
 
       // create user
-      const userid = uuidv4();
       // TODO: deal with ismobileverified
       query = `
                 INSERT INTO users (userid, displayname, usertype, userinfo, isenabled, isdeleted, isemailverified, ismobileverified, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -810,47 +814,40 @@ export default class UserSvcDB {
         throw new Error("Failed to create user_sso");
       }
 
-      // add user to fleet_user
-      // get root fleetid
-      query = `
+      let fleetid = invite.fleetid;
+
+      if (fleetid == "" || fleetid == null || fleetid == undefined) {
+        query = `
                 SELECT fleetid FROM account_fleet WHERE accountid = $1 AND isroot = true
             `;
-      result = await txclient.query(query, [invite.accountid]);
-      if (result.rowCount !== 1) {
-        throw new Error("Root fleet not found");
+        result = await txclient.query(query, [invite.accountid]);
+        if (result.rowCount !== 1) {
+          throw new Error("Root fleet not found");
+        }
+        fleetid = result.rows[0].fleetid;
       }
-      const rootfleetid = result.rows[0].fleetid;
 
-      const roles = invite.info.roleids;
-      if (roles.length === 0) {
-        throw new Error("No roles found");
-      }
+      const role = invite.roleid;
 
       query = `
                     INSERT INTO user_fleet (userid, accountid, fleetid) VALUES ($1, $2, $3)
                 `;
-      result = await txclient.query(query, [
-        userid,
-        invite.accountid,
-        rootfleetid,
-      ]);
+      result = await txclient.query(query, [userid, invite.accountid, fleetid]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add user to fleet");
       }
 
-      for (const role of roles) {
-        query = `
+      query = `
                     INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
                 `;
-        result = await txclient.query(query, [
-          invite.accountid,
-          rootfleetid,
-          userid,
-          role,
-        ]);
-        if (result.rowCount !== 1) {
-          throw new Error("Failed to add user to fleet role");
-        }
+      result = await txclient.query(query, [
+        invite.accountid,
+        fleetid,
+        userid,
+        role,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to add user to fleet role");
       }
 
       // get userinfo
@@ -894,30 +891,28 @@ export default class UserSvcDB {
       // 1. Insert back into fleet_invite_pending with sent status
       let query = `
         INSERT INTO fleet_invite_pending (
-          accountid, fleetid, inviteid, info, invitetype, 
-          invitestatus, createdat, createdby, updatedat, updatedby
+          inviteid, accountid, fleetid, contact, roleid, invitetype, 
+          invitestatus, expiresat, createdat, createdby, updatedat, updatedby
         ) 
-        SELECT accountid, fleetid, inviteid, info, invitetype,
-            'sent', createdat, createdby, $1, updatedby
-            FROM fleet_invite_done 
-            WHERE accountid = $2 AND fleetid = $3 AND inviteid = $4
+        SELECT 
+          inviteid, accountid, fleetid, contact, roleid, invitetype,
+          'sent', CURRENT_TIMESTAMP + INTERVAL '7 days', createdat, createdby, $1, updatedby
+        FROM fleet_invite_done 
+        WHERE inviteid = $2
       `;
-      let result = await txclient.query(query, [
-        currtime,
-        accountid,
-        fleetid,
-        inviteid,
-      ]);
+      let result = await txclient.query(query, [currtime, inviteid]);
       if (result.rowCount === 0) {
+        // Not failing here, just logging
       }
 
       // 2. Delete from fleet_invite_done
       query = `
        DELETE FROM fleet_invite_done 
-       WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
+       WHERE inviteid = $1
      `;
-      result = await txclient.query(query, [accountid, fleetid, inviteid]);
+      result = await txclient.query(query, [inviteid]);
       if (result.rowCount === 0) {
+        // Not failing here, just logging
       }
 
       // Now handle user record deletion in reverse order of creation
@@ -928,6 +923,7 @@ export default class UserSvcDB {
       `;
       result = await txclient.query(query, [accountid, fleetid, userid]);
       if (result.rowCount === 0) {
+        // Not failing here, just logging
       }
 
       // 4. Delete from user_fleet (depends on users)
@@ -937,6 +933,7 @@ export default class UserSvcDB {
       `;
       result = await txclient.query(query, [accountid, fleetid, userid]);
       if (result.rowCount === 0) {
+        // Not failing here, just logging
       }
 
       // 5. Delete from user_sso (depends on users)
@@ -946,6 +943,7 @@ export default class UserSvcDB {
       `;
       result = await txclient.query(query, [userid]);
       if (result.rowCount === 0) {
+        // Not failing here, just logging
       }
 
       // 6. Delete from email_pwd_sso (depends on users)
@@ -955,6 +953,7 @@ export default class UserSvcDB {
       `;
       result = await txclient.query(query, [userid]);
       if (result.rowCount === 0) {
+        // Not failing here, just logging
       }
 
       // 7. Finally delete from users table
@@ -964,6 +963,7 @@ export default class UserSvcDB {
       `;
       result = await txclient.query(query, [userid]);
       if (result.rowCount === 0) {
+        // Not failing here, just logging
       }
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -992,41 +992,35 @@ export default class UserSvcDB {
     try {
       // check if inviteid is valid
       let query = `
-                SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
             `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
-        throw new Error("Invalid invite id");
+        let error = new Error("Invalid invite id");
+        error.errcode = "INVALID_INVITE_ID";
+        throw error;
       }
 
       let invite = result.rows[0];
       let fleetid = invite.fleetid;
 
       if (invite.invitestatus !== FLEET_INVITE_STATUS.PENDING) {
-        throw new Error("Invite is not in sent state");
+        let error = new Error("Invalid invite status");
+        error.errcode = "INVITE_NOT_IN_SENT_STATE";
+        throw error;
       }
 
       // TODO: temporary condition
       if (invite.invitetype !== FLEET_INVITE_TYPE.EMAIL) {
-        throw new Error("Invite is not an email invite");
+        let error = new Error("Invalid invite type");
+        error.errcode = "INVITE_NOT_AN_EMAIL_INVITE";
+        throw error;
       }
 
-      query = `
-                SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-            `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Invite email not found");
-      }
+      const inviteemail = invite.contact;
+      const inviteexpiresat = invite.expiresat;
 
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(inviteexpiresat) < currtime) {
         this.logger.info(
           `usersvc_db.acceptInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${invite.inviteid}`
         );
@@ -1039,54 +1033,66 @@ export default class UserSvcDB {
           txclient
         );
 
-        throw new Error("Invite has expired");
+        let error = new Error("Invite has expired");
+        error.errcode = "INVITE_HAS_EXPIRED";
+        throw error;
       }
 
-      // get userid from this invite email
       query = `
                 SELECT userid FROM email_pwd_sso WHERE ssoid = $1
             `;
       result = await txclient.query(query, [inviteemail]);
       if (result.rowCount !== 1) {
-        throw new Error("User not found");
+        let error = new Error("User not found");
+        error.errcode = "USER_NOT_FOUND";
+        throw error;
       }
       const inviteuserid = result.rows[0].userid;
 
       if (inviteuserid !== userid) {
-        throw new Error("User id does not match");
+        let error = new Error("User id does not match");
+        error.errcode = "USER_ID_DOES_NOT_MATCH";
+        throw error;
       }
 
       query = `
-                UPDATE fleet_invite_pending SET invitestatus = $1, updatedat = $2, updatedby = $3 WHERE accountid = $4 AND fleetid = $5 AND inviteid = $6
-            `;
+          INSERT INTO fleet_invite_done (
+              inviteid, accountid, fleetid, contact, roleid, invitetype, 
+              invitestatus, createdat, createdby, updatedat, updatedby, inviteduserid
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `;
       result = await txclient.query(query, [
-        FLEET_INVITE_STATUS.ACCEPTED,
-        currtime,
-        SIGNUP_WITH_INVITE_FLOW,
+        inviteid,
         invite.accountid,
         invite.fleetid,
-        inviteid,
+        invite.contact,
+        invite.roleid,
+        invite.invitetype,
+        FLEET_INVITE_STATUS.ACCEPTED,
+        invite.createdat,
+        invite.createdby,
+        currtime,
+        userid,
+        userid,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to update invite status");
+        let error = new Error("Failed to move invite to done table");
+        error.errcode = "FAILED_TO_MOVE_INVITE_TO_DONE";
+        throw error;
       }
 
-      // TOASK: why we are doing this?
-      // add user to fleet_user
-      // get root fleetid
-      // query = `
-      //           SELECT fleetid FROM account_fleet WHERE accountid = $1 AND isroot = true
-      //       `;
-      // result = await txclient.query(query, [invite.accountid]);
-      // if (result.rowCount !== 1) {
-      //   throw new Error("Root fleet not found");
-      // }
-      // const rootfleetid = result.rows[0].fleetid;
-
-      const roles = invite.info.roleids;
-      if (roles.length === 0) {
-        throw new Error("No roles found");
+      query = `
+            DELETE FROM fleet_invite_pending 
+            WHERE inviteid = $1
+        `;
+      result = await txclient.query(query, [inviteid]);
+      if (result.rowCount !== 1) {
+        let error = new Error("Failed to delete from pending table");
+        error.errcode = "FAILED_TO_DELETE_FROM_PENDING";
+        throw error;
       }
+
+      const role = invite.roleid;
 
       query = `
         INSERT INTO user_fleet (userid, accountid, fleetid) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
@@ -1098,21 +1104,19 @@ export default class UserSvcDB {
         );
       }
 
-      for (const role of roles) {
-        query = `
+      query = `
           INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
         `;
-        result = await txclient.query(query, [
-          invite.accountid,
-          fleetid,
-          userid,
-          role,
-        ]);
-        if (result.rowCount !== 1) {
-          this.logger.error(
-            `usersvc_db.acceptInvite: duplicate fleet_user_role entry to add user to fleet role: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, userid: ${userid}, roleid: ${role}`
-          );
-        }
+      result = await txclient.query(query, [
+        invite.accountid,
+        fleetid,
+        userid,
+        role,
+      ]);
+      if (result.rowCount !== 1) {
+        this.logger.error(
+          `usersvc_db.acceptInvite: duplicate fleet_user_role entry to add user to fleet role: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, userid: ${userid}, roleid: ${role}`
+        );
       }
 
       // get account name and fleet name for invite text
@@ -1146,7 +1150,7 @@ export default class UserSvcDB {
         accountname: accountname,
         fleetname: fleetname,
         email: inviteemail,
-        roles: roles,
+        roles: [role], // Convert single role to array for backward compatibility
         invitedby: invite.createdby,
       };
     } catch (e) {
@@ -1169,40 +1173,34 @@ export default class UserSvcDB {
     try {
       // check if inviteid is valid
       let query = `
-                SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
             `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
-        throw new Error("Invalid invite id");
+        let error = new Error("Invalid invite id");
+        error.errcode = "INVALID_INVITE_ID";
+        throw error;
       }
 
       let invite = result.rows[0];
 
       if (invite.invitestatus !== FLEET_INVITE_STATUS.PENDING) {
-        throw new Error("Invite is not in sent state");
+        let error = new Error("Invite is not in sent state");
+        error.errcode = "INVITE_NOT_IN_SENT_STATE";
+        throw error;
       }
 
       // TODO: temporary condition
       if (invite.invitetype !== FLEET_INVITE_TYPE.EMAIL) {
-        throw new Error("Invite is not an email invite");
+        let error = new Error("Invite is not an email invite");
+        error.errcode = "INVITE_NOT_AN_EMAIL_INVITE";
+        throw error;
       }
 
-      query = `
-                SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-            `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Invite email not found");
-      }
+      const inviteemail = invite.contact;
+      const inviteexpiresat = invite.expiresat;
 
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(inviteexpiresat) < currtime) {
         this.logger.info(
           `usersvc_db.rejectInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${invite.inviteid}`
         );
@@ -1215,22 +1213,24 @@ export default class UserSvcDB {
           txclient
         );
 
-        throw new Error("Invite has expired");
+        let error = new Error("Invite has expired");
+        error.errcode = "INVITE_HAS_EXPIRED";
+        throw error;
       }
 
       query = `
-                UPDATE fleet_invite_pending SET invitestatus = $1, updatedat = $2, updatedby = $3 WHERE accountid = $4 AND fleetid = $5 AND inviteid = $6
+                UPDATE fleet_invite_pending SET invitestatus = $1, updatedat = $2, updatedby = $3 WHERE inviteid = $4
             `;
       result = await txclient.query(query, [
         FLEET_INVITE_STATUS.REJECTED,
         currtime,
         userid,
-        invite.accountid,
-        invite.fleetid,
         inviteid,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to update invite status");
+        let error = new Error("Failed to update invite status");
+        error.errcode = "FAILED_TO_UPDATE_INVITE_STATUS";
+        throw error;
       }
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -1251,7 +1251,7 @@ export default class UserSvcDB {
     }
   }
 
-  async addUserToAccount(addedby, contact, accountid) {
+  async addUserToAccount(addedby, contact, accountid, fleetid, roleids = null) {
     let currtime = new Date();
 
     let [txclient, err] = await this.pgPoolI.StartTransaction();
@@ -1320,7 +1320,11 @@ export default class UserSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Root fleet not found for account");
       }
-      const rootfleetid = result.rows[0].fleetid;
+      let rootfleetid = result.rows[0].fleetid;
+
+      if (fleetid && fleetid !== rootfleetid) {
+        rootfleetid = fleetid;
+      }
 
       // Check if user is already added to this account
       query = `
@@ -1340,7 +1344,12 @@ export default class UserSvcDB {
         throw new Error("Failed to add user to fleet");
       }
 
-      // Add user to fleet_user_role table with admin role
+      let roleid = ADMIN_ROLEID;
+      if (roleids && roleids.length > 0) {
+        roleid = roleids[0];
+      }
+
+      // Add user to fleet_user_role table with roleid
       query = `
         INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
       `;
@@ -1348,7 +1357,7 @@ export default class UserSvcDB {
         accountid,
         rootfleetid,
         userid,
-        ADMIN_ROLEID,
+        roleid,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add user to fleet role");
@@ -1356,37 +1365,26 @@ export default class UserSvcDB {
 
       // Add record to fleet_invite_done table to track this direct user addition
       const inviteid = uuidv4();
-      const invitemeta = {
-        accountid: accountid,
-        fleetid: rootfleetid,
-        inviteid: inviteid,
-        mobile: contact,
-        contacttype: contacttype,
-        roleids: [ADMIN_ROLEID],
-        addedby: addedby,
-        userid: userid,
-        isdirectaddition: true,
-      };
 
       query = `
-        INSERT INTO fleet_invite_done (
-          accountid, fleetid, inviteid, info, invitetype, 
-          invitestatus, isexternal, createdat, createdby, 
-          updatedat, updatedby
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      `;
+              INSERT INTO fleet_invite_done (
+                inviteid, accountid, fleetid, contact, roleid, invitetype, 
+                invitestatus, createdat, createdby, updatedat, updatedby, inviteduserid
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            `;
       result = await txclient.query(query, [
+        inviteid,
         accountid,
         rootfleetid,
-        inviteid,
-        invitemeta,
+        contact,
+        ADMIN_ROLEID,
         contacttype,
         FLEET_INVITE_STATUS.ACCEPTED,
-        false,
         currtime,
         addedby,
         currtime,
         addedby,
+        userid,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to create invite done record");
@@ -1560,7 +1558,6 @@ export default class UserSvcDB {
         contacttype: contacttype,
         removedby: removedby,
         removedat: currtime,
-        wasAdmin: isUserAdmin,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -1683,7 +1680,7 @@ export default class UserSvcDB {
         `;
         result = await txclient.query(query, [
           contact,
-          USER_DEFAULT_PASSWORD,
+          this.config.defaultuser.password,
           userid,
           {},
           passwordExpireTime,
@@ -2044,15 +2041,37 @@ export default class UserSvcDB {
   async validatePasswordResetToken(resetToken) {
     try {
       let query = `
-        SELECT verifyid, userid, expiresat, isused, info
-        FROM email_verify 
-        WHERE verifyid = $1 AND operationtype = 'FP'
+        SELECT ev.verifyid, ev.userid, ev.expiresat, ev.isused, ev.info,
+               u.isenabled, u.isdeleted
+        FROM email_verify ev
+        JOIN users u ON ev.userid = u.userid
+        WHERE ev.verifyid = $1 AND ev.operationtype = 'FP'
       `;
       let result = await this.pgPoolI.Query(query, [resetToken]);
       if (result.rowCount === 0) {
         return null;
       }
-      return result.rows[0];
+
+      const tokenData = result.rows[0];
+
+      if (tokenData.isdeleted) {
+        return {
+          ...tokenData,
+          userstatus: "deleted",
+        };
+      }
+
+      if (!tokenData.isenabled) {
+        return {
+          ...tokenData,
+          userstatus: "disabled",
+        };
+      }
+
+      return {
+        ...tokenData,
+        userstatus: "active",
+      };
     } catch (error) {
       throw new Error(
         "Failed to validate password reset token: " + error.message
@@ -2150,29 +2169,65 @@ export default class UserSvcDB {
     }
 
     try {
+      // 1. Fetch original user data
       let query = `
-        SELECT userid, displayname FROM users WHERE userid = $1 AND isdeleted = false
+        SELECT userid, displayname, usertype, userinfo, isenabled, isdeleted, 
+               isemailverified, ismobileverified, acceptedterms, createdat, createdby, updatedat, updatedby
+        FROM users WHERE userid = $1 AND isdeleted = false
       `;
       let result = await txclient.query(query, [userid]);
       if (result.rowCount === 0) {
         throw new Error("User not found");
       }
 
-      const user = result.rows[0];
+      const originalUserData = result.rows[0];
 
-      const randomNum = Math.floor(Math.random() * 1000000);
-      const newDisplayName = `${user.displayname}_deleted_${randomNum}`;
+      // 2. Fetch original SSO data
+      query = `
+        SELECT us.ssotype, us.ssoid, us.updatedat,
+               eps.password, eps.ssoinfo as email_ssoinfo, eps.passwordexpireat, eps.createdat as email_createdat, eps.updatedat as email_updatedat,
+               ms.ssoinfo as mobile_ssoinfo, ms.createdat as mobile_createdat, ms.updatedat as mobile_updatedat
+        FROM user_sso us
+        LEFT JOIN email_pwd_sso eps ON us.ssoid = eps.ssoid AND us.ssotype = $2
+        LEFT JOIN mobile_sso ms ON us.ssoid = ms.ssoid AND us.ssotype = $3
+        WHERE us.userid = $1
+      `;
+      result = await txclient.query(query, [userid, EMAIL_PWD_SSO, MOBILE_SSO]);
+      const originalSsoData = result.rows;
 
+      // 3. Generate timestamp-based placeholder userid
+      const timestamp = Date.now();
+      const deletedUserId = `Deleted_User_${timestamp}`;
+
+      // 4. Store original data in deleteduser table (using actual userid, not placeholder)
+      query = `
+        INSERT INTO deleteduser (original_userid, deleteduser_id, original_user_data, original_sso_data, deletedat, deletedby)
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `;
+      result = await txclient.query(query, [
+        userid,
+        deletedUserId,
+        JSON.stringify(originalUserData),
+        JSON.stringify(originalSsoData),
+        currtime,
+        deletedby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to create deleteduser record");
+      }
+
+      // 5. Update user record with placeholder data
       query = `
         UPDATE users 
         SET isdeleted = true, 
             displayname = $1, 
+            userinfo = '{}',
             updatedat = $2, 
             updatedby = $3 
         WHERE userid = $4
       `;
       result = await txclient.query(query, [
-        newDisplayName,
+        deletedUserId,
         currtime,
         deletedby,
         userid,
@@ -2181,15 +2236,9 @@ export default class UserSvcDB {
         throw new Error("Failed to update user record");
       }
 
-      query = `
-        SELECT ssotype, ssoid FROM user_sso WHERE userid = $1
-      `;
-      result = await txclient.query(query, [userid]);
-
-      const ssoRecords = result.rows;
-
-      for (const ssoRecord of ssoRecords) {
-        const newSsoId = `${ssoRecord.ssoid}_deleted_${randomNum}`;
+      // 6. Update SSO records with placeholder data
+      for (const ssoRecord of originalSsoData) {
+        const newSsoId = deletedUserId;
 
         query = `
           UPDATE user_sso 
@@ -2227,11 +2276,11 @@ export default class UserSvcDB {
 
       return {
         userid: userid,
-        original_displayname: user.displayname,
-        new_displayname: newDisplayName,
+        original_displayname: originalUserData.displayname,
+        placeholder_userid: deletedUserId,
         deletedat: currtime,
         deletedby: deletedby,
-        sso_records_updated: ssoRecords.length,
+        sso_records_updated: originalSsoData.length,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -2251,12 +2300,13 @@ export default class UserSvcDB {
     }
 
     try {
+      // 1. Check if user is deleted
       let query = `
         SELECT userid, displayname, isdeleted FROM users WHERE userid = $1 AND isdeleted = true
       `;
       let result = await txclient.query(query, [userid]);
       if (result.rowCount === 0) {
-        throw new Error("User not found");
+        throw new Error("User not found or not deleted");
       }
 
       const user = result.rows[0];
@@ -2265,124 +2315,129 @@ export default class UserSvcDB {
         throw new Error("User is not deleted, cannot recover");
       }
 
-      const deletedPattern = /_deleted_\d+$/;
-      if (!deletedPattern.test(user.displayname)) {
-        throw new Error("User doesn't appear to be soft deleted");
+      // 2. Fetch original data from deleteduser table using actual userid
+      query = `
+        SELECT deleteduser_id, original_user_data, original_sso_data 
+        FROM deleteduser WHERE original_userid = $1
+      `;
+      result = await txclient.query(query, [userid]);
+      if (result.rowCount === 0) {
+        throw new Error("No deleted user record found for recovery");
       }
 
-      const originalDisplayName = user.displayname.replace(deletedPattern, "");
+      const deletedUserRecord = result.rows[0];
+      const originalUserData = JSON.parse(deletedUserRecord.original_user_data);
+      const originalSsoData = JSON.parse(deletedUserRecord.original_sso_data);
 
+      // 3. Check for conflicts with existing users/SSO records
+      for (const ssoRecord of originalSsoData) {
+        let conflictQuery = `
+          SELECT userid FROM user_sso 
+          WHERE ssoid = $1 AND ssotype = $2 AND userid != $3
+        `;
+        let conflictResult = await txclient.query(conflictQuery, [
+          ssoRecord.ssoid,
+          ssoRecord.ssotype,
+          userid,
+        ]);
+
+        if (conflictResult.rowCount > 0) {
+          const error = new Error(
+            `SSO conflict: ${ssoRecord.ssoid} already exists for another user`
+          );
+          error.errcode = "SSO_CONFLICT_EXISTS";
+          throw error;
+        }
+      }
+
+      // 4. Restore original user data
       query = `
         UPDATE users 
         SET isdeleted = false, 
             displayname = $1, 
-            updatedat = $2, 
-            updatedby = $3 
-        WHERE userid = $4
+            usertype = $2,
+            userinfo = $3,
+            isenabled = $4,
+            isemailverified = $5,
+            ismobileverified = $6,
+            acceptedterms = $7,
+            updatedat = $8, 
+            updatedby = $9 
+        WHERE userid = $10
       `;
       result = await txclient.query(query, [
-        originalDisplayName,
+        originalUserData.displayname,
+        originalUserData.usertype,
+        originalUserData.userinfo,
+        originalUserData.isenabled,
+        originalUserData.isemailverified,
+        originalUserData.ismobileverified,
+        originalUserData.acceptedterms,
         currtime,
         recoveredby,
         userid,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to update user record");
+        throw new Error("Failed to restore user record");
       }
 
-      query = `
-        SELECT ssotype, ssoid FROM user_sso WHERE userid = $1
-      `;
-      result = await txclient.query(query, [userid]);
+      // 5. Restore original SSO data
+      for (const ssoRecord of originalSsoData) {
+        query = `
+          UPDATE user_sso 
+          SET ssoid = $1, updatedat = $2 
+          WHERE userid = $3 AND ssotype = $4
+        `;
+        await txclient.query(query, [
+          ssoRecord.ssoid,
+          currtime,
+          userid,
+          ssoRecord.ssotype,
+        ]);
 
-      const ssoRecords = result.rows;
-
-      for (const ssoRecord of ssoRecords) {
-        const deletedSsoPattern = /_deleted_\d+$/;
-        if (deletedSsoPattern.test(ssoRecord.ssoid)) {
-          const originalSsoId = ssoRecord.ssoid.replace(deletedSsoPattern, "");
-
-          let conflictQuery = `
-            SELECT userid FROM user_sso 
-            WHERE ssoid = $1 AND ssotype = $2 AND userid != $3
-          `;
-          let conflictResult = await txclient.query(conflictQuery, [
-            originalSsoId,
-            ssoRecord.ssotype,
-            userid,
-          ]);
-
-          if (conflictResult.rowCount > 0) {
-            const error = new Error(
-              `SSO conflict: ${originalSsoId} already exists for another user`
-            );
-            error.errcode = "SSO_CONFLICT_EXISTS";
-            throw error;
-          }
-
+        if (ssoRecord.ssotype === EMAIL_PWD_SSO && ssoRecord.password) {
           query = `
-            UPDATE user_sso 
-            SET ssoid = $1, updatedat = $2 
-            WHERE userid = $3 AND ssotype = $4
+            UPDATE email_pwd_sso 
+            SET ssoid = $1, 
+                password = $2,
+                ssoinfo = $3,
+                passwordexpireat = $4,
+                updatedat = $5 
+            WHERE userid = $6
           `;
           await txclient.query(query, [
-            originalSsoId,
+            ssoRecord.ssoid,
+            ssoRecord.password,
+            ssoRecord.email_ssoinfo,
+            ssoRecord.passwordexpireat,
             currtime,
             userid,
-            ssoRecord.ssotype,
           ]);
-
-          if (ssoRecord.ssotype === EMAIL_PWD_SSO) {
-            conflictQuery = `
-              SELECT userid FROM email_pwd_sso 
-              WHERE ssoid = $1 AND userid != $2
-            `;
-            conflictResult = await txclient.query(conflictQuery, [
-              originalSsoId,
-              userid,
-            ]);
-
-            if (conflictResult.rowCount > 0) {
-              const error = new Error(
-                `Email conflict: ${originalSsoId} already exists for another user`
-              );
-              error.errcode = "SSO_CONFLICT_EXISTS";
-              throw error;
-            }
-
-            query = `
-              UPDATE email_pwd_sso 
-              SET ssoid = $1, updatedat = $2 
-              WHERE userid = $3
-            `;
-            await txclient.query(query, [originalSsoId, currtime, userid]);
-          } else if (ssoRecord.ssotype === MOBILE_SSO) {
-            conflictQuery = `
-              SELECT userid FROM mobile_sso 
-              WHERE ssoid = $1 AND userid != $2
-            `;
-            conflictResult = await txclient.query(conflictQuery, [
-              originalSsoId,
-              userid,
-            ]);
-
-            if (conflictResult.rowCount > 0) {
-              const error = new Error(
-                `Mobile conflict: ${originalSsoId} already exists for another user`
-              );
-              error.errcode = "SSO_CONFLICT_EXISTS";
-              throw error;
-            }
-
-            query = `
-              UPDATE mobile_sso 
-              SET ssoid = $1, updatedat = $2 
-              WHERE userid = $3
-            `;
-            await txclient.query(query, [originalSsoId, currtime, userid]);
-          }
+        } else if (
+          ssoRecord.ssotype === MOBILE_SSO &&
+          ssoRecord.mobile_ssoinfo
+        ) {
+          query = `
+            UPDATE mobile_sso 
+            SET ssoid = $1,
+                ssoinfo = $2,
+                updatedat = $3 
+            WHERE userid = $4
+          `;
+          await txclient.query(query, [
+            ssoRecord.ssoid,
+            ssoRecord.mobile_ssoinfo,
+            currtime,
+            userid,
+          ]);
         }
       }
+
+      // 6. Remove the deleteduser record
+      query = `
+        DELETE FROM deleteduser WHERE original_userid = $1
+      `;
+      await txclient.query(query, [userid]);
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -2391,11 +2446,11 @@ export default class UserSvcDB {
 
       return {
         userid: userid,
-        original_displayname: originalDisplayName,
-        previous_displayname: user.displayname,
+        restored_displayname: originalUserData.displayname,
+        placeholder_userid: deletedUserRecord.deleteduser_id,
         recoveredat: currtime,
         recoveredby: recoveredby,
-        sso_records_restored: ssoRecords.length,
+        sso_records_restored: originalSsoData.length,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -2434,33 +2489,8 @@ export default class UserSvcDB {
     }
 
     try {
-      let query = `
-        UPDATE mobile_verify 
-        SET isused = true 
-        WHERE userid = $1 
-          AND otp = $2 
-          AND isused = false
-          AND expiresat >= $3
-          AND operationtype = 'CHANGE'
-          AND info->>'mobile' = $4
-        RETURNING info
-      `;
-      let result = await txclient.query(query, [
-        userid,
-        otp.toString(),
-        currtime,
-        mobile,
-      ]);
-
-      if (result.rowCount === 0) {
-        await this.pgPoolI.TxRollback(txclient);
-        const error = new Error("Invalid or expired OTP");
-        error.errcode = "INVALID_OTP";
-        throw error;
-      }
-
-      query = `SELECT userid FROM mobile_sso WHERE ssoid = $1`;
-      result = await txclient.query(query, [mobile]);
+      let query = `SELECT userid FROM mobile_sso WHERE ssoid = $1`;
+      let result = await txclient.query(query, [mobile]);
       if (result.rowCount > 0) {
         await this.pgPoolI.TxRollback(txclient);
         const error = new Error("Mobile number is already in use");
@@ -2697,49 +2727,78 @@ export default class UserSvcDB {
   async validateEmailVerification(userid, verifyid) {
     try {
       let currtime = new Date();
+
       let query = `
-        SELECT verifyid, userid, expiresat, isused, info, operationtype
+        SELECT verifyid, userid, expiresat, isused, info, operationtype 
         FROM email_verify 
         WHERE verifyid = $1 
-          AND userid = $2 
-          AND operationtype = 'CHANGE'
+        AND operationtype = 'CHANGE'
       `;
-      let result = await this.pgPoolI.Query(query, [verifyid, userid]);
+      let result = await this.pgPoolI.Query(query, [verifyid]);
 
       if (result.rowCount === 0) {
         return {
           isvalid: false,
-          status: "not_found",
-          message:
-            "Email verification not found or does not belong to this user",
-          email: "Different email",
+          isdifferentuser: false,
+          status: "INVALID_VERIFYID",
+          message: "Invalid verification ID",
+          email: null,
+          mobile: null,
           expiresat: null,
         };
       }
 
-      const verification = result.rows[0];
-      const email = verification.info.email;
-      const expiresat = verification.expiresat;
-      const isused = verification.isused;
+      if (result.rowCount > 1) {
+        return {
+          isvalid: false,
+          isdifferentuser: false,
+          status: "DUPLICATE_VERIFYID",
+          message: "Duplicate verification ID",
+          email: null,
+          mobile: null,
+          expiresat: null,
+        };
+      }
+
+      const verifyidinfo = result.rows[0];
+      const email = verifyidinfo.info.email;
+      const isused = verifyidinfo.isused;
+      const expiresat = verifyidinfo.expiresat;
 
       if (isused) {
         return {
           isvalid: false,
-          status: "already_used",
+          isdifferentuser: false,
+          status: "COMPLETED_VERIFYID",
           message: "This email verification has already been completed",
-          email: email,
-          expiresat: expiresat,
+          email: null,
+          mobile: null,
+          expiresat: null,
         };
       }
 
       if (expiresat < currtime) {
         return {
           isvalid: false,
-          status: "expired",
+          isdifferentuser: false,
+          status: "EXPIRED_VERIFYID",
           message:
             "Email verification link has expired. Please request a new verification email",
-          email: email,
-          expiresat: expiresat,
+          email: null,
+          mobile: null,
+          expiresat: null,
+        };
+      }
+
+      if (verifyidinfo.userid !== userid) {
+        return {
+          isvalid: false,
+          isdifferentuser: true,
+          status: "INVALID_VERIFYID_USERID",
+          message: "Invalid verification ID for this user",
+          email: null,
+          mobile: null,
+          expiresat: null,
         };
       }
 
@@ -2747,27 +2806,46 @@ export default class UserSvcDB {
       if (existingUserId && existingUserId !== userid) {
         return {
           isvalid: false,
-          status: "email_taken",
-          message:
-            "This email address is already associated with another account",
-          email: email,
-          expiresat: expiresat,
+          isdifferentuser: false,
+          status: "EMAIL_ALREADY_EXISTS",
+          message: "This email address is already associated with another user",
+          email: null,
+          mobile: null,
+          expiresat: null,
         };
+      }
+
+      let mobile = null;
+      try {
+        const ssoQuery = `SELECT ssoid FROM user_sso WHERE userid = $1 AND ssotype = $2`;
+        const ssoResult = await this.pgPoolI.Query(ssoQuery, [
+          verifyidinfo.userid,
+          MOBILE_SSO,
+        ]);
+        if (ssoResult.rowCount > 0) {
+          mobile = ssoResult.rows[0].ssoid;
+        }
+      } catch (error) {
+        mobile = null;
       }
 
       return {
         isvalid: true,
-        status: "valid",
+        isdifferentuser: false,
+        status: "VALID_VERIFYID",
         message: "Email verification is valid and ready for password setup",
         email: email,
+        mobile: mobile,
         expiresat: expiresat,
       };
     } catch (error) {
       return {
         isvalid: false,
-        status: "unknown_error",
+        isdifferentuser: false,
+        status: "UNKNOWN_ERROR",
         message: "Failed to validate email verification: " + error.message,
-        email: "Different email",
+        email: null,
+        mobile: null,
         expiresat: null,
       };
     }
@@ -2777,7 +2855,10 @@ export default class UserSvcDB {
     try {
       let query = `SELECT acceptedterms FROM users WHERE userid = $1`;
       let result = await this.pgPoolI.Query(query, [userid]);
-      return result.rowCount > 0 ? result.rows[0].acceptedterms : "{}";
+      if (result.rowCount > 0 && result.rows[0].acceptedterms) {
+        return result.rows[0].acceptedterms;
+      }
+      return null;
     } catch (error) {
       throw new Error("Failed to get accepted terms");
     }
@@ -2963,6 +3044,237 @@ export default class UserSvcDB {
       return true;
     } catch (error) {
       throw new Error("Failed to update password: " + error.message);
+    }
+  }
+
+  async checkUserLoginSecurity(userid) {
+    try {
+      const query = `
+        SELECT userid, lastvalidlogin, lastinvalidlogin, 
+               consecutivefailedcount, islocked, lockeduntil
+        FROM user_login_security 
+        WHERE userid = $1
+      `;
+      const result = await this.pgPoolI.Query(query, [userid]);
+      return result.rowCount > 0 ? result.rows[0] : null;
+    } catch (error) {
+      throw new Error("Failed to check user login security");
+    }
+  }
+
+  async updateLoginSuccess(userid) {
+    try {
+      const query = `
+        INSERT INTO user_login_security (userid, lastvalidlogin, consecutivefailedcount, islocked, lockeduntil, updatedat)
+        VALUES ($1, now(), 0, false, null, now())
+        ON CONFLICT (userid) 
+        DO UPDATE SET 
+          lastvalidlogin = now(),
+          consecutivefailedcount = 0,
+          islocked = false,
+          lockeduntil = null,
+          updatedat = now()
+        RETURNING *
+      `;
+      const result = await this.pgPoolI.Query(query, [userid]);
+      return result.rows[0];
+    } catch (error) {
+      throw new Error("Failed to update login success");
+    }
+  }
+
+  async updateLoginFailure(userid) {
+    try {
+      const query = `
+        INSERT INTO user_login_security (userid, lastinvalidlogin, consecutivefailedcount, updatedat)
+        VALUES ($1, now(), 1, now())
+        ON CONFLICT (userid) 
+        DO UPDATE SET 
+          lastinvalidlogin = now(),
+          consecutivefailedcount = user_login_security.consecutivefailedcount + 1,
+          islocked = CASE 
+            WHEN user_login_security.consecutivefailedcount + 1 >= 3 THEN true 
+            ELSE false 
+          END,
+          lockeduntil = CASE 
+            WHEN user_login_security.consecutivefailedcount + 1 >= 3 THEN now() + interval '5 minutes'
+            ELSE null 
+          END,
+          updatedat = now()
+        RETURNING *
+      `;
+      const result = await this.pgPoolI.Query(query, [userid]);
+      return result.rows[0];
+    } catch (error) {
+      throw new Error("Failed to update login failure");
+    }
+  }
+
+  async isUserLocked(userid) {
+    try {
+      const query = `
+        SELECT islocked, lockeduntil, consecutivefailedcount
+        FROM user_login_security 
+        WHERE userid = $1
+      `;
+      const result = await this.pgPoolI.Query(query, [userid]);
+
+      if (result.rowCount === 0) {
+        return {
+          islocked: false,
+          lockeduntil: null,
+          consecutivefailedcount: 0,
+        };
+      }
+
+      const record = result.rows[0];
+
+      if (
+        record.islocked &&
+        record.lockeduntil &&
+        new Date() > new Date(record.lockeduntil)
+      ) {
+        await this.unlockUser(userid);
+        return {
+          islocked: false,
+          lockeduntil: null,
+          consecutivefailedcount: 0,
+        };
+      }
+
+      return record;
+    } catch (error) {
+      throw new Error("Failed to check if user is locked");
+    }
+  }
+
+  async unlockUser(userid) {
+    try {
+      const query = `
+        UPDATE user_login_security 
+        SET islocked = false, lockeduntil = null, consecutivefailedcount = 0, updatedat = now()
+        WHERE userid = $1
+        RETURNING *
+      `;
+      const result = await this.pgPoolI.Query(query, [userid]);
+      return result.rows[0];
+    } catch (error) {
+      throw new Error("Failed to unlock user");
+    }
+  }
+
+  async logLoginAttempt(
+    userid,
+    ssotype,
+    loginattempt,
+    failurereason = null,
+    ipaddress = null,
+    useragent = null,
+    devicefingerprint = null
+  ) {
+    try {
+      const query = `
+        INSERT INTO user_login_audit (userid, ssotype, loginattempt, failurereason, ipaddress, useragent, devicefingerprint)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING *
+      `;
+      const result = await this.pgPoolI.Query(query, [
+        userid,
+        ssotype,
+        loginattempt,
+        failurereason,
+        ipaddress,
+        useragent,
+        devicefingerprint,
+      ]);
+      return result.rows[0];
+    } catch (error) {
+      throw new Error("Failed to log login attempt");
+    }
+  }
+
+  async getUserLoginAuditHistory(userid, limit = 50) {
+    try {
+      const query = `
+        SELECT auditid, userid, ssotype, loginattempt, failurereason, 
+               ipaddress, useragent, devicefingerprint, createdat
+        FROM user_login_audit 
+        WHERE userid = $1
+        ORDER BY createdat DESC
+        LIMIT $2
+      `;
+      const result = await this.pgPoolI.Query(query, [userid, limit]);
+      return result.rows;
+    } catch (error) {
+      throw new Error("Failed to get user login audit history");
+    }
+  }
+
+  async getFailedLoginsBySSO(ssotype, hoursBack = 24) {
+    try {
+      const query = `
+        SELECT COUNT(*) as failed_count
+        FROM user_login_audit 
+        WHERE ssotype = $1 
+          AND loginattempt = 'FAILURE'
+          AND createdat >= now() - interval '${hoursBack} hours'
+      `;
+      const result = await this.pgPoolI.Query(query, [ssotype]);
+      return result.rows[0].failed_count;
+    } catch (error) {
+      throw new Error("Failed to get failed logins by SSO");
+    }
+  }
+
+  async updateUser(userid, updateFields, updatedby) {
+    try {
+      const currtime = new Date();
+
+      // Build dynamic query based on fields to update
+      const allowedFields = ["displayname", "isenabled"];
+      const fieldsToUpdate = {};
+
+      for (const [key, value] of Object.entries(updateFields)) {
+        if (allowedFields.includes(key)) {
+          fieldsToUpdate[key] = value;
+        }
+      }
+
+      if (Object.keys(fieldsToUpdate).length === 0) {
+        throw new Error("No valid fields provided for update");
+      }
+
+      // Build SET clause dynamically
+      const setClause = Object.keys(fieldsToUpdate)
+        .map((field, index) => `${field} = $${index + 2}`)
+        .join(", ");
+
+      const query = `
+        UPDATE users 
+        SET ${setClause}, updatedat = $${
+        Object.keys(fieldsToUpdate).length + 2
+      }, updatedby = $${Object.keys(fieldsToUpdate).length + 3}
+        WHERE userid = $1 AND isdeleted = false
+        RETURNING userid, displayname, isenabled
+      `;
+
+      const values = [
+        userid,
+        ...Object.values(fieldsToUpdate),
+        currtime,
+        updatedby,
+      ];
+
+      const result = await this.pgPoolI.Query(query, values);
+
+      if (result.rowCount === 0) {
+        throw new Error("User not found or already deleted");
+      }
+
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in updateUser:", error);
+      throw error;
     }
   }
 }

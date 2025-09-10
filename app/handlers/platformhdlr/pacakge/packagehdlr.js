@@ -1,6 +1,9 @@
 import z from "zod";
+import { UUID_PATTERN } from "../../../utils/constant.js";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
 import {
   APIResponseBadRequest,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
 } from "../../../utils/responseutil.js";
@@ -17,14 +20,23 @@ export default class PackageHdlr {
     router.post("/type", this.CreatePackageType);
     router.get("/types", this.GetPackageTypes);
     router.post("/", this.CreatePackage);
-    router.put("/:pkgid", this.UpdatePackage);
+    router.put(`/:pkgid(${UUID_PATTERN})`, this.UpdatePackage);
     router.get("/list", this.ListPackages);
-    router.get("/:pkgid", this.GetPkgInfo);
-    router.put("/:pkgid/modules", this.UpdatePkgModules);
-    router.delete("/:pkgid", this.DeletePackage);
+    router.get(`/:pkgid(${UUID_PATTERN})`, this.GetPkgInfo);
+    router.put(`/:pkgid(${UUID_PATTERN})/modules`, this.UpdatePkgModules);
+    router.delete(`/:pkgid(${UUID_PATTERN})`, this.DeletePackage);
   }
 
   CreatePackageType = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.package.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create package type."
+      );
+    }
     try {
       const createdby = req.userid;
 
@@ -45,8 +57,9 @@ export default class PackageHdlr {
 
       APIResponseOK(req, res, result, "Package type created successfully");
     } catch (e) {
+      this.logger.error("CreatePackageType error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        APIResponseBadRequest(req, res, "INPUT_ERROR", e.errdata, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -60,10 +73,25 @@ export default class PackageHdlr {
   };
 
   GetPackageTypes = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.package.view",
+        "consolemgmt.package.admin",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get package types."
+      );
+    }
     try {
       let result = await this.packageHdlrImpl.GetPackageTypesLogic();
       APIResponseOK(req, res, result, "Package types fetched successfully");
     } catch (e) {
+      this.logger.error("GetPackageTypes error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -75,6 +103,15 @@ export default class PackageHdlr {
   };
 
   CreatePackage = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.package.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create package."
+      );
+    }
     try {
       const createdby = req.userid;
 
@@ -83,7 +120,7 @@ export default class PackageHdlr {
           .string({ message: "Package Name must be a string" })
           .nonempty({ message: "Package Name cannot be empty" })
           .max(128, { message: "Package Name must be at most 128 characters" })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Package Name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -120,8 +157,9 @@ export default class PackageHdlr {
 
       APIResponseOK(req, res, result, "Package created successfully");
     } catch (e) {
+      this.logger.error("CreatePackage error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        APIResponseBadRequest(req, res, "INPUT_ERROR", e.errdata, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -135,10 +173,25 @@ export default class PackageHdlr {
   };
 
   ListPackages = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.package.admin",
+        "consolemgmt.package.view",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to list packages."
+      );
+    }
     try {
       let result = await this.packageHdlrImpl.ListPackagesLogic();
       APIResponseOK(req, res, result, "Packages fetched successfully");
     } catch (e) {
+      this.logger.error("ListPackages error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -150,6 +203,15 @@ export default class PackageHdlr {
   };
 
   UpdatePackage = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.package.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to update package."
+      );
+    }
     try {
       const updatedby = req.userid;
       let pkgid = req.params.pkgid;
@@ -160,8 +222,7 @@ export default class PackageHdlr {
 
         pkgid: z
           .string({ message: "Invalid Package ID format" })
-          .nonempty({ message: "Package ID cannot be empty" })
-          .max(128, { message: "Package ID must not exceed 128 characters" }),
+          .uuid({ message: "Package ID must be a valid UUID" }),
       });
       validateAllInputs(schema, {
         updatedby,
@@ -175,8 +236,15 @@ export default class PackageHdlr {
       );
       APIResponseOK(req, res, result, "Package updated successfully");
     } catch (e) {
+      this.logger.error("UpdatePackage error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else {
         return APIResponseInternalErr(
           req,
@@ -190,14 +258,25 @@ export default class PackageHdlr {
   };
 
   GetPkgInfo = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.package.view",
+        "consolemgmt.package.admin",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get package info."
+      );
+    }
     try {
       let schema = z.object({
         pkgid: z
           .string({ message: "Invalid Package ID format" })
-          .nonempty({ message: "Package ID cannot be empty" })
-          .max(128, {
-            message: "Package ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Package ID must be a valid UUID" }),
       });
       let { pkgid } = validateAllInputs(schema, {
         pkgid: req.params.pkgid,
@@ -205,8 +284,9 @@ export default class PackageHdlr {
       let result = await this.packageHdlrImpl.GetPkgInfoLogic(pkgid);
       APIResponseOK(req, res, result, "Package info fetched successfully");
     } catch (e) {
+      this.logger.error("GetPkgInfo error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        APIResponseBadRequest(req, res, "INPUT_ERROR", e.errdata, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -220,6 +300,15 @@ export default class PackageHdlr {
   };
 
   UpdatePkgModules = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.package.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to update package modules."
+      );
+    }
     try {
       const updatedby = req.userid;
       let pkgid = req.params.pkgid;
@@ -230,8 +319,7 @@ export default class PackageHdlr {
 
         pkgid: z
           .string({ message: "Invalid Package ID format" })
-          .nonempty({ message: "Package ID cannot be empty" })
-          .max(128, { message: "Package ID must not exceed 128 characters" }),
+          .uuid({ message: "Package ID must be a valid UUID" }),
 
         selectedmodules: z
           .array(z.string().nonempty({ message: "Module ID cannot be empty" }))
@@ -260,8 +348,9 @@ export default class PackageHdlr {
       );
       APIResponseOK(req, res, result, "Package modules updated successfully");
     } catch (e) {
+      this.logger.error("UpdatePkgModules error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        APIResponseBadRequest(req, res, "INPUT_ERROR", e.errdata, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -275,6 +364,15 @@ export default class PackageHdlr {
   };
 
   DeletePackage = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.package.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to delete package."
+      );
+    }
     try {
       const schema = z.object({
         pkgid: z
@@ -298,8 +396,15 @@ export default class PackageHdlr {
 
       APIResponseOK(req, res, result, "Package deleted successfully");
     } catch (e) {
+      this.logger.error("DeletePackage error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else if (
         e.errcode === "PACKAGE_IN_USE" ||
         e.errcode === "PACKAGE_HAS_MODULES" ||

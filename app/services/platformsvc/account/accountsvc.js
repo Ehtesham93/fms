@@ -31,6 +31,14 @@ export default class AccountSvc {
     return await this.accountSvcDB.deleteAccount(accountid, deletedby);
   }
 
+  async GetAccountVehicleCount(accountid) {
+    return await this.accountSvcDB.getAccountVehicleCount(accountid);
+  }
+
+  async GetAccountInfo(accountid) {
+    return await this.accountSvcDB.getAccountInfo(accountid);
+  }
+
   async AddAdminToAccRootFleet(accountid, contact, updatedby) {
     return await this.accountSvcDB.addAdminToAccRootFleet(
       accountid,
@@ -253,20 +261,8 @@ export default class AccountSvc {
     );
   }
 
-  async GetAccountCredits(accountid) {
-    return await this.accountSvcDB.getAccountCredits(accountid);
-  }
-
-  async UpdateAccountCredits(accountid, credits, updatedby) {
-    return await this.accountSvcDB.updateAccountCredits(
-      accountid,
-      credits,
-      updatedby
-    );
-  }
-
-  async GetAccountCreditsHistory(accountid) {
-    return await this.accountSvcDB.getAccountCreditsHistory(accountid);
+  async IsVehicleInAccount(accountid, vinno) {
+    return await this.accountSvcDB.isVehicleInAccount(accountid, vinno);
   }
 
   async GetAccountVehicles(accountid) {
@@ -404,5 +400,41 @@ export default class AccountSvc {
 
   async GetAssignableVehicles(accountid) {
     return await this.accountSvcDB.getAssignableVehicles(accountid);
+  }
+
+  async GetVehicleFleetInfo(vinno) {
+    return await this.accountSvcDB.getVehicleFleetInfo(vinno);
+  }
+
+  async ListPendingAccounts() {
+    return await this.accountSvcDB.listPendingAccounts();
+  }
+
+  async ListDoneAccounts() {
+    return await this.accountSvcDB.listDoneAccounts();
+  }
+
+  async AddReviewDoneAccount(accountData) {
+    return await this.accountSvcDB.addReviewDoneAccount(accountData);
+  }
+
+  async AddReviewPendingAccount(accountData) {
+    return await this.accountSvcDB.addReviewPendingAccount(accountData);
+  }
+
+  async GetPendingAccountReviewById(accountid) {
+    return await this.accountSvcDB.getPendingAccountReviewById(accountid);
+  }
+
+  async DeletePendingAccountReviewById(accountid) {
+    return await this.accountSvcDB.deletePendingAccountReviewById(accountid);
+  }
+
+  async UpdateReviewPendingAccount(accountid, updateFields, updatedby) {
+    return await this.accountSvcDB.updateReviewPendingAccount(
+      accountid,
+      updateFields,
+      updatedby
+    );
   }
 }

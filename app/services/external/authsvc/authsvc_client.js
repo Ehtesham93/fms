@@ -6,11 +6,10 @@ export default class AuthSvcClient {
     this.logger = logger;
   }
 
-  async createConsumer(userid, createdby) {
+  async createConsumer(userid) {
     let url = `${this.config.authsvc.url}${this.config.authsvc.createConsumerPath}`;
     let body = {
       userid: userid,
-      referrer: createdby,
     };
     try {
       let res = await axios.put(url, body);

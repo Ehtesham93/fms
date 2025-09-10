@@ -19,32 +19,14 @@ export async function updateInviteExpiryAndSendEmail(
   txclient
 ) {
   let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
-  info.expiresat = expiresat;
 
+  // Update expiry in fleet_invite_pending (primary source of truth now)
   let query = `
-      UPDATE fleet_invite_pending SET info = $1 WHERE accountid = $2 AND fleetid = $3 AND inviteid = $4
+      UPDATE fleet_invite_pending SET expiresat = $1, updatedat = $2 WHERE inviteid = $3
     `;
-  let result = await txclient.query(query, [
-    info,
-    accountid,
-    fleetid,
-    inviteid,
-  ]);
+  let result = await txclient.query(query, [expiresat, currtime, inviteid]);
   if (result.rowCount !== 1) {
-    throw new Error("Failed to update expiry for invite info");
-  }
-
-  query = `
-      UPDATE fleet_invite_email SET expiresat = $1 WHERE accountid = $2 AND fleetid = $3 AND inviteid = $4
-    `;
-  result = await txclient.query(query, [
-    expiresat,
-    accountid,
-    fleetid,
-    inviteid,
-  ]);
-  if (result.rowCount !== 1) {
-    throw new Error("Failed to update expiry for invite email");
+    throw new Error("Failed to update expiry for invite pending");
   }
 
   query = `
@@ -95,15 +77,9 @@ export async function markInviteAsExpired(
   txclient
 ) {
   let query = `
-      UPDATE fleet_invite_pending SET invitestatus = $1, updatedat = $2 WHERE accountid = $3 AND fleetid = $4 AND inviteid = $5
+      UPDATE fleet_invite_pending SET invitestatus = $1, updatedat = $2 WHERE inviteid = $3
     `;
-  let result = await txclient.query(query, [
-    expiredstatus,
-    currtime,
-    accountid,
-    fleetid,
-    inviteid,
-  ]);
+  let result = await txclient.query(query, [expiredstatus, currtime, inviteid]);
   if (result.rowCount !== 1) {
     throw new Error("Failed to mark invite as expired");
   }

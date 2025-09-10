@@ -1,12 +1,31 @@
 import { EncryptPassword } from "../../../utils/eccutil.js";
 import { v4 as uuidv4 } from "uuid";
+import config from "../../../config/config.js";
+import axios from "axios";
+
+const PLATFORM_ROLE_TYPE = "platform";
+const ACCOUNT_ROLE_TYPE = "account";
+const CUSTOMER_TYPE_INDIVIDUAL = "Individual";
+const CUSTOMER_TYPE_CORPORATE = "Corporate";
 
 export default class PUserHdlrImpl {
-  constructor(pUserSvcI, userSvcI, fmsAccountSvcI, authSvcI, logger) {
+  constructor(
+    pUserSvcI,
+    userSvcI,
+    accountSvcI,
+    fmsAccountSvcI,
+    authSvcI,
+    platformSvcI,
+    accountHdlr,
+    logger
+  ) {
     this.pUserSvcI = pUserSvcI;
     this.userSvcI = userSvcI;
+    this.accountSvcI = accountSvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.authSvcI = authSvcI;
+    this.platformSvcI = platformSvcI;
+    this.accountHdlr = accountHdlr;
     this.logger = logger;
   }
 
@@ -166,7 +185,7 @@ export default class PUserHdlrImpl {
     }
 
     let platformRoles = userRoles.filter(
-      (role) => role.roletype === "platform"
+      (role) => role.roletype === PLATFORM_ROLE_TYPE
     );
     platformRoles = platformRoles.map((role) => {
       return {
@@ -176,7 +195,9 @@ export default class PUserHdlrImpl {
       };
     });
 
-    let accountRoles = userRoles.filter((role) => role.roletype === "account");
+    let accountRoles = userRoles.filter(
+      (role) => role.roletype === ACCOUNT_ROLE_TYPE
+    );
     accountRoles = accountRoles.map((role) => {
       return {
         accountid: role.accountid,
@@ -224,7 +245,7 @@ export default class PUserHdlrImpl {
     return accounts;
   };
 
-  ListUnassignedUserRolesLogic = async (userid, roletype) => {
+  ListAssignableUserRolesLogic = async (userid) => {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     let allRoles = await this.pUserSvcI.GetAllRoles(accountid);
     if (!allRoles) {
@@ -237,7 +258,7 @@ export default class PUserHdlrImpl {
     }
 
     let assignedRolesOfRoleType = userRoles.filter(
-      (role) => role.roletype === roletype
+      (role) => role.roletype === PLATFORM_ROLE_TYPE
     );
     let assignedRoles = assignedRolesOfRoleType.map((role) => role.roleid);
 
@@ -246,7 +267,7 @@ export default class PUserHdlrImpl {
         roleid: role.roleid,
         rolename: role.rolename,
         roletype: role.roletype,
-        isAssigned: assignedRoles.includes(role.roleid),
+        isassigned: assignedRoles.includes(role.roleid),
       };
     });
 
@@ -263,6 +284,15 @@ export default class PUserHdlrImpl {
   };
 
   RemoveUserPlatformRoleLogic = async (userid, roleid, updatedby) => {
+    if (
+      roleid === "ffffffff-ffff-ffff-ffff-ffffffffffff" &&
+      updatedby === userid
+    ) {
+      throw {
+        errcode: "CANNOT_REMOVE_SUPER_ADMIN_ROLE",
+        message: "Cannot remove super admin role",
+      };
+    }
     let res = await this.pUserSvcI.RemoveUserPlatformRole(userid, roleid);
     if (!res) {
       this.logger.error("Failed to remove user platform role");
@@ -271,7 +301,7 @@ export default class PUserHdlrImpl {
     return this.GetUserLogic(userid);
   };
 
-  CreateSuperAdminLogic = async (seededUserId, email, password) => {
+  CreateSuperAdminLogic = async (createdby, email, password) => {
     let userid = await this.userSvcI.GetUserIdByEmail(email);
     if (userid) {
       this.logger.error("Superadmin already exists");
@@ -282,13 +312,13 @@ export default class PUserHdlrImpl {
 
     let encryptedPassword = await EncryptPassword(password);
     let res = await this.userSvcI.CreateSuperAdmin(
+      createdby,
       userid,
       email,
       encryptedPassword
     );
 
-    // TODO: this should be called first. after we split create consumer api
-    res = await this.authSvcI.CreateConsumer(userid, seededUserId);
+    res = await this.authSvcI.CreateConsumer(userid);
 
     return res;
   };
@@ -373,7 +403,7 @@ export default class PUserHdlrImpl {
 
       // Register user with auth service
       try {
-        let authres = await this.authSvcI.CreateConsumer(res.userid, createdby);
+        let authres = await this.authSvcI.CreateConsumer(res.userid);
 
         if (authres === undefined || authres === null || !authres) {
           this.logger.error("Failed to create user in auth service");
@@ -512,4 +542,1745 @@ export default class PUserHdlrImpl {
         "Password reset successfully and user logged out from all devices",
     };
   };
+
+  GetMyConsolePermissionsLogic = async (userid) => {
+    try {
+      let consolePerms = await this.userSvcI.GetConsolePerms(userid);
+
+      if (!consolePerms || consolePerms.length === 0) {
+        return {
+          userid: userid,
+          permissions: [],
+        };
+      }
+
+      return {
+        userid: userid,
+        permissions: consolePerms,
+      };
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  ListPendingUsersLogic = async () => {
+    let users = await this.pUserSvcI.ListPendingUsers();
+    if (!users) {
+      users = [];
+    }
+    return users;
+  };
+
+  ListDoneUsersLogic = async () => {
+    let users = await this.pUserSvcI.ListDoneUsers();
+    if (!users) {
+      users = [];
+    }
+    return users;
+  };
+
+  GetMetadataOptionsLogic = async () => {
+    try {
+      let possibleValues = await this.pUserSvcI.GetMetadataOptions();
+
+      if (!possibleValues) {
+        possibleValues = [];
+      }
+
+      return possibleValues;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  preprocessingmobile = (mobile) => {
+    return mobile
+      .replace(/[^0-9]/g, "") // Keep only digits
+      .trim(); // Trim whitespaces
+  };
+
+  preprocessingname = (name) => {
+    return name
+      .toUpperCase() // Convert to uppercase
+      .replace(/[^A-Z0-9\s]/g, " ") // Replace anything other than alphabets, numbers, and spaces with space
+      .replace(/\s+/g, " ") // Replace multiple whitespaces with single space
+      .trim(); // Trim leading and trailing whitespaces
+  };
+
+  AddAccountToReviewPending = async (
+    taskid,
+    accountname,
+    original_input,
+    error_status,
+    userid,
+    reason,
+    status = "REVIEWED_PENDING"
+  ) => {
+    try {
+      await this.accountSvcI.AddReviewPendingAccount({
+        accountid: taskid,
+        accountname: accountname,
+        accounttype: "customer",
+        accountinfo: {},
+        isenabled: false, // Disabled until reviewed
+        isdeleted: false,
+        original_input: original_input,
+        error_status: error_status,
+        status: status,
+        reason: reason,
+        review_data: {
+          accountname: accountname,
+        },
+        createdby: userid,
+        updatedby: userid,
+      });
+    } catch (error) {
+      this.logger.error("Failed to add account to review pending table", error);
+      // Don't throw error here as the main flow should continue
+    }
+  };
+
+  AddAccountToReviewDone = async (
+    taskid,
+    accountname,
+    account,
+    original_input,
+    userid,
+    reason,
+    review_data = {},
+    status = "REVIEWED_SUCCESS"
+  ) => {
+    try {
+      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
+        taskid
+      );
+      if (pendingaccount) {
+        review_data = {
+          accountname: pendingaccount.accountname,
+          accounttype: pendingaccount.accounttype || "customer",
+          accountinfo: pendingaccount.accountinfo || {},
+          isenabled: pendingaccount.isenabled,
+          isdeleted: pendingaccount.isdeleted || false,
+          original_input: pendingaccount.original_input,
+          error_status: pendingaccount.error_status,
+          status: pendingaccount.status,
+          reason: pendingaccount.reason,
+          review_data: pendingaccount.review_data || {},
+          createdat: pendingaccount.createdat,
+          createdby: pendingaccount.createdby,
+          updatedat: pendingaccount.updatedat,
+          updatedby: pendingaccount.updatedby,
+        };
+      }
+      await this.accountSvcI.AddReviewDoneAccount({
+        accountid: taskid,
+        accountname: accountname,
+        accounttype: account.accounttype || "customer",
+        accountinfo: account.accountinfo || {},
+        isenabled: account.isenabled || true,
+        isdeleted: account.isdeleted || false,
+        original_input: original_input || {},
+        original_status: status,
+        resolution_reason: reason,
+        review_data: review_data,
+        reviewed_by: userid,
+        createdby: userid,
+        updatedby: userid,
+      });
+      const deletependingaccount =
+        await this.accountSvcI.DeletePendingAccountReviewById(taskid);
+    } catch (error) {
+      this.logger.error("Failed to add account to review done table", error);
+      // Don't throw error here as the main flow should continue
+    }
+  };
+
+  AddUserToReviewDone = async (
+    taskid,
+    user,
+    createdby,
+    original_input = {},
+    review_data = {}
+  ) => {
+    try {
+      const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(taskid);
+      if (pendinguser) {
+        review_data = {
+          displayname: pendinguser.displayname,
+          usertype: pendinguser.usertype,
+          mobile: pendinguser.mobile,
+          email: pendinguser.email,
+          address: pendinguser.address,
+          city: pendinguser.city,
+          country: pendinguser.country,
+          pincode: pendinguser.pincode,
+          dateofbirth: pendinguser.dateofbirth,
+          gender: pendinguser.gender,
+          vehiclemobile: pendinguser.vehiclemobile,
+          userinfo: pendinguser.userinfo,
+          isenabled: pendinguser.isenabled,
+          isdeleted: pendinguser.isdeleted,
+          isemailverified: pendinguser.isemailverified,
+          ismobileverified: pendinguser.ismobileverified,
+          acceptedterms: pendinguser.acceptedterms,
+          original_input: pendinguser.original_input,
+          error_status: pendinguser.error_status,
+          status: pendinguser.status,
+          reason: pendinguser.reason,
+          review_data: pendinguser.review_data || {},
+          createdat: pendinguser.createdat,
+          createdby: pendinguser.createdby,
+          updatedat: pendinguser.updatedat,
+          updatedby: pendinguser.updatedby,
+        };
+      }
+      await this.pUserSvcI.AddReviewDoneUser({
+        userid: taskid,
+        displayname: user.displayname,
+        usertype: user.usertype,
+        mobile: original_input.nemo_user_mobile,
+        email: original_input.customercontactemail,
+        address: original_input.customeraddress,
+        city: original_input.customeraddresscity,
+        country: original_input.customeraddresscountry,
+        pincode: original_input.customeraddresspincode,
+        dateofbirth: original_input.customerdateofbirth,
+        gender: original_input.customergender,
+        vehiclemobile: original_input.customercontactmobile,
+        userinfo: user.userinfo,
+        isenabled: user.isenabled !== undefined ? user.isenabled : true, // Default to true
+        isdeleted: user.isdeleted !== undefined ? user.isdeleted : false, // Default to false
+        isemailverified:
+          user.isemailverified !== undefined ? user.isemailverified : false, // Default to false
+        ismobileverified:
+          user.ismobileverified !== undefined ? user.ismobileverified : false, // Default to false
+        acceptedterms: user.acceptedterms,
+        original_input: original_input,
+        original_status: "USER_CREATION_SUCCESS",
+        resolution_reason: "User onboarded successfully",
+        review_data: review_data,
+        reviewed_by: createdby,
+        createdby: createdby,
+        updatedby: createdby,
+      });
+      const deletependinguser =
+        await this.pUserSvcI.DeletePendingUserReviewById(taskid);
+    } catch (error) {
+      this.logger.error("Failed to add user to review done table", error);
+      // Don't throw error here as the main flow should continue
+    }
+  };
+
+  AddUserToReviewPending = async (
+    taskid,
+    user,
+    createdby,
+    reason,
+    usertype,
+    original_input = {},
+    review_data = {},
+    error_status = "USER_CREATION"
+  ) => {
+    try {
+      await this.pUserSvcI.AddReviewPendingUser({
+        userid: taskid,
+        displayname: user.displayname,
+        usertype: usertype,
+        mobile: original_input.nemo_user_mobile,
+        email: original_input.customercontactemail,
+        address: original_input.customeraddress,
+        city: original_input.customeraddresscity,
+        country: original_input.customeraddresscountry,
+        pincode: original_input.customeraddresspincode,
+        dateofbirth: original_input.customerdateofbirth,
+        gender: original_input.customergender,
+        vehiclemobile: original_input.customercontactmobile,
+        userinfo: user.userinfo,
+        isenabled: user.isenabled,
+        isdeleted: user.isdeleted,
+        isemailverified: user.isemailverified,
+        ismobileverified: user.ismobileverified,
+        acceptedterms: user.acceptedterms,
+        original_input: original_input,
+        error_status: error_status,
+        status: "USER_CREATION_PENDING",
+        reason: reason,
+        review_data: review_data,
+        createdby: createdby,
+        updatedby: createdby,
+      });
+    } catch (error) {
+      this.logger.error("Failed to add user to review pending table", error);
+      // Don't throw error here as the main flow should continue
+    }
+  };
+
+  AddUserInfo = async (
+    userid,
+    customeraddress,
+    customeraddresscity,
+    customeraddresscountry,
+    customeraddresspincode,
+    customerdateofbirth,
+    customergender,
+    createdby
+  ) => {
+    const adduserinfo = await this.pUserSvcI.AddUserInfo(
+      userid,
+      {
+        address: customeraddress,
+        addresscity: customeraddresscity,
+        addresscountry: customeraddresscountry,
+        addresspincode: customeraddresspincode,
+        dateofbirth: customerdateofbirth,
+        gender: customergender,
+      },
+      createdby
+    );
+    if (!adduserinfo) {
+      this.logger.error("Failed to add user info");
+      throw new Error("Failed to add user info");
+    }
+  };
+
+  TaskCreateAccount = async (taskid, accountname, userid, original_input) => {
+    try {
+      const accountRes =
+        await this.accountHdlr.accountHdlrImpl.CreateAccountLogic(
+          accountname,
+          {},
+          true,
+          userid
+        );
+      if (!accountRes) {
+        // Add account to review pending table
+        const pendingaccount =
+          await this.accountSvcI.GetPendingAccountReviewById(taskid);
+        if (pendingaccount) {
+          await this.accountSvcI.UpdateReviewPendingAccount(
+            pendingaccount.accountid,
+            {
+              accountname: accountname,
+              review_data: { accountname: accountname },
+              error_status: "ACCOUNT_CREATION",
+              status: "PENDING_ACCOUNT_CREATION",
+              reason:
+                "Account creation failed. Account creation pending manual review.",
+              original_input: original_input,
+            },
+            userid
+          );
+        } else {
+          await this.AddAccountToReviewPending(
+            taskid,
+            accountname,
+            original_input,
+            "ACCOUNT_CREATION",
+            userid,
+            `Account creation failed. Account creation pending manual review.`,
+            "PENDING_ACCOUNT_CREATION"
+          );
+        }
+        return {
+          errcode: "ACCOUNT_CREATION_FAILED",
+          status: "PENDING_ACCOUNT_CREATION",
+          message:
+            "Account creation failed. Account creation pending manual review.",
+        };
+      }
+      await this.AddAccountToReviewDone(
+        taskid,
+        accountname,
+        accountRes,
+        original_input,
+        userid,
+        "Account created successfully",
+        {},
+        "ACCOUNT_CREATION_SUCCESS"
+      );
+      return accountRes;
+    } catch (error) {
+      this.logger.error("Failed to create account task", error);
+      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
+        taskid
+      );
+      if (pendingaccount) {
+        await this.accountSvcI.UpdateReviewPendingAccount(
+          pendingaccount.accountid,
+          {
+            accountname: accountname,
+            review_data: { accountname: accountname },
+            error_status: "ACCOUNT_CREATION",
+            status: "PENDING_ACCOUNT_CREATION",
+            reason:
+              "Account creation failed. Account creation pending manual review.",
+            original_input: original_input,
+          },
+          userid
+        );
+      } else {
+        await this.AddAccountToReviewPending(
+          taskid,
+          accountname,
+          original_input,
+          "ACCOUNT_CREATION",
+          userid,
+          `Account creation failed. Account creation pending manual review.`,
+          "PENDING_ACCOUNT_CREATION"
+        );
+      }
+      return {
+        errcode: "ACCOUNT_CREATION_FAILED",
+        status: "PENDING_ACCOUNT_CREATION",
+        message: `Account creation failed: ${error.message}`,
+      };
+    }
+  };
+
+  TaskCreateUser = async (
+    taskid,
+    usertype,
+    userid,
+    original_input,
+    usermobile,
+    username,
+    useremail,
+    review_data,
+    accountid
+  ) => {
+    try {
+      const user = await this.CreateUserByPlatformAdminLogic(
+        usertype,
+        true,
+        usertype === "mobile" ? usermobile : useremail,
+        username,
+        { email: useremail, mobile: usermobile },
+        userid
+      );
+      if (!user) {
+        const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(
+          taskid
+        );
+        if (pendinguser) {
+          await this.pUserSvcI.UpdateReviewPendingUser(
+            pendinguser.userid,
+            {
+              displayname: username,
+              userinfo: { mobile: usermobile, email: useremail },
+              review_data: review_data,
+              error_status: "USER_CREATION",
+              reason:
+                "User creation failed. User onboarding pending manual review.",
+              original_input: original_input,
+            },
+            userid
+          );
+        } else {
+          await this.AddUserToReviewPending(
+            taskid,
+            {
+              displayname: username,
+              userinfo: { mobile: usermobile, email: useremail },
+              isenabled: true,
+              isdeleted: false,
+              isemailverified: false,
+              ismobileverified: false,
+              acceptedterms: {},
+            },
+            userid,
+            `User creation failed. User onboarding pending manual review.`,
+            usertype,
+            original_input,
+            review_data,
+            "USER_CREATION"
+          );
+        }
+        return {
+          accountid: accountid,
+          errcode: "USER_CREATION_FAILED",
+          status: "PENDING_USER_CREATION",
+          message:
+            "Account created successfully. User creation failed. User onboarding pending manual review.",
+        };
+      }
+      return user;
+    } catch (error) {
+      this.logger.error("Failed to create user task", error);
+      const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(taskid);
+      if (pendinguser) {
+        await this.pUserSvcI.UpdateReviewPendingUser(
+          pendinguser.userid,
+          {
+            displayname: username,
+            userinfo: { mobile: usermobile, email: useremail },
+            review_data: review_data,
+            error_status: "USER_CREATION",
+            reason:
+              "User creation failed. User onboarding pending manual review.",
+            original_input: original_input,
+          },
+          userid
+        );
+      } else {
+        await this.AddUserToReviewPending(
+          taskid,
+          {
+            displayname: username,
+            userinfo: { mobile: usermobile, email: useremail },
+            isenabled: true,
+            isdeleted: false,
+            isemailverified: false,
+            ismobileverified: false,
+            acceptedterms: {},
+          },
+          userid,
+          `User creation failed. User onboarding pending manual review.`,
+          usertype,
+          original_input,
+          review_data,
+          "USER_CREATION"
+        );
+      }
+      return {
+        accountid: accountid,
+        errcode: "USER_CREATION_FAILED",
+        status: "PENDING_USER_CREATION",
+        message: `Account created successfully. User creation failed: ${error.message}`,
+      };
+    }
+  };
+
+  async handleUserInfoUpdate(
+    userid,
+    userinfotabledata,
+    customeraddress,
+    customeraddresscity,
+    customeraddresscountry,
+    customeraddresspincode,
+    customerdateofbirth,
+    customergender,
+    createdby
+  ) {
+    if (userinfotabledata) {
+      const userinfotableupdatefields = {};
+      if (userinfotabledata.address !== customeraddress) {
+        userinfotableupdatefields.address = customeraddress;
+      }
+      if (userinfotabledata.addresscity !== customeraddresscity) {
+        userinfotableupdatefields.addresscity = customeraddresscity;
+      }
+      if (userinfotabledata.addresscountry !== customeraddresscountry) {
+        userinfotableupdatefields.addresscountry = customeraddresscountry;
+      }
+      if (userinfotabledata.addresspincode !== customeraddresspincode) {
+        userinfotableupdatefields.addresspincode = customeraddresspincode;
+      }
+      if (userinfotabledata.dateofbirth !== customerdateofbirth) {
+        userinfotableupdatefields.dateofbirth = customerdateofbirth;
+      }
+      if (userinfotabledata.gender !== customergender) {
+        userinfotableupdatefields.gender = customergender;
+      }
+      if (Object.keys(userinfotableupdatefields).length > 0) {
+        const updateuserinfo = await this.pUserSvcI.UpdateUserInfo(
+          userid,
+          userinfotableupdatefields,
+          createdby
+        );
+        if (!updateuserinfo) {
+          // Do nothing
+        }
+      }
+    } else {
+      const userinfotablecreatefields = {};
+      if (customeraddress) {
+        userinfotablecreatefields.address = customeraddress;
+      }
+      if (customeraddresscity) {
+        userinfotablecreatefields.addresscity = customeraddresscity;
+      }
+      if (customeraddresscountry) {
+        userinfotablecreatefields.addresscountry = customeraddresscountry;
+      }
+      if (customeraddresspincode) {
+        userinfotablecreatefields.addresspincode = customeraddresspincode;
+      }
+      if (customerdateofbirth) {
+        userinfotablecreatefields.dateofbirth = customerdateofbirth;
+      }
+      if (customergender) {
+        userinfotablecreatefields.gender = customergender;
+      }
+      if (Object.keys(userinfotablecreatefields).length > 0) {
+        const createuserinfo = await this.pUserSvcI.AddUserInfo(
+          userid,
+          userinfotablecreatefields,
+          createdby
+        );
+        if (!createuserinfo) {
+          // Do nothing
+        }
+      }
+    }
+  }
+
+  async handleUserAdditionToAccount(
+    userid,
+    contact,
+    accountid,
+    taskid,
+    accountname,
+    original_input,
+    createduserid
+  ) {
+    const existingcontact = await this.userSvcI.CheckMobileExists(contact);
+
+    const isUserAddedToAccount = await this.pUserSvcI.checkIsUserAddedToAccount(existingcontact, accountid);
+    if (isUserAddedToAccount) {
+      return null;
+    }
+    const adduser = await this.AddUserToAccountLogic(
+      userid,
+      contact,
+      accountid
+    );
+    if (!adduser) {
+      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
+        taskid
+      );
+      if (pendingaccount) {
+        await this.accountSvcI.UpdateReviewPendingAccount(
+          pendingaccount.accountid,
+          {
+            error_status: "USER_ASSIGNMENT",
+            status: "PENDING_USER_ASSIGNMENT",
+            reason:
+              "User assignment failed. User already exists in another account pending manual review.",
+            original_input: original_input,
+          },
+          userid
+        );
+        return {
+          userid: createduserid,
+          accountid: accountid,
+          errcode: "USER_ASSIGNMENT_FAILED",
+          status: "PENDING_USER_ASSIGNMENT",
+          message:
+            "Account and user created successfully. User assignment failed. User already exists in another account pending manual review.",
+        };
+      } else {
+        await this.AddAccountToReviewPending(
+          taskid,
+          accountname,
+          original_input,
+          "USER_ASSIGNMENT",
+          userid,
+          `User assignment failed. User assignment pending manual review.`,
+          "PENDING_USER_ASSIGNMENT"
+        );
+      }
+      return {
+        userid: createduserid,
+        accountid: accountid,
+        errcode: "USER_ASSIGNMENT_FAILED",
+        status: "PENDING_USER_ASSIGNMENT",
+        message: "Account and user created successfully. User assignment failed. User assignment pending manual review.",
+      };
+    }
+    return null; // Success
+  }
+
+  async handleServiceOnboarding(
+    vin,
+    vehiclemobile,
+    accountname,
+    taskid,
+    original_input,
+    userid,
+    createduserid,
+    accountid
+  ) {
+    try {
+    const payloaddata = {
+      vinno: vin,
+      mobileno: vehiclemobile,
+    }
+    const url = `${config.serviceConfig.url}${config.serviceConfig.onboardingPath}`;
+    const response = await axios.post(url, payloaddata, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    if (response.status !== 200) {
+      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(taskid);
+      if (pendingaccount) {
+        await this.accountSvcI.UpdateReviewPendingAccount(
+          pendingaccount.accountid,
+          {
+            accountname: accountname,
+            error_status: "SERVICE_ONBOARDING",
+            status: "PENDING_SERVICE_ONBOARDING",
+            reason:
+              "Service onboarding failed. Service onboarding pending manual review.",
+            original_input: original_input,
+          },
+          userid
+        );
+      } else {
+        await this.AddAccountToReviewPending(
+          taskid,
+          accountname,
+          original_input,
+          "SERVICE_ONBOARDING",
+          userid,
+          `Service onboarding failed. Service onboarding pending manual review.`,
+          "PENDING_SERVICE_ONBOARDING"
+        );
+      }
+      return {
+        userid: createduserid,
+        accountid: accountid,
+        errcode: "SERVICE_ONBOARDING_FAILED",
+        status: "PENDING_SERVICE_ONBOARDING",
+        message:
+          "Service onboarding failed. Service onboarding pending manual review.",
+      };
+    }
+    return null; // Success
+    } catch (error) {
+      return {
+        userid: createduserid,
+        accountid: accountid,
+        errcode: "SERVICE_ONBOARDING_FAILED",
+        status: "PENDING_SERVICE_ONBOARDING",
+        message:
+          `Service onboarding failed: ${error.response.data.msg}. Service onboarding pending manual review.`,
+      };
+    }
+  }
+
+  // Helper function to handle vehicle addition
+  async handleVehicleAddition(
+    accountid,
+    vin,
+    licenseplate,
+    vehiclemobile,
+    userid,
+    taskid,
+    accountname,
+    original_input,
+    createduserid
+  ) {
+    let vehicleExists = await this.platformSvcI.CheckVehicleExists(vin);
+    if (vehicleExists) {
+      const isVehicleAddedToAccount = await this.pUserSvcI.checkIsVehicleAddedToAccount(vin);
+      if (isVehicleAddedToAccount) {
+        const vehicleResult = await this.handleServiceOnboarding(
+          vin,
+          vehiclemobile,
+          accountname,
+          taskid,
+          original_input,
+          userid,
+          createduserid,
+          accountid
+        );
+        if (vehicleResult) return vehicleResult;
+        return null;
+      }
+      const addvehicle =
+        await this.accountHdlr.accountHdlrImpl.AddVehicleToAccountLogic(
+          accountid,
+          {
+            vinno: vin,
+            regno: licenseplate,
+            isowner: true,
+            accvininfo: {},
+          },
+          userid
+        );
+      if (!addvehicle) {
+        const pendingaccount =
+          await this.accountSvcI.GetPendingAccountReviewById(taskid);
+        if (pendingaccount) {
+          await this.accountSvcI.UpdateReviewPendingAccount(
+            pendingaccount.accountid,
+            {
+              accountname: accountname,
+              error_status: "VEHICLE_ASSIGNMENT",
+              status: "PENDING_VEHICLE_ASSIGNMENT",
+              reason:
+                "Vehicle addition failed. Vehicle already exists in another account pending manual review.",
+              original_input: original_input,
+            },
+            userid
+          );
+        } else {
+          await this.AddAccountToReviewPending(
+            taskid,
+            accountname,
+            original_input,
+            "VEHICLE_ASSIGNMENT",
+            userid,
+            `Vehicle addition failed. Vehicle already exists in another account pending manual review.`,
+            "PENDING_VEHICLE_ASSIGNMENT"
+          );
+        }
+        return {
+          userid: createduserid,
+          accountid: accountid,
+          errcode: "VEHICLE_ASSIGNMENT_FAILED",
+          status: "PENDING_VEHICLE_ASSIGNMENT",
+          message:
+            "Account and vehicle created successfully. Vehicle addition failed. Vehicle already exists in another account pending manual review.",
+        };
+      }
+      // Update vehicle mobile
+      const updatevehicle = await this.platformSvcI.UpdateVehicleMobile(
+        vin,
+        vehiclemobile
+      );
+      if (!updatevehicle) {
+        // Do nothing
+      }
+      const serviceResult = await this.handleServiceOnboarding(
+        vin,
+        vehiclemobile,
+        accountname,
+        taskid,
+        original_input,
+        userid,
+        createduserid,
+        accountid
+      );
+      if (serviceResult) return serviceResult;
+      
+      return null; // Success
+    } else {
+      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
+        taskid
+      );
+      if (pendingaccount) {
+        await this.accountSvcI.UpdateReviewPendingAccount(
+          pendingaccount.accountid,
+          {
+            accountname: accountname,
+            error_status: "VEHICLE_ASSIGNMENT",
+            status: "PENDING_VEHICLE_ASSIGNMENT",
+            reason:
+              "Vehicle assignment failed. Vehicle not found pending manual review.",
+            original_input: original_input,
+          },
+          userid
+        );
+      } else {
+        await this.AddAccountToReviewPending(
+          taskid,
+          accountname,
+          original_input,
+          "VEHICLE_ASSIGNMENT",
+          userid,
+          `Vehicle assignment failed. Vehicle not found pending manual review.`,
+          "PENDING_VEHICLE_ASSIGNMENT"
+        );
+      }
+      return {
+        userid: createduserid,
+        accountid: accountid,
+        errcode: "VEHICLE_ASSIGNMENT_FAILED",
+        status: "PENDING_VEHICLE_ASSIGNMENT",
+        message:
+          "Account and vehicle created successfully. Vehicle assignment failed. Vehicle not found pending manual review.",
+      };
+    }
+  }
+
+  async handleIndividualCustomerOnboarding(
+    taskid,
+    accountname,
+    userid,
+    original_input,
+    existingmobile,
+    usermobile,
+    processedcustomername,
+    customercontactemail,
+    customeraddress,
+    customeraddresscity,
+    customeraddresscountry,
+    customeraddresspincode,
+    customerdateofbirth,
+    customergender,
+    vehiclemobile,
+    vin,
+    licenseplate
+  ) {
+    const accountRes = await this.TaskCreateAccount(
+      taskid,
+      accountname,
+      userid,
+      original_input
+    );
+    const accountid = accountRes.accountid;
+    const account = accountRes.account;
+
+    // Create user
+    let user = null;
+    if (existingmobile === null) {
+      user = await this.TaskCreateUser(
+        taskid,
+        "mobile",
+        userid,
+        original_input,
+        usermobile,
+        processedcustomername,
+        customercontactemail,
+        {
+          address: customeraddress,
+          city: customeraddresscity,
+          country: customeraddresscountry,
+          pincode: customeraddresspincode,
+          email: customercontactemail,
+          vehiclemobile: vehiclemobile,
+          dateofbirth: customerdateofbirth,
+          gender: customergender,
+          displayname: processedcustomername,
+          mobile: usermobile,
+        },
+        accountid
+      );
+      // Add user info
+      if (user) {
+        await this.AddUserInfo(
+          user.userid,
+          customeraddress,
+          customeraddresscity,
+          customeraddresscountry,
+          customeraddresspincode,
+          customerdateofbirth,
+          customergender,
+          userid
+        );
+        await this.AddUserToReviewDone(
+          taskid,
+          user,
+          userid,
+          original_input,
+          {}
+        );
+      }
+    } else {
+      user = await this.userSvcI.GetUserDetails(existingmobile);
+      const userinfotabledata = await this.pUserSvcI.GetUserInfo(user.userid);
+      await this.handleUserInfoUpdate(
+        user.userid,
+        userinfotabledata,
+        customeraddress,
+        customeraddresscity,
+        customeraddresscountry,
+        customeraddresspincode,
+        customerdateofbirth,
+        customergender,
+        userid
+      );
+    }
+
+    // Add user to account
+    const userAdditionResult = await this.handleUserAdditionToAccount(
+      userid,
+      usermobile,
+      accountid,
+      taskid,
+      accountname,
+      original_input,
+      user.userid
+    );
+    if (userAdditionResult) return userAdditionResult;
+
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      accountRes,
+      original_input,
+      userid,
+      "User assignment successful",
+      {},
+      "USER_ASSIGNMENT_SUCCESS"
+    );
+
+    // Handle vehicle addition
+    const vehicleResult = await this.handleVehicleAddition(
+      accountid,
+      vin,
+      licenseplate,
+      vehiclemobile,
+      userid,
+      taskid,
+      accountname,
+      original_input,
+      user.userid
+    );
+    if (vehicleResult) return vehicleResult;
+
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      accountRes,
+      original_input,
+      userid,
+      "Vehicle assignment successful",
+      {},
+      "VEHICLE_ASSIGNMENT_SUCCESS"
+    );
+
+    return {
+      userid: user.userid,
+      accountid: accountid,      
+      status: "ONBOARDED_SUCCESS",
+      message:
+        "Account and User created. User and Vehicle assigned to Account.",
+    };
+  }
+
+  // Function to handle existing individual account
+  async handleExistingIndividualAccount(
+    taskid,
+    existingaccount,
+    existingmobile,
+    usermobile,
+    processedcustomername,
+    customercontactemail,
+    customeraddress,
+    customeraddresscity,
+    customeraddresscountry,
+    customeraddresspincode,
+    customerdateofbirth,
+    customergender,
+    vehiclemobile,
+    vin,
+    licenseplate,
+    userid,
+    original_input
+  ) {
+    const accountname = `${processedcustomername} ${usermobile}`;
+    let user = null;
+    if (existingmobile === null) {
+      user = await this.TaskCreateUser(
+        taskid,
+        "mobile",
+        userid,
+        original_input,
+        usermobile,
+        processedcustomername,
+        customercontactemail,
+        {
+          address: customeraddress,
+          city: customeraddresscity,
+          country: customeraddresscountry,
+          pincode: customeraddresspincode,
+          email: customercontactemail,
+          vehiclemobile: vehiclemobile,
+          dateofbirth: customerdateofbirth,
+          gender: customergender,
+          displayname: processedcustomername,
+          mobile: usermobile,
+        },
+        existingaccount.accountid
+      );
+      // Add user info
+      if (user) {
+        await this.AddUserInfo(
+          user.userid,
+          customeraddress,
+          customeraddresscity,
+          customeraddresscountry,
+          customeraddresspincode,
+          customerdateofbirth,
+          customergender,
+          userid
+        );
+        await this.AddUserToReviewDone(
+          taskid,
+          user,
+          userid,
+          original_input,
+          {}
+        );
+      }
+    } else {
+      user = await this.userSvcI.GetUserDetails(existingmobile);
+      const userinfotabledata = await this.pUserSvcI.GetUserInfo(user.userid);
+      await this.handleUserInfoUpdate(
+        user.userid,
+        userinfotabledata,
+        customeraddress,
+        customeraddresscity,
+        customeraddresscountry,
+        customeraddresspincode,
+        customerdateofbirth,
+        customergender,
+        userid
+      );
+    }
+
+    // Add user to account
+    const userAdditionResult = await this.handleUserAdditionToAccount(
+      userid,
+      usermobile,
+      existingaccount.accountid,
+      taskid,
+      accountname,
+      original_input,
+      user.userid
+    );
+    if (userAdditionResult) return userAdditionResult;
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      existingaccount,
+      original_input,
+      userid,
+      "User assignment successful",
+      {},
+      "USER_ASSIGNMENT_SUCCESS"
+    );
+
+    // Handle vehicle addition
+    const vehicleResult = await this.handleVehicleAddition(
+      existingaccount.accountid,
+      vin,
+      licenseplate,
+      vehiclemobile,
+      userid,
+      taskid,
+      accountname,
+      original_input,
+      user.userid
+    );
+    if (vehicleResult) return vehicleResult;
+
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      existingaccount,
+      original_input,
+      userid,
+      "Vehicle assignment successful",
+      {},
+      "VEHICLE_ASSIGNMENT_SUCCESS"
+    );
+
+    return {
+      userid: user.userid,
+      accountid: existingaccount.accountid,
+      status: "ONBOARDED_SUCCESS",
+      message:
+        "Account and User created. User and Vehicle assigned to Account.",
+    };
+  }
+
+  // Function to handle corporate customer onboarding
+  async handleCorporateCustomerOnboarding(
+    taskid,
+    accountname,
+    userid,
+    original_input,
+    existingmobile,
+    existingemail,
+    usermobile,
+    processedcustomername,
+    customercontactemail,
+    customeraddress,
+    customeraddresscity,
+    customeraddresscountry,
+    customeraddresspincode,
+    customerdateofbirth,
+    customergender,
+    vehiclemobile,
+    vin,
+    licenseplate
+  ) {
+    const accountRes = await this.TaskCreateAccount(
+      taskid,
+      accountname,
+      userid,
+      original_input
+    );
+    const accountid = accountRes.accountid;
+    const account = accountRes.account;
+
+    // Create user
+    let user = null;
+    if (existingmobile !== null || existingemail !== null) {
+      user = await this.userSvcI.GetUserDetails(
+        existingmobile || existingemail
+      );
+      const userinfotabledata = await this.pUserSvcI.GetUserInfo(user.userid);
+      await this.handleUserInfoUpdate(
+        user.userid,
+        userinfotabledata,
+        customeraddress,
+        customeraddresscity,
+        customeraddresscountry,
+        customeraddresspincode,
+        customerdateofbirth,
+        customergender,
+        userid
+      );
+    } else {
+      user = await this.TaskCreateUser(
+        taskid,
+        "email",
+        userid,
+        original_input,
+        usermobile,
+        processedcustomername,
+        customercontactemail,
+        {
+          address: customeraddress,
+          city: customeraddresscity,
+          country: customeraddresscountry,
+          pincode: customeraddresspincode,
+          email: customercontactemail,
+          vehiclemobile: vehiclemobile,
+          dateofbirth: customerdateofbirth,
+          gender: customergender,
+          displayname: processedcustomername,
+          mobile: usermobile,
+        },
+        accountid
+      );
+      // Add user info
+      if (user) {
+        await this.AddUserInfo(
+          user.userid,
+          customeraddress,
+          customeraddresscity,
+          customeraddresscountry,
+          customeraddresspincode,
+          customerdateofbirth,
+          customergender,
+          userid
+        );
+        await this.AddUserToReviewDone(
+          taskid,
+          user,
+          userid,
+          original_input,
+          {}
+        );
+      }
+    }
+
+    // Add user to account
+    const userAdditionResult = await this.handleUserAdditionToAccount(
+      userid,
+      customercontactemail,
+      accountid,
+      taskid,
+      accountname,
+      original_input,
+      user.userid
+    );
+    if (userAdditionResult) return userAdditionResult;
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      accountRes,
+      original_input,
+      userid,
+      "User assignment successful",
+      {},
+      "USER_ASSIGNMENT_SUCCESS"
+    );
+
+    // Handle vehicle addition
+    const vehicleResult = await this.handleVehicleAddition(
+      accountid,
+      vin,
+      licenseplate,
+      vehiclemobile,
+      userid,
+      taskid,
+      accountname,
+      original_input,
+      user.userid
+    );
+    if (vehicleResult) return vehicleResult;
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      accountRes,
+      original_input,
+      userid,
+      "Vehicle assignment successful",
+      {},
+      "VEHICLE_ASSIGNMENT_SUCCESS"
+    );
+
+    return {
+      userid: user.userid,
+      accountid: accountid,
+      status: "ONBOARDED_SUCCESS",
+      message:
+        "Account and User created. User and Vehicle assigned to Account.",
+    };
+  }
+
+  // Function to handle existing corporate account
+  async handleExistingCorporateAccount(
+    taskid,
+    existingaccount,
+    existingmobile,
+    existingemail,
+    usermobile,
+    processedcustomername,
+    customercontactemail,
+    customeraddress,
+    customeraddresscity,
+    customeraddresscountry,
+    customeraddresspincode,
+    customerdateofbirth,
+    customergender,
+    vehiclemobile,
+    vin,
+    licenseplate,
+    userid,
+    original_input
+  ) {
+    const accountname = `${processedcustomername} ${usermobile}`;
+    let user = null;
+    if (existingmobile !== null || existingemail !== null) {
+      user = await this.userSvcI.GetUserDetails(
+        existingmobile || existingemail
+      );
+      const userinfotabledata = await this.pUserSvcI.GetUserInfo(user.userid);
+      await this.handleUserInfoUpdate(
+        user.userid,
+        userinfotabledata,
+        customeraddress,
+        customeraddresscity,
+        customeraddresscountry,
+        customeraddresspincode,
+        customerdateofbirth,
+        customergender,
+        userid
+      );
+    } else {
+      user = await this.TaskCreateUser(
+        taskid,
+        "email",
+        userid,
+        original_input,
+        usermobile,
+        processedcustomername,
+        customercontactemail,
+        {
+          address: customeraddress,
+          city: customeraddresscity,
+          country: customeraddresscountry,
+          pincode: customeraddresspincode,
+          email: customercontactemail,
+          vehiclemobile: vehiclemobile,
+          dateofbirth: customerdateofbirth,
+          gender: customergender,
+          displayname: processedcustomername,
+          mobile: usermobile,
+        },
+        existingaccount.accountid
+      );
+      // Add user info
+      if (user) {
+        await this.AddUserInfo(
+          user.userid,
+          customeraddress,
+          customeraddresscity,
+          customeraddresscountry,
+          customeraddresspincode,
+          customerdateofbirth,
+          customergender,
+          userid
+        );
+        await this.AddUserToReviewDone(
+          taskid,
+          user,
+          userid,
+          original_input,
+          {}
+        );
+      }
+    }
+
+    // Add user to account
+    const userAdditionResult = await this.handleUserAdditionToAccount(
+      userid,
+      usermobile,
+      existingaccount.accountid,
+      taskid,
+      accountname,
+      original_input,
+      user.userid
+    );
+    if (userAdditionResult) return userAdditionResult;
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      existingaccount,
+      original_input,
+      userid,
+      "User assignment successful",
+      {},
+      "USER_ASSIGNMENT_SUCCESS"
+    );
+
+    // Handle vehicle addition
+    const vehicleResult = await this.handleVehicleAddition(
+      existingaccount.accountid,
+      vin,
+      licenseplate,
+      vehiclemobile,
+      userid,
+      taskid,
+      accountname,
+      original_input,
+      user.userid
+    );
+    if (vehicleResult) return vehicleResult;
+
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      existingaccount,
+      original_input,
+      userid,
+      "Vehicle assignment successful",
+      {},
+      "VEHICLE_ASSIGNMENT_SUCCESS"
+    );
+
+    return {
+      userid: user.userid,
+      accountid: existingaccount.accountid,
+      status: "ONBOARDED_SUCCESS",
+      message:
+        "Account and User created. User and Vehicle assigned to Account.",
+    };
+  }
+
+  convertDateFormat = (dateString) => {
+    if (!dateString) return null;
+
+    try {
+      // Parse DD/MM/YY format and convert to YYYY-MM-DD
+      const parts = dateString.split("/");
+      if (parts.length === 3) {
+        const day = parts[0];
+        const month = parts[1];
+        const year = parts[2];
+
+        // Convert 2-digit year to 4-digit year
+        const fullYear = year.length === 2 ? `20${year}` : year;
+
+        // Return in ISO format YYYY-MM-DD
+        return `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+      }
+
+      return dateString; // Return as-is if not in expected format
+    } catch (error) {
+      console.log("Date conversion error:", error);
+      return null;
+    }
+  };
+
+  // Main function refactored to use helper functions
+  OnboardUserAccountLogic = async (
+    userid,
+    corporatetype,
+    customeraddress,
+    customeraddresscity,
+    customeraddresscountry,
+    customeraddresspincode,
+    customercontactemail,
+    customercontactmobile,
+    customerdateofbirth,
+    customergender,
+    customername,
+    customertype,
+    licenseplate,
+    vin,
+    nemo_user_mobile,
+    taskid = null,
+    accountname = null
+  ) => {
+    const processedcustomername = this.preprocessingname(customername);
+    const vehiclemobile = this.preprocessingmobile(customercontactmobile);
+    const usermobile = this.preprocessingmobile(nemo_user_mobile);
+    if (accountname === null) {
+      accountname = `${processedcustomername} ${usermobile}`;
+    }
+    if (taskid === null) {
+      taskid = uuidv4();
+    }
+    const original_input = {
+      corporatetype: corporatetype,
+      customertype: customertype,
+      customeraddress: customeraddress,
+      customeraddresscity: customeraddresscity,
+      customeraddresscountry: customeraddresscountry,
+      customeraddresspincode: customeraddresspincode,
+      customercontactemail: customercontactemail,
+      customercontactmobile: vehiclemobile,
+      customerdateofbirth: customerdateofbirth ? this.convertDateFormat(customerdateofbirth) : null,
+      customergender: customergender,
+      customername: processedcustomername,
+      licenseplate: licenseplate,
+      vin: vin,
+      nemo_user_mobile: usermobile,
+    };
+
+    if (customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL.toLowerCase()) {
+      const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
+      const existingaccount = await this.platformSvcI.GetAccountByName(
+        accountname
+      );
+
+      if (existingaccount === null) {
+        return await this.handleIndividualCustomerOnboarding(
+          taskid,
+          accountname,
+          userid,
+          original_input,
+          existingmobile,
+          usermobile,
+          processedcustomername,
+          customercontactemail,
+          customeraddress,
+          customeraddresscity,
+          customeraddresscountry,
+          customeraddresspincode,
+          customerdateofbirth,
+          customergender,
+          vehiclemobile,
+          vin,
+          licenseplate
+        );
+      } else if (existingaccount !== null) {
+        return await this.handleExistingIndividualAccount(
+          taskid,
+          existingaccount,
+          existingmobile,
+          usermobile,
+          processedcustomername,
+          customercontactemail,
+          customeraddress,
+          customeraddresscity,
+          customeraddresscountry,
+          customeraddresspincode,
+          customerdateofbirth,
+          customergender,
+          vehiclemobile,
+          vin,
+          licenseplate,
+          userid,
+          original_input
+        );
+      }
+    } else if (
+      customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE.toLowerCase()
+    ) {
+      const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
+      const existingemail = await this.userSvcI.CheckEmailExists(
+        customercontactemail
+      );
+      const existingaccount = await this.platformSvcI.GetAccountByName(
+        accountname
+      );
+
+      if (existingaccount === null) {
+        return await this.handleCorporateCustomerOnboarding(
+          taskid,
+          accountname,
+          userid,
+          original_input,
+          existingmobile,
+          existingemail,
+          usermobile,
+          processedcustomername,
+          customercontactemail,
+          customeraddress,
+          customeraddresscity,
+          customeraddresscountry,
+          customeraddresspincode,
+          customerdateofbirth,
+          customergender,
+          vehiclemobile,
+          vin,
+          licenseplate
+        );
+      } else if (existingaccount !== null) {
+        return await this.handleExistingCorporateAccount(
+          taskid,
+          existingaccount,
+          existingmobile,
+          existingemail,
+          usermobile,
+          processedcustomername,
+          customercontactemail,
+          customeraddress,
+          customeraddresscity,
+          customeraddresscountry,
+          customeraddresspincode,
+          customerdateofbirth,
+          customergender,
+          vehiclemobile,
+          vin,
+          licenseplate,
+          userid,
+          original_input
+        );
+      }
+    }
+  };
+
+  // Composite Onboard API Logic
+  CompositeOnboardAPILogic = async ({
+    userid,
+    taskid,
+    tasktype,
+    updatedfields,
+  }) => {
+    try {
+      if (tasktype === "accountreview") {
+        const pendingaccount =
+          await this.accountSvcI.GetPendingAccountReviewById(taskid);
+        if (pendingaccount) {
+          return await this.handleAccountReview(
+            taskid,
+            pendingaccount,
+            userid,
+            updatedfields
+          );
+        }
+      } else if (tasktype === "userreview") {
+          const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(
+            taskid
+          );
+          if (pendinguser) {
+            return await this.handleUserReviewError(
+              taskid,
+              pendinguser,
+              userid,
+              updatedfields
+            );
+        }
+      }
+      return{
+        errcode: "INVALID_TASK_TYPE",
+        status: "INVALID_TASK_TYPE",
+        message: "Invalid task type or task not found",
+      }
+    } catch (error) {
+      this.logger.error("CompositeOnboardAPILogic failed", error);
+      throw error;
+    }
+  };
+
+  // Handle ACCOUNT_CREATION error
+  async handleAccountReview(
+    taskid,
+    pendingaccount,
+    userid,
+    updatedfields
+  ) {
+    const original_input = pendingaccount.original_input;
+    const accountname =
+      updatedfields.accountname !== pendingaccount.accountname
+        ? updatedfields.accountname
+        : pendingaccount.accountname;
+
+    return await this.OnboardUserAccountLogic(
+      userid,
+      original_input.corporatetype,
+      original_input.customeraddress,
+      original_input.customeraddresscity,
+      original_input.customeraddresscountry,
+      original_input.customeraddresspincode,
+      original_input.customercontactemail,
+      original_input.customercontactmobile,
+      original_input.customerdateofbirth,
+      original_input.customergender,
+      original_input.customername,
+      original_input.customertype,
+      original_input.licenseplate,
+      original_input.vin,
+      original_input.nemo_user_mobile,
+      taskid,
+      accountname
+    )
+  }
+  // Handle USER_REVIEW error
+  async handleUserReviewError(taskid, pendinguser, userid, updatedfields) {
+    const original_input = pendinguser.original_input;
+    const address =
+      updatedfields.address !== original_input.customeraddress
+        ? updatedfields.address
+        : original_input.customeraddress;
+    const city =
+      updatedfields.city !== original_input.customeraddresscity
+        ? updatedfields.city
+        : original_input.customeraddresscity;
+    const country =
+      updatedfields.country !== original_input.customeraddresscountry
+        ? updatedfields.country
+        : original_input.customeraddresscountry;
+    const pincode =
+      updatedfields.pincode !== original_input.customeraddresspincode
+        ? updatedfields.pincode
+        : original_input.customeraddresspincode;
+    const email =
+      updatedfields.email !== original_input.customercontactemail
+        ? updatedfields.email
+        : original_input.customercontactemail;
+    const vehiclemobile =
+      updatedfields.vehiclemobile !== original_input.customercontactmobile
+        ? updatedfields.vehiclemobile
+        : original_input.customercontactmobile;
+    const dateofbirth =
+      updatedfields.dateofbirth !== original_input.customerdateofbirth
+        ? updatedfields.dateofbirth
+        : original_input.customerdateofbirth;
+    const gender =
+      updatedfields.gender !== original_input.customergender
+        ? updatedfields.gender
+        : original_input.customergender;
+    const displayname =
+      updatedfields.displayname !== original_input.customername
+        ? updatedfields.displayname
+        : original_input.customername;
+    const mobile =
+      updatedfields.mobile !== original_input.nemo_user_mobile
+        ? updatedfields.mobile
+        : original_input.nemo_user_mobile;
+
+    const accountname = `${displayname} ${mobile}`;
+
+    return await this.OnboardUserAccountLogic(
+      userid,
+      original_input.corporatetype,
+      address,
+      city,
+      country,
+      pincode,
+      email,
+      vehiclemobile,
+      dateofbirth,
+      gender,
+      displayname,
+      original_input.customertype,
+      original_input.licenseplate,
+      original_input.vin,
+      mobile,
+      taskid,
+      accountname
+    )
+  }
 }

@@ -1,24 +1,35 @@
+import crypto from "crypto";
 import promiserouter from "express-promise-router";
+import { UAParser } from "ua-parser-js";
 import z from "zod";
 import {
   APIResponseBadRequest,
+  APIResponseError,
   APIResponseInternalErr,
   APIResponseOK,
   APIResponseUnauthorized,
+  APIResponseForbidden,
 } from "../../../utils/responseutil.js";
 import { AuthenticateAccountTokenFromCookie } from "../../../utils/tokenutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import fmsAccountHdlrImpl from "./fmsaccounthdlr_impl.js";
 
+import PermissionSvc from "../../../services/permsvc/permsvc.js";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
+
+const RATE_LIMIT_PER_HOUR = 3;
 export default class FmsAccountHdlr {
-  constructor(fmsAccountSvcI, userSvcI, logger) {
+  constructor(fmsAccountSvcI, userSvcI, logger, platformSvcI, inMemCacheI) {
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.fmsAccountHdlrImpl = new fmsAccountHdlrImpl(
       fmsAccountSvcI,
       userSvcI,
-      logger
+      logger,
+      platformSvcI
     );
     this.logger = logger;
+    this.inMemCacheI = inMemCacheI;
+    this.permissionSvc = new PermissionSvc(fmsAccountSvcI, userSvcI, logger);
   }
 
   // TODO: add permission check for each route
@@ -31,6 +42,7 @@ export default class FmsAccountHdlr {
     router.use("/", accountTokenGroup);
 
     accountTokenGroup.get("/invites", this.ListInvitesOfAccount);
+    accountTokenGroup.get("/fleet/:fleetid/invites", this.ListInvitesOfFleet);
     accountTokenGroup.post("/invite/cancel", this.CancelEmailInvite);
     accountTokenGroup.post("/invite/send", this.SendUserInvite);
     accountTokenGroup.post("/invite/resend", this.ResendEmailInvite);
@@ -64,7 +76,7 @@ export default class FmsAccountHdlr {
     accountTokenGroup.post("/role", this.CreateRole);
     accountTokenGroup.put("/role/:roleid", this.UpdateRole);
     accountTokenGroup.get("/roles", this.ListRoles);
-    accountTokenGroup.get("/role/:roleid", this.GetRole);
+    accountTokenGroup.get("/role/:roleid", this.GetRoleInfo);
     accountTokenGroup.put("/role/:roleid/perms", this.UpdateRolePerms);
     accountTokenGroup.delete("/role/:roleid", this.DeleteRole);
 
@@ -80,7 +92,7 @@ export default class FmsAccountHdlr {
       "/fleet/:fleetid/deassignrole",
       this.DeassignUserRole
     );
-    accountTokenGroup.delete("/user/:userid", this.DeleteUser); //TODO: remove this
+
     accountTokenGroup.delete("/user/:userid/remove", this.RemoveUser);
 
     // subscription management
@@ -107,9 +119,82 @@ export default class FmsAccountHdlr {
       this.UnsubscribeVehicle
     );
 
+    accountTokenGroup.get("/credits", this.GetAccountCredits);
+    accountTokenGroup.get("/credits/overview", this.GetAccountCreditsOverview);
+    accountTokenGroup.get("/credits/history", this.GetAccountCreditsHistory);
+    accountTokenGroup.get(
+      "/vehicle/:vinno/credits/history",
+      this.GetAccountVehicleCreditsHistory
+    );
+    accountTokenGroup.get(
+      "/fleet/:fleetid/credits/history",
+      this.GetAccountFleetCreditsHistory
+    );
     accountTokenGroup.post("/tagvehicle", this.TagVehicle);
     accountTokenGroup.put("/untagvehicle", this.UntagVehicle);
+
+    accountTokenGroup.get(
+      "/fleet/:fleetid/getmyperms",
+      this.GetMyFleetPermissions
+    );
+
+    accountTokenGroup.get(
+      "/assignmenthistory",
+      this.GetAccountAssignmentHistory
+    );
   }
+
+  ValidateEpochTime = (timeStr, fieldName) => {
+    if (!/^\d+$/.test(timeStr)) {
+      throw {
+        errcode: "INPUT_ERROR",
+        message: `${fieldName} must be a valid epoch time (integer)`,
+      };
+    }
+
+    const epochTime = parseInt(timeStr, 10);
+
+    if (epochTime < 1000000000000 || epochTime > 9999999999999) {
+      throw {
+        errcode: "INPUT_ERROR",
+        message: `${fieldName} must be a valid epoch time`,
+      };
+    }
+
+    return epochTime;
+  };
+
+  getDeviceFingerprint = (req) => {
+    const ip =
+      req.headers["x-forwarded-for"] ||
+      req.headers["x-real-ip"] ||
+      req.connection.remoteAddress ||
+      req.socket.remoteAddress ||
+      (req.connection.socket ? req.connection.socket.remoteAddress : null);
+
+    const userAgent = req.headers["user-agent"] || "";
+    const referrer = req.headers["referer"] || "";
+    const parser = new UAParser(userAgent);
+    const ua = parser.getResult();
+    const useragentstr = `${ip}-${JSON.stringify(ua)}-${referrer}`;
+    const deviceFingerprint = crypto
+      .createHash("sha256")
+      .update(useragentstr)
+      .digest("hex");
+
+    return deviceFingerprint;
+  };
+
+  getInviteFingerprint = (req, accountid, fleetid, contact) => {
+    const deviceFingerprint = this.getDeviceFingerprint(req);
+    const inviteSpecificData = `${deviceFingerprint}-${accountid}-${fleetid}-${contact}`;
+    const inviteFingerprint = crypto
+      .createHash("sha256")
+      .update(inviteSpecificData)
+      .digest("hex");
+
+    return inviteFingerprint;
+  };
 
   VerifyUserAccountAccess = async (req, res, next) => {
     try {
@@ -171,11 +256,12 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "Invites listed successfully");
     } catch (error) {
+      this.logger.error("ListInvitesOfAccount error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -185,6 +271,53 @@ export default class FmsAccountHdlr {
           res,
           error,
           "Failed to list invites of account"
+        );
+      }
+    }
+  };
+
+  ListInvitesOfFleet = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        fleetid: z
+          .string({ message: "Invalid Fleet ID format" })
+          .uuid({ message: "Invalid Fleet ID format" }),
+      });
+
+      let recursive = req.query.recursive
+        ? req.query.recursive === "true"
+        : false;
+
+      let { accountid, fleetid } = validateAllInputs(schema, {
+        accountid: req.accountid,
+        fleetid: req.params.fleetid,
+      });
+
+      let result = await this.fmsAccountHdlrImpl.ListInvitesOfFleetLogic(
+        accountid,
+        fleetid,
+        recursive
+      );
+      APIResponseOK(req, res, result, "Fleet invites listed successfully");
+    } catch (error) {
+      this.logger.error("ListInvitesOfFleet error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          "Failed to list invites of fleet"
         );
       }
     }
@@ -201,10 +334,7 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Invalid Account ID format" }),
         inviteid: z
           .string({ message: "Invalid Invite ID format" })
-          .nonempty({ message: "Invalid Invite ID format" })
-          .max(128, {
-            message: "Invite ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Invalid Invite ID format" }),
       });
 
       let { cancelledby, accountid, inviteid } = validateAllInputs(schema, {
@@ -220,14 +350,12 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "Email invite cancelled successfully");
     } catch (error) {
-      this.logger.error(
-        `fmsaccounthdlr.CancelEmailInvite: error: ${error?.stack}`
-      );
+      this.logger.error("CancelEmailInvite error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -258,6 +386,7 @@ export default class FmsAccountHdlr {
           .array(
             z
               .string({ message: "Invalid Role IDs format" })
+              .uuid({ message: "Invalid Role ID format" })
               .nonempty({ message: "Invalid Role ID format" })
           )
           .nonempty({ message: "At least one Role ID is required" }),
@@ -284,6 +413,40 @@ export default class FmsAccountHdlr {
           contact: req.body.contact,
         });
 
+      // perm check
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.users.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to invite users."
+        );
+      }
+
+      const inviteFingerprint = this.getInviteFingerprint(
+        req,
+        accountid,
+        fleetid,
+        contact
+      );
+      const rateLimitKey = `email_invite_rate_limit:${inviteFingerprint}`;
+      let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
+
+      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+        const error = new Error(
+          "Too many invites sent to this contact for this account and fleet. Please try after an hour."
+        );
+        error.errcode = "RATE_LIMIT_EXCEEDED";
+        throw error;
+      }
+
       let headerReferer = req.headers.origin;
       let result = await this.fmsAccountHdlrImpl.SendUserInviteLogic(
         accountid,
@@ -293,18 +456,39 @@ export default class FmsAccountHdlr {
         invitedby,
         headerReferer
       );
+      this.inMemCacheI.set(rateLimitKey, currentCount + 1);
+
       APIResponseOK(req, res, result, "Email invite sent successfully");
     } catch (error) {
-      this.logger.error(
-        `fmsaccounthdlr.SendUserInvite: error: ${error?.stack}`
-      );
+      this.logger.error("SendUserInvite error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (error.errcode === "RATE_LIMIT_EXCEEDED") {
+        APIResponseError(
+          req,
+          res,
+          429,
+          "RATE_LIMIT_EXCEEDED",
+          null,
+          "Too many invites sent to this contact for this account and fleet. Please try after an hour."
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -329,10 +513,7 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Invalid Account ID format" }),
         inviteid: z
           .string({ message: "Invalid Invite ID format" })
-          .nonempty({ message: "Invalid Invite ID format" })
-          .max(128, {
-            message: "Invite ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Invalid Invite ID format" }),
       });
 
       let { invitedby, accountid, inviteid } = validateAllInputs(schema, {
@@ -341,6 +522,23 @@ export default class FmsAccountHdlr {
         inviteid: req.body.inviteid,
       });
 
+      const deviceFingerprint = this.getDeviceFingerprint(req);
+      const resendFingerprint = crypto
+        .createHash("sha256")
+        .update(`${deviceFingerprint}-${inviteid}`)
+        .digest("hex");
+      const rateLimitKey = `email_resend_rate_limit:${resendFingerprint}`;
+
+      let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
+
+      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+        const error = new Error(
+          "Too many resend attempts for this invite. Please try after an hour."
+        );
+        error.errcode = "RATE_LIMIT_EXCEEDED";
+        throw error;
+      }
+
       let headerReferer = req.headers.origin;
       let result = await this.fmsAccountHdlrImpl.ResendEmailInviteLogic(
         accountid,
@@ -348,18 +546,40 @@ export default class FmsAccountHdlr {
         invitedby,
         headerReferer
       );
+      this.inMemCacheI.set(rateLimitKey, currentCount + 1);
+
       APIResponseOK(req, res, result, "Email invite resent successfully");
     } catch (error) {
-      this.logger.error(
-        `fmsaccounthdlr.ResendEmailInvite: error: ${error?.stack}`
-      );
+      this.logger.error("ResendEmailInvite error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
+        );
+      } else if (
+        error.message === "INVALID_INVITE_ID" ||
+        error.message === "INVITE_IS_NOT_IN_SENT_STATE" ||
+        error.message === "INVITE_IS_NOT_AN_EMAIL_INVITE" ||
+        error.message === "CANNOT_RESEND_AN_EXPIRED_INVITE"
+      ) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "Failed to resend invite"
+        );
+      } else if (error.errcode === "RATE_LIMIT_EXCEEDED") {
+        APIResponseError(
+          req,
+          res,
+          429,
+          "RATE_LIMIT_EXCEEDED",
+          null,
+          "Too many resend attempts for this invite. Please try after an hour."
         );
       } else {
         APIResponseInternalErr(
@@ -377,27 +597,26 @@ export default class FmsAccountHdlr {
       let schema = z.object({
         inviteid: z
           .string({ message: "Invalid Invite ID format" })
-          .nonempty({ message: "Invalid Invite ID format" })
-          .max(128, {
-            message: "Invite ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Invalid Invite ID format" }),
       });
 
       let { inviteid } = validateAllInputs(schema, {
+        userid: req.userid,
         inviteid: req.body.inviteid,
       });
 
-      let result = await this.fmsAccountHdlrImpl.ValidateInviteLogic(inviteid);
+      let result = await this.fmsAccountHdlrImpl.ValidateInviteLogic(
+        inviteid,
+        userid
+      );
       APIResponseOK(req, res, result, "Invite validated successfully");
     } catch (error) {
-      this.logger.error(
-        `fmsaccounthdlr.ValidateInvite: error: ${error?.stack}`
-      );
+      this.logger.error("ValidateInvite error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -429,17 +648,38 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
+      // const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+      //   req.userid,
+      //   req.accountid
+      // );
+
+      // if (
+      //   !CheckUserPerms(userPerms, [
+      //     "account.fleets.view",
+      //     "account.fleets.admin",
+      //   ])
+      // ) {
+      //   return APIResponseForbidden(
+      //     req,
+      //     res,
+      //     "INSUFFICIENT_PERMISSIONS",
+      //     null,
+      //     "You don't have permission to get account fleets."
+      //   );
+      // }
+
       let result = await this.fmsAccountHdlrImpl.GetAccountFleetsLogic(
         accountid,
         userid
       );
       APIResponseOK(req, res, result, "Fms Accounts fetched successfully");
     } catch (error) {
+      this.logger.error("GetAccountFleets error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -471,17 +711,38 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
+      // const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+      //   req.userid,
+      //   accountid
+      // );
+
+      // if (
+      //   !CheckUserPerms(userPerms, [
+      //     "account.users.admin",
+      //     "account.modules.view",
+      //   ])
+      // ) {
+      //   return APIResponseForbidden(
+      //     req,
+      //     res,
+      //     "INSUFFICIENT_PERMISSIONS",
+      //     null,
+      //     "You don't have permission to get account modules."
+      //   );
+      // }
+
       let result = await this.fmsAccountHdlrImpl.GetAccountModulesLogic(
         accountid,
         userid
       );
       APIResponseOK(req, res, result, "FMS permissions fetched successfully");
     } catch (error) {
+      this.logger.error("GetAccountModules error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -519,11 +780,12 @@ export default class FmsAccountHdlr {
         "Charge station types fetched successfully"
       );
     } catch (error) {
+      this.logger.error("GetChargeStationTypes error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -555,7 +817,7 @@ export default class FmsAccountHdlr {
         fleetname: z
           .string({ message: "Fleet name is required" })
           .min(1, { message: "Fleet name is required" })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Fleet name can only contain letters, numbers, spaces, hyphens, and underscores",
           })
@@ -572,6 +834,22 @@ export default class FmsAccountHdlr {
           parentfleetid: req.body.parentfleetid,
           fleetname: req.body.fleetname,
         });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        parentfleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.fleets.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create fleet."
+        );
+      }
 
       if (fleetname.includes("/")) {
         return APIResponseBadRequest(
@@ -592,13 +870,44 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Fleet created successfully");
     } catch (error) {
+      this.logger.error("CreateFleet error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      }
+
+      const validationErrorCodes = [
+        "RESERVED_FLEET_NAME",
+        "PARENT_FLEET_NOT_FOUND",
+        "DUPLICATE_FLEET_NAME",
+        "FLEET_DEPTH_LIMIT_EXCEEDED",
+        "FLEET_COUNT_LIMIT_EXCEEDED",
+      ];
+
+      if (error.errcode && validationErrorCodes.includes(error.errcode)) {
         return APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
           error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
         );
       }
 
@@ -628,19 +937,53 @@ export default class FmsAccountHdlr {
         fleetid: req.params.fleetid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.fleets.view",
+          "account.fleets.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get fleet info."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.GetFleetInfoLogic(
         accountid,
         fleetid
       );
       APIResponseOK(req, res, result, "Fleet info fetched successfully");
     } catch (error) {
+      this.logger.error("GetFleetInfo error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -675,7 +1018,7 @@ export default class FmsAccountHdlr {
           .max(128, {
             message: "Fleet name must be at most 128 characters long",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Fleet Name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -708,6 +1051,22 @@ export default class FmsAccountHdlr {
         return;
       }
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.fleets.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to edit fleet."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.EditFleetLogic(
         accountid,
         fleetid,
@@ -717,13 +1076,26 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Fleet edited successfully");
     } catch (error) {
+      this.logger.error("EditFleet error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -748,12 +1120,35 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Invalid Fleet ID format" }),
       });
 
-      const recursive = req.query.recursive === "true";
+      let recursive = req.query.recursive
+        ? req.query.recursive === "true"
+        : false;
 
       const { accountid, fleetid } = validateAllInputs(schema, {
         accountid: req.accountid,
         fleetid: req.params.fleetid,
       });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.fleets.view",
+          "account.fleets.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get subfleets."
+        );
+      }
 
       const result = await this.fmsAccountHdlrImpl.GetSubFleetsLogic(
         accountid,
@@ -763,13 +1158,26 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Subfleets fetched successfully");
     } catch (error) {
+      this.logger.error("GetSubFleets error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -805,6 +1213,22 @@ export default class FmsAccountHdlr {
         deletedby: req.userid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.fleets.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to delete fleet."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.DeleteFleetLogic(
         accountid,
         fleetid,
@@ -812,23 +1236,47 @@ export default class FmsAccountHdlr {
       );
 
       APIResponseOK(req, res, result, "Fleet deleted successfully");
-    } catch (e) {
-      if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+    } catch (error) {
+      this.logger.error("DeleteFleet error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
       } else if (
-        e.errcode === "FLEET_HAS_VEHICLES" ||
-        e.errcode === "ROOT_FLEET_PROTECTED" ||
-        e.errcode === "FLEET_NOT_FOUND" ||
-        e.errcode === "FLEET_HAS_SUBFLEETS" ||
-        e.errcode === "FLEET_HAS_USERS"
+        error.errcode === "FLEET_HAS_VEHICLES" ||
+        error.errcode === "ROOT_FLEET_PROTECTED" ||
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "FLEET_HAS_SUBFLEETS" ||
+        error.errcode === "FLEET_HAS_USERS"
       ) {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
         return APIResponseInternalErr(
           req,
           res,
           "DELETE_FLEET_ERR",
-          e.toString(),
+          error.toString(),
           "Delete fleet failed"
         );
       }
@@ -858,11 +1306,12 @@ export default class FmsAccountHdlr {
         "Subscribed vehicles fetched successfully"
       );
     } catch (error) {
+      this.logger.error("ListSubscribedVehicles error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -890,7 +1339,7 @@ export default class FmsAccountHdlr {
           .max(128, {
             message: "Role name must be at most 128 characters long",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Role name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -908,6 +1357,21 @@ export default class FmsAccountHdlr {
         isenabled: req.body.isenabled,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.roles.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create role."
+        );
+      }
+
       const result = await this.fmsAccountHdlrImpl.CreateRoleLogic(
         accountid,
         rolename,
@@ -917,15 +1381,42 @@ export default class FmsAccountHdlr {
       );
 
       APIResponseOK(req, res, result, "Role created successfully");
-    } catch (e) {
-      if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+    } catch (error) {
+      this.logger.error("CreateRole error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (error.message === "ROLE_NAME_ALREADY_EXISTS") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "ROLE_NAME_ALREADY_EXISTS",
+          null,
+          "Role name already exists"
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
         APIResponseInternalErr(
           req,
           res,
           "CREATE_ROLE_ERR",
-          e.toString(),
+          error.toString(),
           "Create role failed"
         );
       }
@@ -942,7 +1433,7 @@ export default class FmsAccountHdlr {
         roleid: z
           .string({ message: "Invalid Role ID format" })
           .nonempty({ message: "Role ID cannot be empty" })
-          .max(128, { message: "Role ID must be at most 128 characters long" }),
+          .uuid({ message: "Invalid Role ID format" }),
 
         updatedby: z
           .string({ message: "Invalid User ID format" })
@@ -953,7 +1444,7 @@ export default class FmsAccountHdlr {
           .max(128, {
             message: "Role name must be at most 128 characters long",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Role name can only contain letters, numbers, spaces, hyphens, and underscores",
           })
@@ -981,6 +1472,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           "INVALID_ROLE_TYPE",
+          {},
           "Invalid role type, only 'account' role updates are allowed"
         );
         return;
@@ -996,9 +1488,25 @@ export default class FmsAccountHdlr {
           req,
           res,
           "NO_UPDATE_FIELDS",
+          {},
           "No valid fields provided for update"
         );
         return;
+      }
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.roles.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update role."
+        );
       }
 
       let result = await this.fmsAccountHdlrImpl.UpdateRoleLogic(
@@ -1010,13 +1518,26 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Role updated successfully");
     } catch (error) {
+      this.logger.error("UpdateRole error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1042,16 +1563,49 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.roles.admin",
+          "account.roles.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list roles."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.ListRolesLogic(accountid);
       APIResponseOK(req, res, result, "Roles fetched successfully");
     } catch (error) {
+      this.logger.error("ListRoles error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1065,7 +1619,7 @@ export default class FmsAccountHdlr {
     }
   };
 
-  GetRole = async (req, res, next) => {
+  GetRoleInfo = async (req, res, next) => {
     try {
       let schema = z.object({
         accountid: z
@@ -1073,10 +1627,8 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Invalid Account ID format" }),
         roleid: z
           .string({ message: "Invalid role ID format" })
-          .max(128, {
-            message: "Role ID must be at most 128 characters long",
-          })
-          .nonempty({ message: "Invalid role ID format" }),
+          .uuid({ message: "Role ID must be a valid UUID" })
+          .nonempty({ message: "Role ID is required" }),
       });
 
       let { accountid, roleid } = validateAllInputs(schema, {
@@ -1084,27 +1636,68 @@ export default class FmsAccountHdlr {
         roleid: req.params.roleid,
       });
 
-      let result = await this.fmsAccountHdlrImpl.GetRoleLogic(
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.roles.admin",
+          "account.roles.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get role info."
+        );
+      }
+
+      let result = await this.fmsAccountHdlrImpl.GetRoleInfoLogic(
         accountid,
         roleid
       );
       APIResponseOK(req, res, result, "Role fetched successfully");
     } catch (error) {
+      this.logger.error("GetRoleInfo error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (error.errcode === "ROLE_NOT_FOUND") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          {},
+          "Role not found"
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
           req,
           res,
           "GET_ROLE_ERR",
-          error.toString(),
-          "Get role failed"
+          error.errdata,
+          error.message
         );
       }
     }
@@ -1119,43 +1712,43 @@ export default class FmsAccountHdlr {
 
         roleid: z
           .string({ message: "Invalid Role ID format" })
-          .max(128, { message: "Role ID must be at most 128 characters long" })
+          .uuid({ message: "Role ID must be a valid UUID" })
           .nonempty({ message: "Role ID is required" }),
 
         updatedperms: z.array(
-          z
-            .object({
-              moduleid: z
-                .string({ message: "Invalid Module ID format" })
-                .uuid({ message: "Invalid Module ID format" }),
+          z.object({
+            moduleid: z
+              .string({ message: "Invalid Module ID format" })
+              .uuid({ message: "Invalid Module ID format" }),
 
-              selectedpermids: z
-                .array(
-                  z.string({
-                    message: "Invalid Selected Permission ID format",
-                  }),
-                  { message: "SelectedPermids must be an array of strings" }
-                )
-                .optional(),
+            selectedpermids: z
+              .array(
+                z.string({
+                  message: "Invalid Selected Permission ID format",
+                }),
+                { message: "SelectedPermids must be an array of strings" }
+              )
+              .optional(),
 
-              deselectedpermids: z
-                .array(
-                  z.string({
-                    message: "Invalid Deselected Permission ID format",
-                  }),
-                  { message: "DeselectedPermids must be an array of strings" }
-                )
-                .optional(),
-            })
-            .refine(
-              (data) =>
-                (data.selectedpermids && data.selectedpermids.length > 0) ||
-                (data.deselectedpermids && data.deselectedpermids.length > 0),
-              {
-                message:
-                  "At least one of Selectedpermids or Deselectedpermids must be provided",
-              }
-            )
+            deselectedpermids: z
+              .array(
+                z.string({
+                  message: "Invalid Deselected Permission ID format",
+                }),
+                { message: "DeselectedPermids must be an array of strings" }
+              )
+              .optional(),
+          })
+          // TOASK: why we need this?
+          // .refine(
+          //   (data) =>
+          //     (data.selectedpermids && data.selectedpermids.length > 0) ||
+          //     (data.deselectedpermids && data.deselectedpermids.length > 0),
+          //   {
+          //     message:
+          //       "At least one of Selectedpermids or Deselectedpermids must be provided",
+          //   }
+          // )
         ),
       });
 
@@ -1167,6 +1760,21 @@ export default class FmsAccountHdlr {
 
       const updatedby = req.userid;
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.roles.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update role permissions."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.UpdateRolePermsLogic(
         accountid,
         roleid,
@@ -1176,13 +1784,34 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Role permissions updated successfully");
     } catch (error) {
+      this.logger.error("UpdateRolePerms error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (error.errcode === "ROLE_NOT_FOUND") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "Role not found"
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1218,6 +1847,21 @@ export default class FmsAccountHdlr {
         deletedby: req.userid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.roles.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to delete role."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.DeleteRoleLogic(
         accountid,
         roleid,
@@ -1225,23 +1869,48 @@ export default class FmsAccountHdlr {
       );
 
       APIResponseOK(req, res, result, "Role deleted successfully");
-    } catch (e) {
-      if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+    } catch (error) {
+      this.logger.error("DeleteRole error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
       } else if (
-        e.errcode === "ROLE_IN_USE" ||
-        e.errcode === "ROLE_HAS_PERMISSIONS" ||
-        e.errcode === "ROLE_NOT_FOUND" ||
-        e.errcode === "CANNOT_DELETE_ADMIN_ROLE" ||
-        e.errcode === "INVALID_ROLE_TYPE"
+        error.errcode === "ROLE_IN_USE" ||
+        error.errcode === "ROLE_HAS_PERMISSIONS" ||
+        error.errcode === "ROLE_NOT_FOUND" ||
+        error.errcode === "CANNOT_DELETE_ADMIN_ROLE" ||
+        error.errcode === "INVALID_ROLE_TYPE"
       ) {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
         return APIResponseInternalErr(
           req,
           res,
           "DELETE_ROLE_ERR",
-          e.toString(),
+          error.toString(),
           "Delete role failed"
         );
       }
@@ -1261,28 +1930,69 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Fleet ID must be a valid UUID" }),
       });
 
-      const recursive = req.query.recursive === "true";
+      let recursive = req.query.recursive
+        ? req.query.recursive === "true"
+        : false;
+
+      let isforcedfilter = req.query.isforcedfilter
+        ? req.query.isforcedfilter === "true"
+        : false;
 
       const { accountid, fleetid } = validateAllInputs(schema, {
         accountid: req.accountid,
         fleetid: req.params.fleetid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.fleets.view",
+          "account.fleets.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get vehicles."
+        );
+      }
+
       const result = await this.fmsAccountHdlrImpl.GetVehiclesLogic(
         accountid,
         fleetid,
-        recursive
+        recursive,
+        isforcedfilter
       );
 
       APIResponseOK(req, res, result, "Vehicles fetched successfully");
     } catch (error) {
+      this.logger.error("GetVehicles error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(req, res, error, "Failed to get vehicles");
@@ -1300,6 +2010,9 @@ export default class FmsAccountHdlr {
         vehicleid: z
           .string({ message: "Invalid Vehicle ID format" })
           .nonempty({ message: "Invalid Vehicle ID format" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message: "Vehicle ID can only contain letters, numbers, and spaces",
+          })
           .max(128, {
             message: "Vehicle ID must be at most 128 characters long",
           }),
@@ -1321,6 +2034,23 @@ export default class FmsAccountHdlr {
         }
       );
 
+      const userPermsFromFleet =
+        await this.permissionSvc.GetUserFleetPermissions(
+          req.userid,
+          accountid,
+          fromfleetid
+        );
+
+      if (!CheckUserPerms(userPermsFromFleet, ["account.fleets.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to move vehicle from this fleet."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.MoveVehicleLogic(
         accountid,
         fromfleetid,
@@ -1329,13 +2059,26 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "Vehicle moved from fleet successfully");
     } catch (error) {
+      this.logger.error("MoveVehicle error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(req, res, error, error.message);
@@ -1355,8 +2098,8 @@ export default class FmsAccountHdlr {
         vehicleid: z
           .string({ message: "Invalid Vehicle ID format" })
           .nonempty({ message: "Invalid Vehicle ID format" })
-          .max(128, {
-            message: "Vehicle ID must be at most 128 characters long",
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message: "Vehicle ID can only contain letters, numbers, and spaces",
           }),
       });
 
@@ -1365,6 +2108,22 @@ export default class FmsAccountHdlr {
         fleetid: req.params.fleetid,
         vehicleid: req.params.vehicleid,
       });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.fleets.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to remove vehicle from this fleet."
+        );
+      }
 
       let result = await this.fmsAccountHdlrImpl.RemoveVehicleLogic(
         accountid,
@@ -1378,13 +2137,50 @@ export default class FmsAccountHdlr {
         "Vehicle removed from fleet successfully"
       );
     } catch (error) {
+      this.logger.error("RemoveVehicle error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (error.message === "VEHICLE_NOT_FOUND") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "Vehicle not found"
+        );
+      } else if (error.message === "FLEET_NOT_FOUND") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "Fleet not found"
+        );
+      } else if (error.message === "VEHICLE_ALREADY_IN_ROOT_FLEET") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "Vehicle already in root fleet"
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1407,8 +2203,8 @@ export default class FmsAccountHdlr {
         vehicleid: z
           .string({ message: "Invalid Vehicle ID format" })
           .nonempty({ message: "Invalid Vehicle ID format" })
-          .max(128, {
-            message: "Vehicle ID must be at most 128 characters long",
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message: "Vehicle ID can only contain letters, numbers, and spaces",
           }),
         userid: z
           .string({ message: "User ID is required" })
@@ -1421,6 +2217,26 @@ export default class FmsAccountHdlr {
         userid: req.userid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.fleets.view",
+          "account.fleets.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list moveable fleets."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.ListMoveableFleetsLogic(
         accountid,
         vehicleid,
@@ -1428,13 +2244,34 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "Moveable fleets fetched successfully");
     } catch (error) {
+      this.logger.error("ListMoveableFleets error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (error.message === "VEHICLE_NOT_FOUND") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "Vehicle not found"
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1465,19 +2302,58 @@ export default class FmsAccountHdlr {
         fleetid: req.params.fleetid,
       });
 
-      let result = await this.fmsAccountHdlrImpl.ListUsersLogic(
+      let recursive = req.query.recursive
+        ? req.query.recursive === "true"
+        : false;
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
         accountid,
         fleetid
       );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.users.view",
+          "account.users.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list users."
+        );
+      }
+
+      let result = await this.fmsAccountHdlrImpl.ListUsersLogic(
+        accountid,
+        fleetid,
+        recursive
+      );
       APIResponseOK(req, res, result, "Users fetched successfully");
     } catch (error) {
+      this.logger.error("ListUsers error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(req, res, error, "Failed to list users");
@@ -1496,10 +2372,7 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Invalid Fleet ID format" }),
         userid: z
           .string({ message: "Invalid User ID format" })
-          .nonempty({ message: "Invalid User ID format" })
-          .max(128, {
-            message: "User ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Invalid User ID format" }),
 
         assignedby: z
           .string({ message: "Invalid Assignedby ID format" })
@@ -1516,6 +2389,29 @@ export default class FmsAccountHdlr {
         }
       );
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.roles.admin",
+          "account.roles.view",
+          "account.users.admin",
+          "account.users.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get assignable roles."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.GetAssignableRolesLogic(
         accountid,
         fleetid,
@@ -1524,13 +2420,26 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "Assignable roles fetched successfully");
     } catch (error) {
+      this.logger.error("GetAssignableRoles error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1554,18 +2463,13 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Invalid Fleet ID format" }),
         userid: z
           .string({ message: "Invalid User ID format" })
-          .nonempty({ message: "Invalid User ID format" })
-          .max(128, {
-            message: "User ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Invalid User ID format" }),
         roleids: z
           .array(
             z
               .string({ message: "Invalid Role ID format" })
               .nonempty({ message: "Invalid Role ID format" })
-              .max(128, {
-                message: "Role ID must be at most 128 characters long",
-              })
+              .uuid({ message: "Invalid Role ID format" })
           )
           .nonempty({ message: "At least one Role ID is required" }),
         assignedby: z
@@ -1582,6 +2486,28 @@ export default class FmsAccountHdlr {
           assignedby: req.userid,
         });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (
+        !CheckUserPerms(
+          userPerms,
+          ["account.users.admin", "account.roles.admin"],
+          "all"
+        )
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to assign user role."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.AssignUserRoleLogic(
         accountid,
         fleetid,
@@ -1591,16 +2517,28 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "User role assigned successfully");
     } catch (error) {
-      if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(
+      this.logger.error("AssignUserRole error: ", error);
+      const validationErrorCodes = [
+        "PERMISSION_DENIED",
+        "FLEET_NOT_FOUND",
+        "USER_NOT_IN_FLEET",
+        "ROLE_INVALID",
+        "ROLE_ALREADY_ASSIGNED",
+        "ROLE_ASSIGNMENT_FAILED",
+        "INPUT_ERROR",
+        "INVALID_FLEET_ID_FORMAT",
+        "ROOT_FLEET_NOT_FOUND",
+      ];
+      if (error.errcode && validationErrorCodes.includes(error.errcode)) {
+        APIResponseBadRequest(req, res, error.errcode, {}, error.message);
+      } else {
+        APIResponseInternalErr(
           req,
           res,
-          error.errcode,
-          error.errdata,
-          error.message
+          error,
+          {},
+          "Failed to assign user role"
         );
-      } else {
-        APIResponseInternalErr(req, res, error, "Failed to assign user role");
       }
     }
   };
@@ -1618,13 +2556,11 @@ export default class FmsAccountHdlr {
 
         userid: z
           .string({ message: "Invalid User ID format" })
-          .nonempty({ message: "Invalid User ID format" })
-          .max(128, { message: "User ID must be at most 128 characters long" }),
+          .uuid({ message: "Invalid User ID format" }),
 
         roleid: z
           .string({ message: "Invalid Role ID format" })
-          .nonempty({ message: "Invalid Role ID format" })
-          .max(128, { message: "Role ID must be at most 128 characters long" }),
+          .uuid({ message: "Invalid Role ID format" }),
 
         deassignedby: z
           .string({ message: "Invalid DeassignedBy ID format" })
@@ -1640,6 +2576,22 @@ export default class FmsAccountHdlr {
           deassignedby: req.userid,
         });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.users.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to deassign user role."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.DeassignUserRoleLogic(
         accountid,
         fleetid,
@@ -1649,13 +2601,26 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "User role deassigned successfully");
     } catch (error) {
+      this.logger.error("DeassignUserRole error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(req, res, error, "Failed to deassign user role");
@@ -1675,10 +2640,7 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Invalid Fleet ID format" }),
         userid: z
           .string({ message: "Invalid User ID format" })
-          .nonempty({ message: "Invalid User ID format" })
-          .max(128, {
-            message: "User ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "User ID must be a valid UUID" }),
       });
 
       let { accountid, fleetid, userid } = validateAllInputs(schema, {
@@ -1687,6 +2649,27 @@ export default class FmsAccountHdlr {
         userid: req.params.userid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.users.view",
+          "account.users.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get user info."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.GetUserInfoLogic(
         accountid,
         fleetid,
@@ -1694,68 +2677,29 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "User info fetched successfully");
     } catch (error) {
+      this.logger.error("GetUserInfo error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(req, res, error, "Failed to get user info");
-      }
-    }
-  };
-
-  DeleteUser = async (req, res, next) => {
-    try {
-      let schema = z.object({
-        accountid: z
-          .string({ message: "Invalid Account ID format" })
-          .uuid({ message: "Invalid Account ID format" }),
-
-        userid: z
-          .string({ message: "Invalid User ID format" })
-          .uuid({ message: "User ID must be a valid UUID" }),
-
-        deletedby: z
-          .string({ message: "Invalid Deleted By User ID format" })
-          .uuid({ message: "Deleted By User ID must be a valid UUID" }),
-      });
-
-      const { accountid, userid, deletedby } = validateAllInputs(schema, {
-        accountid: req.accountid,
-        userid: req.params.userid,
-        deletedby: req.userid,
-      });
-
-      let result = await this.fmsAccountHdlrImpl.DeleteUserLogic(
-        accountid,
-        userid,
-        deletedby
-      );
-
-      APIResponseOK(req, res, result, "User deleted successfully");
-    } catch (e) {
-      if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
-      } else if (
-        e.errcode === "CANNOT_DELETE_SELF" ||
-        e.errcode === "USER_NOT_FOUND" ||
-        e.errcode === "USER_ALREADY_DELETED" ||
-        e.errcode === "CANNOT_DELETE_SEED_USER" ||
-        e.errcode === "USER_NOT_IN_ACCOUNT"
-      ) {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
-      } else {
-        return APIResponseInternalErr(
-          req,
-          res,
-          "DELETE_USER_ERR",
-          e.toString(),
-          "Delete user failed"
-        );
       }
     }
   };
@@ -1782,6 +2726,21 @@ export default class FmsAccountHdlr {
         removedby: req.userid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.users.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to remove user."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.RemoveUserLogic(
         accountid,
         userid,
@@ -1789,23 +2748,48 @@ export default class FmsAccountHdlr {
       );
 
       APIResponseOK(req, res, result, "User removed from account successfully");
-    } catch (e) {
-      if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+    } catch (error) {
+      this.logger.error("RemoveUser error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
       } else if (
-        e.errcode === "CANNOT_REMOVE_SELF" ||
-        e.errcode === "USER_NOT_FOUND" ||
-        e.errcode === "USER_NOT_IN_ACCOUNT" ||
-        e.errcode === "CANNOT_REMOVE_LAST_ADMIN" ||
-        e.errcode === "CANNOT_REMOVE_SEED_USER"
+        error.errcode === "CANNOT_REMOVE_SELF" ||
+        error.errcode === "USER_NOT_FOUND" ||
+        error.errcode === "USER_NOT_IN_ACCOUNT" ||
+        error.errcode === "CANNOT_REMOVE_LAST_ADMIN" ||
+        error.errcode === "CANNOT_REMOVE_SEED_USER"
       ) {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
         return APIResponseInternalErr(
           req,
           res,
           "REMOVE_USER_ERR",
-          e.toString(),
+          error.toString(),
           "Remove user failed"
         );
       }
@@ -1824,18 +2808,51 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.view",
+          "account.settings.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account subscriptions."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.GetAccountSubscriptionsLogic(
         accountid
       );
       APIResponseOK(req, res, result, "Subscriptions fetched successfully");
     } catch (error) {
+      this.logger.error("GetAccountSubscriptions error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1865,6 +2882,21 @@ export default class FmsAccountHdlr {
         newpkgid: req.body.newpkgid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.settings.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to check change subscription package."
+        );
+      }
+
       let result =
         await this.fmsAccountHdlrImpl.CheckChangeSubscriptionPackageLogic(
           accountid,
@@ -1877,13 +2909,37 @@ export default class FmsAccountHdlr {
         "Check change subscription package success"
       );
     } catch (error) {
+      this.logger.error("CheckChangeSubscriptionPackage error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.message === "INVALID_PACKAGE_ID" ||
+        error.message === "NEW_PACKAGE_NOT_FOUND"
+      ) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "Invalid package id or new package not found"
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1916,6 +2972,22 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
         pkgid: req.body.pkgid,
       });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.settings.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update account subscription."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.UpdateAccountSubscriptionLogic(
         accountid,
         pkgid,
@@ -1923,13 +2995,31 @@ export default class FmsAccountHdlr {
       );
       APIResponseOK(req, res, result, "Subscription updated successfully");
     } catch (error) {
+      this.logger.error("UpdateAccountSubscription error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "INVALID_PACKAGE_ID" ||
+        error.errcode === "ACCOUNT_ALREADY_SUBSCRIBED_TO_THIS_PACKAGE"
+      ) {
+        APIResponseBadRequest(req, res, error.errcode, {}, error.message);
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1954,6 +3044,26 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.view",
+          "account.settings.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get subscription history."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.GetSubscriptionHistoryLogic(
         accountid
       );
@@ -1964,13 +3074,26 @@ export default class FmsAccountHdlr {
         "Subscription history fetched successfully"
       );
     } catch (error) {
+      this.logger.error("GetSubscriptionHistory error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -1995,6 +3118,26 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.view",
+          "account.settings.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get subscription vehicles."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.GetSubscriptionVehiclesLogic(
         accountid
       );
@@ -2005,13 +3148,26 @@ export default class FmsAccountHdlr {
         "Subscription vehicles fetched successfully"
       );
     } catch (error) {
+      this.logger.error("GetSubscriptionVehicles error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -2036,6 +3192,9 @@ export default class FmsAccountHdlr {
             z
               .string({ message: "VIN No must be a string" })
               .min(1, { message: "VIN No cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "VIN No can only contain letters, numbers, and spaces",
+              })
               .max(128, {
                 message: "VIN No must be at most 128 characters long",
               })
@@ -2053,6 +3212,21 @@ export default class FmsAccountHdlr {
         userid: req.userid,
       });
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.settings.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create subscription intent."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.CreateSubscriptionIntentLogic(
         accountid,
         vinnos,
@@ -2065,13 +3239,26 @@ export default class FmsAccountHdlr {
         "Subscription intent created successfully"
       );
     } catch (error) {
+      this.logger.error("CreateSubscriptionIntent error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -2096,8 +3283,8 @@ export default class FmsAccountHdlr {
             z
               .string({ message: "VIN No must be a string" })
               .min(1, { message: "VIN No cannot be empty" })
-              .max(128, {
-                message: "VIN No must be at most 128 characters long",
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "VIN No can only contain letters, numbers, and spaces",
               })
           )
           .min(1, { message: "VINs array must contain at least one VIN" }),
@@ -2112,6 +3299,21 @@ export default class FmsAccountHdlr {
         vinnos: req.body.vinnos,
         userid: req.userid,
       });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.settings.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to subscribe vehicles."
+        );
+      }
 
       let result = await this.fmsAccountHdlrImpl.SubscribeVehicleLogic(
         accountid,
@@ -2132,13 +3334,26 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Vehicles subscribed successfully");
     } catch (error) {
+      this.logger.error("SubscribeVehicle error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(req, res, error, "Failed to subscribe vehicles");
@@ -2158,6 +3373,9 @@ export default class FmsAccountHdlr {
             z
               .string({ message: "VIN No must be a string" })
               .min(1, { message: "VIN No cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "VIN No can only contain letters, numbers, and spaces",
+              })
               .max(128, {
                 message: "VIN No must be at most 128 characters long",
               })
@@ -2174,6 +3392,21 @@ export default class FmsAccountHdlr {
         vinnos: req.body.vinnos,
         userid: req.userid,
       });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.settings.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to unsubscribe vehicles."
+        );
+      }
 
       let result = await this.fmsAccountHdlrImpl.UnsubscribeVehicleLogic(
         accountid,
@@ -2211,13 +3444,26 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Vehicles unsubscribed successfully");
     } catch (error) {
+      this.logger.error("UnsubscribeVehicle error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -2225,6 +3471,500 @@ export default class FmsAccountHdlr {
           res,
           error,
           "Failed to unsubscribe vehicles"
+        );
+      }
+    }
+  };
+
+  GetAccountCredits = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+      });
+      const { userid, accountid } = validateAllInputs(schema, {
+        userid: req.userid,
+        accountid: req.accountid,
+      });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.admin",
+          "account.settings.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account credits."
+        );
+      }
+
+      let result = await this.fmsAccountHdlrImpl.GetAccountCreditsLogic(
+        accountid
+      );
+      APIResponseOK(req, res, result, "Account credits fetched successfully");
+    } catch (error) {
+      this.logger.error("GetAccountCredits error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ACCOUNT_CREDITS_ERR",
+          error.toString(),
+          "Get account credits failed"
+        );
+      }
+    }
+  };
+
+  GetAccountCreditsHistory = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+
+      const { userid, accountid, starttime, endtime } = validateAllInputs(
+        schema,
+        {
+          userid: req.userid,
+          accountid: req.accountid,
+          starttime: Number(req.query.starttime || 0),
+          endtime: Number(req.query.endtime || 0),
+        }
+      );
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.admin",
+          "account.settings.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account credits history."
+        );
+      }
+
+      let result = await this.fmsAccountHdlrImpl.GetAccountCreditsHistoryLogic(
+        accountid,
+        starttime,
+        endtime
+      );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Account credits history fetched successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetAccountCreditsHistory error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ACCOUNT_CREDITS_HISTORY_ERR",
+          error.toString(),
+          "Get account credits history failed"
+        );
+      }
+    }
+  };
+
+  GetAccountCreditsOverview = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+
+      const { userid, accountid, starttime, endtime } = validateAllInputs(
+        schema,
+        {
+          userid: req.userid,
+          accountid: req.accountid,
+          starttime: Number(req.query.starttime || 0),
+          endtime: Number(req.query.endtime || 0),
+        }
+      );
+
+      if (endtime - starttime > 1000 * 60 * 60 * 24 * 95) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Time range is too long"
+        );
+      }
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.admin",
+          "account.settings.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account credits overview."
+        );
+      }
+
+      let result = await this.fmsAccountHdlrImpl.GetAccountCreditsOverviewLogic(
+        accountid,
+        starttime,
+        endtime
+      );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Account credits overview fetched successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetAccountCreditsOverview error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ACCOUNT_CREDITS_OVERVIEW_ERR",
+          error.toString(),
+          "Get account credits overview failed"
+        );
+      }
+    }
+  };
+
+  GetAccountVehicleCreditsHistory = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        vinno: z
+          .string({ message: "Invalid VIN No format" })
+          .min(1, { message: "VIN No cannot be empty" }),
+        fleetid: z
+          .string({ message: "Invalid Fleet ID format" })
+          .uuid({ message: "Invalid Fleet ID format" }),
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+
+      const { userid, accountid, vinno, fleetid, starttime, endtime } =
+        validateAllInputs(schema, {
+          userid: req.userid,
+          accountid: req.accountid,
+          vinno: req.params.vinno,
+          fleetid: req.query.fleetid,
+          starttime: Number(req.query.starttime || 0),
+          endtime: Number(req.query.endtime || 0),
+        });
+
+      if (endtime - starttime > 1000 * 60 * 60 * 24 * 95) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Time range is too long"
+        );
+      }
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.admin",
+          "account.settings.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account vehicle credits history."
+        );
+      }
+
+      let result =
+        await this.fmsAccountHdlrImpl.GetAccountVehicleCreditsHistoryLogic(
+          accountid,
+          vinno,
+          fleetid,
+          starttime,
+          endtime
+        );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Account vehicle credits history fetched successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetAccountVehicleCreditsHistory error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          "Failed to get account vehicle credits history"
+        );
+      }
+    }
+  };
+
+  GetAccountFleetCreditsHistory = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        fleetid: z
+          .string({ message: "Invalid Fleet ID format" })
+          .uuid({ message: "Invalid Fleet ID format" }),
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+
+      const { userid, accountid, fleetid, starttime, endtime, recursive } =
+        validateAllInputs(schema, {
+          userid: req.userid,
+          accountid: req.accountid,
+          fleetid: req.params.fleetid,
+          starttime: Number(req.query.starttime || 0),
+          endtime: Number(req.query.endtime || 0),
+          recursive: req.query.recursive === "true",
+        });
+
+      if (endtime - starttime > 1000 * 60 * 60 * 24 * 95) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Time range is too long"
+        );
+      }
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.admin",
+          "account.settings.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account fleet credits history."
+        );
+      }
+
+      let result =
+        await this.fmsAccountHdlrImpl.GetAccountFleetCreditsHistoryLogic(
+          accountid,
+          fleetid,
+          starttime,
+          endtime,
+          recursive
+        );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Account fleet credits history fetched successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetAccountFleetCreditsHistory error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          "Failed to get account fleet credits history"
         );
       }
     }
@@ -2247,6 +3987,9 @@ export default class FmsAccountHdlr {
             z
               .string({ message: "VIN No must be a string" })
               .min(1, { message: "VIN No cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "VIN No can only contain letters, numbers, and spaces",
+              })
               .max(128, {
                 message: "VIN No must be at most 128 characters long",
               })
@@ -2277,6 +4020,21 @@ export default class FmsAccountHdlr {
         );
       }
 
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.settings.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to tag vehicles."
+        );
+      }
+
       let result = await this.fmsAccountHdlrImpl.TagVehicleLogic(
         accountid,
         dstaccountid,
@@ -2298,13 +4056,26 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Vehicles tagged successfully");
     } catch (error) {
+      this.logger.error("TagVehicle error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(req, res, error, "Failed to tag vehicles");
@@ -2329,6 +4100,9 @@ export default class FmsAccountHdlr {
             z
               .string({ message: "VIN No must be a string" })
               .min(1, { message: "VIN No cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "VIN No can only contain letters, numbers, and spaces",
+              })
               .max(128, {
                 message: "VIN No must be at most 128 characters long",
               })
@@ -2345,6 +4119,21 @@ export default class FmsAccountHdlr {
           vinnos: req.body.vinnos,
         }
       );
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["account.settings.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to untag vehicles."
+        );
+      }
 
       let result = await this.fmsAccountHdlrImpl.UntagVehicleLogic(
         accountid,
@@ -2366,17 +4155,163 @@ export default class FmsAccountHdlr {
 
       APIResponseOK(req, res, result, "Vehicles untagged successfully");
     } catch (error) {
+      this.logger.error("UntagVehicle error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
         APIResponseBadRequest(
           req,
           res,
           error.errcode,
           error.errdata,
-          error.message
+          "Fleet not found or does not belong to this account"
         );
       } else {
         APIResponseInternalErr(req, res, error, "Failed to untag vehicles");
       }
+    }
+  };
+
+  GetMyFleetPermissions = async (req, res, next) => {
+    try {
+      const schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        fleetid: z
+          .string({ message: "Invalid Fleet ID format" })
+          .uuid({ message: "Invalid Fleet ID format" }),
+      });
+
+      const { userid, accountid, fleetid } = validateAllInputs(schema, {
+        userid: req.userid,
+        accountid: req.accountid,
+        fleetid: req.params.fleetid,
+      });
+
+      const result = await this.fmsAccountHdlrImpl.GetMyFleetPermissionsLogic(
+        userid,
+        accountid,
+        fleetid
+      );
+
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Fleet permissions retrieved successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetMyFleetPermissions error: ", error);
+      if (error.errcode === "FLEET_NOT_FOUND") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "FLEET_NOT_FOUND",
+          error.errdata,
+          error.message
+        );
+      } else if (error.errcode === "USER_NOT_IN_FLEET") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "USER_NOT_IN_FLEET",
+          error.errdata,
+          error.message
+        );
+      } else if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_FLEET_PERMISSIONS_ERR",
+          error.toString(),
+          "Get fleet permissions failed"
+        );
+      }
+    }
+  };
+
+  GetAccountAssignmentHistory = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        starttime: z.number({ message: "Invalid Start Time format" }),
+        endtime: z.number({ message: "Invalid End Time format" }),
+      });
+
+      let { accountid, starttime, endtime } = validateAllInputs(schema, {
+        accountid: req.accountid,
+        starttime: Number(req.query.starttime || 0),
+        endtime: Number(req.query.endtime || 0),
+      });
+
+      const startepoch = this.ValidateEpochTime(starttime, "starttime");
+      const endepoch = this.ValidateEpochTime(endtime, "endtime");
+
+      if (startepoch >= endepoch) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Start time must be less than end time"
+        );
+      }
+
+      if (endepoch - startepoch > 1000 * 60 * 60 * 24 * 100) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Only 100 days of history is available"
+        );
+      }
+
+      let result =
+        await this.fmsAccountHdlrImpl.GetAccountAssignmentHistoryLogic(
+          accountid,
+          startepoch,
+          endepoch
+        );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Account assignment history fetched successfully"
+      );
+    } catch (e) {
+      this.logger.error("GetAccountAssignmentHistory error: ", e);
+      APIResponseInternalErr(
+        req,
+        res,
+        "GET_ACCOUNT_ASSIGNMENT_HISTORY_ERR",
+        e.toString(),
+        "Get account assignment history failed"
+      );
     }
   };
 }

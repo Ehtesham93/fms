@@ -1,18 +1,19 @@
+import promiserouter from "express-promise-router";
+import z from "zod";
 import {
+  APIResponseBadRequest,
   APIResponseInternalErr,
   APIResponseOK,
-  APIResponseBadRequest,
-  APIResponseUnauthorized,
+  APIResponseUnauthorized
 } from "../../../utils/responseutil.js";
-import HistoryDataHdlrImpl from "./historydatahdlr_impl.js";
-import { validateAllInputs } from "../../../utils/validationutil.js";
-import z from "zod";
-import promiserouter from "express-promise-router";
 import { AuthenticateAccountTokenFromCookie } from "../../../utils/tokenutil.js";
+import { validateAllInputs } from "../../../utils/validationutil.js";
+import HistoryDataHdlrImpl from "./historydatahdlr_impl.js";
 export default class HistoryDataHdlr {
   constructor(historyDataSvcI, fmsAccountSvcI, logger) {
     this.historyDataHdlrImpl = new HistoryDataHdlrImpl(historyDataSvcI, logger);
     this.fmsAccountSvcI = fmsAccountSvcI;
+    this.logger = logger;
   }
 
   // TODO: add permission check for each route
@@ -66,11 +67,12 @@ export default class HistoryDataHdlr {
 
       next();
     } catch (error) {
-      this.logger.error("User account access verification failed", error);
+      this.logger.error("VerifyUserAccountAccess error: ", error);
       APIResponseInternalErr(
         req,
         res,
-        error,
+        "FAILED_TO_VERIFY_USER_ACCOUNT_ACCESS",
+        {},
         "Failed to verify user account access"
       );
     }
@@ -84,10 +86,24 @@ export default class HistoryDataHdlr {
           .uuid({ message: "Invalid Account ID format" }),
         vinno: z
           .string({ message: "Invalid VIN No format" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
           .nonempty({ message: "VIN No is required" })
           .max(128, { message: "VIN No must be at most 128 characters long" }),
-        starttime: z.number({ message: "Start Time must be a number" }),
-        endtime: z.number({ message: "End Time must be a number" }),
+        starttime: z
+          .number({ message: "Start Time must be a number" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, {
+            message: "Start Time is invalid",
+          }),
+        endtime: z
+          .number({ message: "End Time must be a number" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, {
+            message: "End Time is invalid",
+          }),
       });
 
       const { accountid, vinno, starttime, endtime } = validateAllInputs(
@@ -100,6 +116,17 @@ export default class HistoryDataHdlr {
         }
       );
 
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
       let result = await this.historyDataHdlrImpl.GetGPSHistoryDataLogic(
         accountid,
         vinno,
@@ -109,6 +136,7 @@ export default class HistoryDataHdlr {
 
       APIResponseOK(req, res, result, "GPS history data listed successfully");
     } catch (error) {
+      this.logger.error("GetGPSHistoryData error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -121,7 +149,8 @@ export default class HistoryDataHdlr {
         APIResponseInternalErr(
           req,
           res,
-          error,
+          "FAILED_TO_GET_GPS_HISTORY_DATA",
+          {},
           "Failed to get GPS history data"
         );
       }
@@ -136,10 +165,24 @@ export default class HistoryDataHdlr {
           .uuid({ message: "Invalid Acccount ID format" }),
         vinno: z
           .string({ message: "Invalid VIN No format" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
           .nonempty({ message: "Invalid VIN No format" })
           .max(128, { message: "Vin No must be at most 128 characters long" }),
-        starttime: z.number({ message: "Start Time must be a number" }),
-        endtime: z.number({ message: "End Time must be a number" }),
+        starttime: z
+          .number({ message: "Start Time must be a number" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, {
+            message: "Start Time is invalid",
+          }),
+        endtime: z
+          .number({ message: "End Time must be a number" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, {
+            message: "End Time is invalid",
+          }),
         canparams: z
           .array(
             z
@@ -161,6 +204,18 @@ export default class HistoryDataHdlr {
           endtime: req.body.endtime,
           canparams: req.body.canparams,
         });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
       let result = await this.historyDataHdlrImpl.GetCANHistoryDataLogic(
         accountid,
         vinno,
@@ -170,6 +225,7 @@ export default class HistoryDataHdlr {
       );
       APIResponseOK(req, res, result, "CAN history data listed successfully");
     } catch (error) {
+      this.logger.error("GetCANHistoryData error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -182,7 +238,8 @@ export default class HistoryDataHdlr {
         APIResponseInternalErr(
           req,
           res,
-          error,
+          "FAILED_TO_GET_CAN_HISTORY_DATA",
+          {},
           "Failed to get CAN history data"
         );
       }
@@ -197,10 +254,24 @@ export default class HistoryDataHdlr {
           .uuid({ message: "Invalid Account ID format" }),
         vinno: z
           .string({ message: "Invalid VIN No format" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
           .nonempty({ message: "VIN No is required" })
           .max(128, { message: "VIN No must be at most 128 characters long" }),
-        starttime: z.number({ message: "Start Time must be a number" }),
-        endtime: z.number({ message: "End Time must be a number" }),
+        starttime: z
+          .number({ message: "Start Time must be a number" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, {
+            message: "Start Time is invalid",
+          }),
+        endtime: z
+          .number({ message: "End Time must be a number" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, {
+            message: "End Time is invalid",
+          }),
         canparams: z
           .array(
             z
@@ -223,6 +294,17 @@ export default class HistoryDataHdlr {
           canparams: req.body.canparams,
         });
 
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
       let result =
         await this.historyDataHdlrImpl.GetMergedCANGPSHistoryDataLogic(
           accountid,
@@ -243,6 +325,7 @@ export default class HistoryDataHdlr {
         "Merged CAN+GPS history data listed successfully"
       );
     } catch (error) {
+      this.logger.error("GetMergedCANGPSHistoryData error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -255,7 +338,8 @@ export default class HistoryDataHdlr {
         APIResponseInternalErr(
           req,
           res,
-          error,
+          "FAILED_TO_GET_MERGED_CANGPS_HISTORY_DATA",
+          {},
           "Failed to get merged CAN+GPS history data"
         );
       }
@@ -269,6 +353,10 @@ export default class HistoryDataHdlr {
           .array(
             z
               .string({ message: "VIN No must be a string" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message:
+                  "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+              })
               .min(1, { message: "VIN No cannot be empty" })
               .max(128, {
                 message: "VIN No must be at most 128 characters long",
@@ -299,6 +387,7 @@ export default class HistoryDataHdlr {
         "Vehicle latest data fetched successfully"
       );
     } catch (error) {
+      this.logger.error("GetVehicleLatestData error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -311,7 +400,8 @@ export default class HistoryDataHdlr {
         APIResponseInternalErr(
           req,
           res,
-          error,
+          "FAILED_TO_GET_VEHICLE_LATEST_DATA",
+          {},
           "Failed to get vehicle latest data"
         );
       }

@@ -1,0 +1,73 @@
+/**
+ * Publishes an account update notification to Redis
+ * @param {string} accountid - The account ID
+ * @param {string} action - The action performed ("added", "updated", "removed")
+ * @param {string} updateType - The type of update ("vehicle", "user", "fleet", etc.)
+ * @param {object} redisSvc - Redis service instance
+ * @param {object} logger - Logger instance
+ * @returns {Promise<boolean>} - Success status
+ */
+export const publishAccountUpdate = async (
+  accountid,
+  action,
+  updateType,
+  redisSvc,
+  logger
+) => {
+  try {
+    // Create the data to store and publish
+    const updateData = {
+      timestamp: new Date().toISOString(),
+      action: action,
+    };
+
+    const key = `account.updates.${accountid}.${updateType}`;
+    const message = JSON.stringify(updateData);
+
+    // Set the key with the data (persistent state)
+    const [setResult, setError] = await redisSvc.set(key, message);
+    if (setError) {
+      logger.error(`Failed to set key ${key}:`, setError);
+    } else {
+      logger.info(`Account update data set for key: ${key}`);
+    }
+
+    // Publish to the same key as topic (real-time notification)
+    const [publishResult, publishError] = await redisSvc.publish(key, message);
+    if (publishError) {
+      logger.error(`Failed to publish to topic ${key}:`, publishError);
+    } else {
+      logger.info(
+        `Account update event published to topic: ${key} (${publishResult} subscribers)`
+      );
+    }
+
+    return !setError && !publishError;
+  } catch (error) {
+    logger.error("Error in publishAccountUpdate:", error);
+    return false;
+  }
+};
+
+/**
+ * Publishes a vehicle update notification specifically
+ * @param {string} accountid - The account ID
+ * @param {string} action - The action performed ("added", "updated", "removed")
+ * @param {object} redisSvc - Redis service instance
+ * @param {object} logger - Logger instance
+ * @returns {Promise<boolean>} - Success status
+ */
+export const publishVehicleUpdate = async (
+  accountid,
+  action,
+  redisSvc,
+  logger
+) => {
+  return await publishAccountUpdate(
+    accountid,
+    action,
+    "vehicle",
+    redisSvc,
+    logger
+  );
+};

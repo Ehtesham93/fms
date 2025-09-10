@@ -25,7 +25,7 @@ export default class PublicRateLimiter {
           429,
           "RATE_LIMIT_EXCEEDED",
           `Too many requests. ${limitType} limit exceeded. Please try again later.`,
-          "rate limit exceeded"
+          `Too many requests. ${limitType} limit exceeded. Please try again later.`
         );
       };
     };
@@ -101,7 +101,7 @@ export default class PublicRateLimiter {
 
       passwordResetHourLimiter: rateLimit({
         windowMs: 60 * 60 * 1000,
-        max: 10000,
+        max: 5000,
         message: "Too many password reset requests. Try again later.",
         handler: createLimiterHandler("Password reset per-hour"),
         standardHeaders: true,
@@ -110,7 +110,7 @@ export default class PublicRateLimiter {
 
       passwordResetDayLimiter: rateLimit({
         windowMs: 24 * 60 * 60 * 1000,
-        max: 100000,
+        max: 25000,
         message: "Too many password reset requests. Try again later.",
         handler: createLimiterHandler("Password reset per-day"),
         standardHeaders: true,
@@ -148,11 +148,47 @@ export default class PublicRateLimiter {
       }),
 
       // Admin/superadmin specific limiter
-      adminLimiter: rateLimit({
+      adminMinuteLimiter: rateLimit({
         windowMs: 60 * 1000,
-        max: 10000,
+        max: 10,
         message: "Too many admin requests. Try again later.",
         handler: createLimiterHandler("Admin per-minute"),
+        standardHeaders: true,
+        legacyHeaders: false,
+      }),
+
+      adminHourLimiter: rateLimit({
+        windowMs: 60 * 60 * 1000,
+        max: 50,
+        message: "Too many admin requests. Try again later.",
+        handler: createLimiterHandler("Admin per-hour"),
+        standardHeaders: true,
+        legacyHeaders: false,
+      }),
+
+      testUserTokenMinuteLimiter: rateLimit({
+        windowMs: 60 * 1000,
+        max: 500,
+        message: "Too many test user token requests. Try again later.",
+        handler: createLimiterHandler("Test user token per-minute"),
+        standardHeaders: true,
+        legacyHeaders: false,
+      }),
+
+      testUserTokenHourLimiter: rateLimit({
+        windowMs: 60 * 60 * 1000,
+        max: 1000,
+        message: "Too many test user token requests. Try again later.",
+        handler: createLimiterHandler("Test user token per-hour"),
+        standardHeaders: true,
+        legacyHeaders: false,
+      }),
+
+      testUserTokenDayLimiter: rateLimit({
+        windowMs: 24 * 60 * 60 * 1000,
+        max: 2000,
+        message: "Too many test user token requests. Try again later.",
+        handler: createLimiterHandler("Test user token per-day"),
         standardHeaders: true,
         legacyHeaders: false,
       }),
@@ -185,8 +221,16 @@ export default class PublicRateLimiter {
 
   getAdminLimiters() {
     return [
-      this.rateLimiters.adminLimiter,
-      this.rateLimiters.signinHourLimiter,
+      this.rateLimiters.adminMinuteLimiter,
+      this.rateLimiters.adminHourLimiter,
+    ];
+  }
+
+  getTestUserTokenLimiters() {
+    return [
+      this.rateLimiters.testUserTokenMinuteLimiter,
+      this.rateLimiters.testUserTokenHourLimiter,
+      this.rateLimiters.testUserTokenDayLimiter,
     ];
   }
 }

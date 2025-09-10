@@ -1,27 +1,83 @@
+import z from "zod";
+import crypto from "crypto";
+import { UAParser } from "ua-parser-js";
+
 import {
+  APIResponseBadRequest,
   APIResponseInternalErr,
   APIResponseOK,
-  APIResponseBadRequest,
+  APIResponseForbidden,
+  APIResponseError,
 } from "../../../utils/responseutil.js";
-import AccountHdlrImpl from "./accounthdlr_impl.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
-import z from "zod";
+import AccountHdlrImpl from "./accounthdlr_impl.js";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
+
 const ADMIN_ROLEID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+const RATE_LIMIT_PER_HOUR = 3;
 export default class AccountHdlr {
-  constructor(accountSvcI, userSvcI, authSvcI, fmsAccountSvcI, logger) {
+  constructor(
+    accountSvcI,
+    userSvcI,
+    authSvcI,
+    fmsAccountSvcI,
+    platformSvcI,
+    inMemCacheI,
+    redisSvc,
+    logger
+  ) {
     this.accountSvcI = accountSvcI;
     this.userSvcI = userSvcI;
     this.authSvcI = authSvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
+    this.platformSvcI = platformSvcI;
+    this.inMemCacheI = inMemCacheI;
+    this.redisSvc = redisSvc;
     this.logger = logger;
     this.accountHdlrImpl = new AccountHdlrImpl(
       accountSvcI,
       userSvcI,
       authSvcI,
       fmsAccountSvcI,
+      platformSvcI,
+      redisSvc,
       logger
     );
+
+    this.inMemCacheI = inMemCacheI;
   }
+
+  getDeviceFingerprint = (req) => {
+    const ip =
+      req.headers["x-forwarded-for"] ||
+      req.headers["x-real-ip"] ||
+      req.connection.remoteAddress ||
+      req.socket.remoteAddress ||
+      (req.connection.socket ? req.connection.socket.remoteAddress : null);
+
+    const userAgent = req.headers["user-agent"] || "";
+    const referrer = req.headers["referer"] || "";
+    const parser = new UAParser(userAgent);
+    const ua = parser.getResult();
+    const useragentstr = `${ip}-${JSON.stringify(ua)}-${referrer}`;
+    const deviceFingerprint = crypto
+      .createHash("sha256")
+      .update(useragentstr)
+      .digest("hex");
+
+    return deviceFingerprint;
+  };
+
+  getRootFleetInviteFingerprint = (req, accountid, contact) => {
+    const deviceFingerprint = this.getDeviceFingerprint(req);
+    const inviteSpecificData = `${deviceFingerprint}-${accountid}-Home-${contact}`;
+    const inviteFingerprint = crypto
+      .createHash("sha256")
+      .update(inviteSpecificData)
+      .digest("hex");
+
+    return inviteFingerprint;
+  };
 
   RegisterRoutes(router) {
     router.post("/", this.CreateAccount);
@@ -54,9 +110,19 @@ export default class AccountHdlr {
     );
     router.post("/:accountid/subscription", this.CreateSubscription);
     router.get("/:accountid/subscription", this.GetSubscriptionInfo);
+
     router.get("/:accountid/credits", this.GetAccountCredits);
-    router.put("/:accountid/credits", this.UpdateAccountCredits);
+    router.put("/:accountid/credits", this.UpdateAccountCredits); // TODO: change this to post?
+    router.get("/:accountid/credits/overview", this.GetAccountCreditsOverview);
     router.get("/:accountid/credits/history", this.GetAccountCreditsHistory);
+    router.get(
+      "/:accountid/vehicle/:vinno/credits/history",
+      this.GetAccountVehicleCreditsHistory
+    );
+    // router.get(
+    //   "/:accountid/fleets/credits/history",
+    //   this.GetAccountAllFleetsCreditsHistory
+    // );
     router.get("/:accountid/vehicles", this.ListAccountVehicles);
     router.post("/:accountid/vehicles/subscribe", this.SubscribeVehicles);
     router.post("/:accountid/vehicle/unsubscribe", this.UnsubscribeVehicle);
@@ -78,10 +144,25 @@ export default class AccountHdlr {
     router.get("/:accountid/vehicles/assignable", this.ListAssignableVehicles);
     router.post("/:accountid/vehicle/:vinno", this.AddVehicleToAccount);
     router.delete("/:accountid/vehicle/:vinno", this.RemoveVehicleFromAccount);
+
+    router.get("/listpending", this.ListPendingAccounts);
+    router.get("/listdone", this.ListDoneAccounts);
   }
 
   CreateAccount = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, ["consolemgmt.account.admin"], "all")
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create account."
+        );
+      }
+
       const schema = z.object({
         accountname: z
           .string({ message: "Invalid Account Name format" })
@@ -89,7 +170,7 @@ export default class AccountHdlr {
           .max(128, {
             message: "Account Name must be at most 128 characters long",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Account name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -105,30 +186,35 @@ export default class AccountHdlr {
           .optional(),
         accountinfo: z
           .record(z.any(), { message: "Account Info must be an object" })
-          .default({})
+          .optional()
+          .default({}),
+        accountid: z
+          .string({ message: "Account ID is required" })
+          .uuid({ message: "Invalid Account ID format" })
           .optional(),
       });
 
       let createdby = req.userid;
-      const { accountname, isenabled, mobile, accountinfo } = validateAllInputs(
-        schema,
-        {
+      const { accountname, isenabled, mobile, accountinfo, accountid } =
+        validateAllInputs(schema, {
           accountname: req.body.accountname,
           isenabled: req.body.isenabled,
           mobile: req.body.mobile,
           accountinfo: req.body.accountinfo,
-        }
-      );
+          accountid: req.body.accountid,
+        });
 
       let result = await this.accountHdlrImpl.CreateAccountLogic(
         accountname,
         accountinfo,
         isenabled,
         createdby,
-        mobile
+        mobile,
+        accountid
       );
       APIResponseOK(req, res, result, "Account created successfully");
     } catch (error) {
+      this.logger.error("CreateAccount error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -151,9 +237,24 @@ export default class AccountHdlr {
 
   ListAccounts = async (req, res, next) => {
     try {
+      // if (
+      //   !CheckUserPerms(req.userperms, [
+      //     "consolemgmt.account.view",
+      //     "consolemgmt.account.admin",
+      //   ])
+      // ) {
+      //   return APIResponseForbidden(
+      //     req,
+      //     res,
+      //     "INSUFFICIENT_PERMISSIONS",
+      //     null,
+      //     "You don't have permission to list accounts."
+      //   );
+      // }
       let result = await this.accountHdlrImpl.ListAccountsLogic();
       APIResponseOK(req, res, result, "Accounts fetched successfully");
     } catch (e) {
+      this.logger.error("ListAccounts error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -179,6 +280,7 @@ export default class AccountHdlr {
       );
       APIResponseOK(req, res, result, "Account overview fetched successfully");
     } catch (error) {
+      this.logger.error("GetAccountOverview error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -201,6 +303,15 @@ export default class AccountHdlr {
 
   UpdateAccount = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.account.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update account."
+        );
+      }
       let schema = z
         .object({
           accountid: z
@@ -216,7 +327,7 @@ export default class AccountHdlr {
             .max(128, {
               message: "Account Name must be at most 128 characters long",
             })
-            .regex(/^[A-Za-z0-9 _-]+$/, {
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
               message:
                 "Account name can only contain letters, numbers, spaces, hyphens, and underscores",
             })
@@ -266,6 +377,7 @@ export default class AccountHdlr {
 
       APIResponseOK(req, res, result, "Account updated successfully");
     } catch (e) {
+      this.logger.error("UpdateAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -282,6 +394,15 @@ export default class AccountHdlr {
 
   DeleteAccount = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.account.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to delete account."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -302,8 +423,15 @@ export default class AccountHdlr {
       );
       APIResponseOK(req, res, result, "Account deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "ACCOUNT_NOT_FOUND") {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
+      } else if (e.errcode === "ACCOUNT_ALREADY_DELETED") {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
+      } else if (e.errcode === "ACCOUNT_HAS_VEHICLES") {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -318,6 +446,15 @@ export default class AccountHdlr {
 
   AddUserToAccount = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountuser.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to add user to account."
+        );
+      }
       const schema = z.object({
         accountid: z
           .string({ message: "Account ID is required" })
@@ -346,10 +483,33 @@ export default class AccountHdlr {
 
       APIResponseOK(req, res, result, "User added to account successfully");
     } catch (e) {
+      this.logger.error("AddUserToAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "ACCOUNT_NOT_FOUND") {
+        return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
+      } else if (e.errcode === "ACCOUNT_ALREADY_DELETED") {
+        return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
+      } else if (e.errcode === "USER_ALREADY_IN_ACCOUNT") {
+        return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
+      } else if (e.message === "User not found") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "USER_NOT_FOUND",
+          {},
+          "No user found with the provided contact information"
+        );
+      } else if (e.message === "Account root fleet not found") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "ACCOUNT_CONFIGURATION_ERROR",
+          {},
+          "Account configuration is invalid. Please contact support."
+        );
       } else {
-        APIResponseInternalErr(
+        return APIResponseInternalErr(
           req,
           res,
           "ADD_USER_TO_ACCOUNT_ERR",
@@ -362,6 +522,21 @@ export default class AccountHdlr {
 
   GetAccountUsers = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.view",
+          "consolemgmt.account.admin",
+          "consolemgmt.accountuser.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account users."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -373,6 +548,7 @@ export default class AccountHdlr {
       let result = await this.accountHdlrImpl.GetAccountUsersLogic(accountid);
       APIResponseOK(req, res, result, "Account users fetched successfully");
     } catch (e) {
+      this.logger.error("GetAccountUsers error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -389,6 +565,21 @@ export default class AccountHdlr {
 
   ListAccountInvites = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.view",
+          "consolemgmt.account.admin",
+          "consolemgmt.accountuser.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list account invites."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -405,6 +596,7 @@ export default class AccountHdlr {
 
       APIResponseOK(req, res, result, "Account invites fetched successfully");
     } catch (e) {
+      this.logger.error("ListAccountInvites error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -421,6 +613,15 @@ export default class AccountHdlr {
 
   CancelEmailInvite = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountuser.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to cancel email invite."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -448,6 +649,7 @@ export default class AccountHdlr {
 
       APIResponseOK(req, res, result, "Email invite cancelled successfully");
     } catch (e) {
+      this.logger.error("CancelEmailInvite error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -464,14 +666,22 @@ export default class AccountHdlr {
 
   RemoveUserFromAccount = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountuser.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to remove user from account."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
           .uuid({ message: "Invalid Account ID format" }),
         userid: z
           .string({ message: "Invalid User ID format" })
-          .nonempty({ message: "Invalid User ID format" })
-          .max(128, { message: "Invalid User ID format" }),
+          .uuid({ message: "Invalid User ID format" }),
         updatedby: z
           .string({ message: "UpdatedBy is required" })
           .uuid({ message: "UpdatedBy must be a valid UUID" }),
@@ -490,6 +700,7 @@ export default class AccountHdlr {
       );
       APIResponseOK(req, res, result, "User removed from account successfully");
     } catch (e) {
+      this.logger.error("RemoveUserFromAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -506,6 +717,21 @@ export default class AccountHdlr {
 
   GetAccountPkgs = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.accountpkg.admin",
+          "consolemgmt.account.view",
+          "consolemgmt.account.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account packages."
+        );
+      }
       const schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -517,6 +743,7 @@ export default class AccountHdlr {
       let result = await this.accountHdlrImpl.GetAccountPkgsLogic(accountid);
       APIResponseOK(req, res, result, "Account packages fetched successfully");
     } catch (e) {
+      this.logger.error("GetAccountPkgs error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -533,6 +760,21 @@ export default class AccountHdlr {
 
   GetUnassignedCustomPkgs = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.accountpkg.admin",
+          "consolemgmt.account.view",
+          "consolemgmt.account.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get unassigned custom packages."
+        );
+      }
       const schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -551,6 +793,7 @@ export default class AccountHdlr {
         "Unassigned custom packages fetched successfully"
       );
     } catch (e) {
+      this.logger.error("GetUnassignedCustomPkgs error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -567,6 +810,15 @@ export default class AccountHdlr {
 
   AddCustomPkgToAccount = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountpkg.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to add custom package to account."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -578,6 +830,7 @@ export default class AccountHdlr {
           .array(
             z
               .string({ message: "Invalid Package ID format" })
+              .uuid({ message: "Invalid Package ID format" })
               .nonempty({ message: "Invalid package IDs" })
           )
           .min(1, { message: "At least one Package ID is required" }),
@@ -610,6 +863,7 @@ export default class AccountHdlr {
         "Custom package added to account successfully"
       );
     } catch (e) {
+      this.logger.error("AddCustomPkgToAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -626,6 +880,15 @@ export default class AccountHdlr {
 
   RemoveCustomPkgFromAccount = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountpkg.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to remove custom package from account."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Account ID is required" })
@@ -637,7 +900,7 @@ export default class AccountHdlr {
 
         pkgid: z
           .string({ message: "Package ID is required" })
-          .nonempty({ message: "Invalid Package ID format" }),
+          .uuid({ message: "Invalid Package ID format" }),
       });
 
       let { accountid, updatedby, pkgid } = validateAllInputs(schema, {
@@ -659,6 +922,7 @@ export default class AccountHdlr {
         "Custom package removed from account successfully"
       );
     } catch (e) {
+      this.logger.error("RemoveCustomPkgFromAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -675,6 +939,15 @@ export default class AccountHdlr {
 
   InviteContact = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountuser.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to invite contact to account."
+        );
+      }
       let invitedby = req.userid;
       let accountid = req.params.accountid;
       let contact = req.body.contact;
@@ -710,6 +983,23 @@ export default class AccountHdlr {
         contact,
       });
 
+      const inviteFingerprint = this.getRootFleetInviteFingerprint(
+        req,
+        accountid,
+        validatedContact
+      );
+      const rateLimitKey = `root_fleet_invite_rate_limit:${inviteFingerprint}`;
+
+      let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
+
+      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+        const error = new Error(
+          "Too many invites sent to this contact for this account. Please try after an hour."
+        );
+        error.errcode = "RATE_LIMIT_EXCEEDED";
+        throw error;
+      }
+
       let isEmail = validatedContact.includes("@");
 
       let result = isEmail
@@ -727,10 +1017,22 @@ export default class AccountHdlr {
             roles,
             headerReferer
           );
+      this.inMemCacheI.set(rateLimitKey, currentCount + 1);
+
       return APIResponseOK(req, res, result, "Invite sent successfully");
     } catch (e) {
+      this.logger.error("InviteContact error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "RATE_LIMIT_EXCEEDED") {
+        APIResponseError(
+          req,
+          res,
+          429,
+          "RATE_LIMIT_EXCEEDED",
+          null,
+          "Too many resend attempts for this invite. Please try after an hour."
+        );
       } else {
         return APIResponseInternalErr(
           req,
@@ -745,6 +1047,15 @@ export default class AccountHdlr {
 
   ResendInvite = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountuser.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to resend invite."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -756,10 +1067,7 @@ export default class AccountHdlr {
 
         inviteid: z
           .string({ message: "Invite ID is required" })
-          .nonempty({ message: "Invite ID cannot be empty" })
-          .max(128, {
-            message: "Invite ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Invalid Invite ID format" }),
       });
 
       let { accountid, invitedby, inviteid } = validateAllInputs(schema, {
@@ -767,6 +1075,23 @@ export default class AccountHdlr {
         invitedby: req.userid,
         inviteid: req.body.inviteid,
       });
+
+      const deviceFingerprint = this.getDeviceFingerprint(req);
+      const resendFingerprint = crypto
+        .createHash("sha256")
+        .update(`${deviceFingerprint}-${inviteid}`)
+        .digest("hex");
+      const rateLimitKey = `root_fleet_resend_rate_limit:${resendFingerprint}`;
+
+      let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
+
+      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+        const error = new Error(
+          "Too many resend attempts for this invite. Please try after an hour."
+        );
+        error.errcode = "RATE_LIMIT_EXCEEDED";
+        throw error;
+      }
 
       let headerReferer = req.headers.origin;
 
@@ -776,11 +1101,34 @@ export default class AccountHdlr {
         invitedby,
         headerReferer
       );
-
+      this.inMemCacheI.set(rateLimitKey, currentCount + 1);
       APIResponseOK(req, res, result, "Invite resent successfully");
     } catch (e) {
+      this.logger.error("ResendInvite error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "RATE_LIMIT_EXCEEDED") {
+        APIResponseError(
+          req,
+          res,
+          429,
+          "RATE_LIMIT_EXCEEDED",
+          null,
+          "Too many resend attempts for this invite. Please try after an hour."
+        );
+      } else if (
+        e.message === "INVALID_INVITE_ID" ||
+        e.message === "INVITE_IS_NOT_IN_SENT_STATE" ||
+        e.message === "INVITE_IS_NOT_AN_EMAIL_INVITE" ||
+        e.message === "CANNOT_RESEND_AN_EXPIRED_INVITE"
+      ) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          e.message,
+          {},
+          "Failed to resend invite"
+        );
       } else {
         return APIResponseInternalErr(
           req,
@@ -814,6 +1162,7 @@ export default class AccountHdlr {
         "Packages for subscription fetched successfully"
       );
     } catch (e) {
+      this.logger.error("ListPackagesForSubscription error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -830,6 +1179,21 @@ export default class AccountHdlr {
 
   CalculateSubscriptionCost = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.accountpkg.admin",
+          "consolemgmt.account.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to calculate subscription cost."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Account ID is required" })
@@ -837,10 +1201,7 @@ export default class AccountHdlr {
 
         pkgid: z
           .string({ message: "Package ID is required" })
-          .nonempty({ message: "Package ID cannot be empty" })
-          .max(128, {
-            message: "Package ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Invalid Package ID format" }),
 
         vehdays: z
           .number({ message: "Vehicle days is required" })
@@ -886,6 +1247,7 @@ export default class AccountHdlr {
         "Subscription cost calculated successfully"
       );
     } catch (e) {
+      this.logger.error("CalculateSubscriptionCost error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -901,6 +1263,15 @@ export default class AccountHdlr {
   };
 
   CreateSubscription = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.accountpkg.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create subscription."
+      );
+    }
     try {
       let schema = z.object({
         accountid: z
@@ -911,10 +1282,7 @@ export default class AccountHdlr {
           .uuid({ message: "Createdby ID is required" }),
         pkgid: z
           .string({ message: "Package ID is required" })
-          .nonempty({ message: "Package ID cannot be empty" })
-          .max(128, {
-            message: "Package ID must be at most 128 characters long",
-          }),
+          .uuid({ message: "Invalid Package ID format" }),
       });
 
       let { accountid, createdby, pkgid } = validateAllInputs(schema, {
@@ -929,6 +1297,7 @@ export default class AccountHdlr {
       );
       APIResponseOK(req, res, result, "Subscription created successfully");
     } catch (e) {
+      this.logger.error("CreateSubscription error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -945,6 +1314,21 @@ export default class AccountHdlr {
 
   GetSubscriptionInfo = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.view",
+          "consolemgmt.account.admin",
+          "consolemgmt.accountpkg.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get subscription info."
+        );
+      }
       const schema = z.object({
         userid: z
           .string({ message: "User ID is required" })
@@ -965,6 +1349,7 @@ export default class AccountHdlr {
       );
       APIResponseOK(req, res, result, "Subscription info fetched successfully");
     } catch (e) {
+      this.logger.error("GetSubscriptionInfo error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -981,6 +1366,20 @@ export default class AccountHdlr {
 
   GetAccountCredits = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.credits.admin",
+          "consolemgmt.credits.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account credits."
+        );
+      }
       let schema = z.object({
         userid: z
           .string({ message: "Invalid User ID format" })
@@ -994,12 +1393,10 @@ export default class AccountHdlr {
         accountid: req.params.accountid,
       });
 
-      let result = await this.accountHdlrImpl.GetAccountCreditsLogic(
-        accountid,
-        userid
-      );
+      let result = await this.accountHdlrImpl.GetAccountCreditsLogic(accountid);
       APIResponseOK(req, res, result, "Account credits fetched successfully");
     } catch (e) {
+      this.logger.error("GetAccountCredits error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1016,6 +1413,15 @@ export default class AccountHdlr {
 
   UpdateAccountCredits = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.credits.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update account credits."
+        );
+      }
       let schema = z.object({
         updatedby: z
           .string({ message: "Invalid User ID format" })
@@ -1040,6 +1446,7 @@ export default class AccountHdlr {
 
       APIResponseOK(req, res, result, "Account credits updated successfully");
     } catch (e) {
+      this.logger.error("UpdateAccountCredits error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1054,18 +1461,115 @@ export default class AccountHdlr {
     }
   };
 
-  GetAccountCreditsHistory = async (req, res, next) => {
+  GetAccountCreditsOverview = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.credits.admin",
+          "consolemgmt.credits.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account credits overview."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
           .uuid({ message: "Invalid Account ID format" }),
+        starttime: z
+          .number({ message: "Start Time must be a number" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, {
+            message: "Start Time is invalid",
+          }),
+        endtime: z
+          .number({ message: "End Time must be a number" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, {
+            message: "End Time is invalid",
+          }),
       });
-      let { accountid } = validateAllInputs(schema, {
+      let { accountid, starttime, endtime } = validateAllInputs(schema, {
         accountid: req.params.accountid,
+        starttime: Number(req.query.starttime || 0),
+        endtime: Number(req.query.endtime || 0),
       });
+
+      let result = await this.accountHdlrImpl.GetAccountCreditsOverviewLogic(
+        accountid,
+        starttime,
+        endtime
+      );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Account credits overview fetched successfully"
+      );
+    } catch (e) {
+      this.logger.error("GetAccountCreditsOverview error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ACCOUNT_CREDITS_OVERVIEW_ERR",
+          e.toString(),
+          "Get account credits overview failed"
+        );
+      }
+    }
+  };
+
+  GetAccountCreditsHistory = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.credits.admin",
+          "consolemgmt.credits.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account credits history."
+        );
+      }
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        starttime: z
+          .number({ message: "Start Time must be a number" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, {
+            message: "Start Time is invalid",
+          }),
+        endtime: z
+          .number({ message: "End Time must be a number" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, {
+            message: "End Time is invalid",
+          }),
+      });
+      let { accountid, starttime, endtime } = validateAllInputs(schema, {
+        accountid: req.params.accountid,
+        starttime: Number(req.query.starttime || 0),
+        endtime: Number(req.query.endtime || 0),
+      });
+
       let result = await this.accountHdlrImpl.GetAccountCreditsHistoryLogic(
-        accountid
+        accountid,
+        starttime,
+        endtime
       );
       APIResponseOK(
         req,
@@ -1074,6 +1578,7 @@ export default class AccountHdlr {
         "Account credits history fetched successfully"
       );
     } catch (e) {
+      this.logger.error("GetAccountCreditsHistory error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1088,31 +1593,178 @@ export default class AccountHdlr {
     }
   };
 
-  // TODO: add a handler to remove a vehicle from the fleet
-  // TODO: add canunsubscribe vehicle field in the response
+  GetAccountVehicleCreditsHistory = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.account.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account vehicle credits history."
+        );
+      }
+
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        vinno: z
+          .string({ message: "Invalid VIN No format" })
+          .min(1, { message: "VIN No cannot be empty" }),
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+
+      const { accountid, vinno, starttime, endtime } = validateAllInputs(
+        schema,
+        {
+          accountid: req.params.accountid,
+          vinno: req.params.vinno,
+          starttime: Number(req.query.starttime || 0),
+          endtime: Number(req.query.endtime || 0),
+        }
+      );
+
+      let result =
+        await this.accountHdlrImpl.GetAccountVehicleCreditsHistoryLogic(
+          accountid,
+          vinno,
+          starttime,
+          endtime
+        );
+
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Account vehicle credits history fetched successfully"
+      );
+    } catch (e) {
+      this.logger.error("GetAccountVehicleCreditsHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          e,
+          "Failed to get account vehicle credits history"
+        );
+      }
+    }
+  };
+
+  GetAccountAllFleetsCreditsHistory = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.account.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account vehicle credits history."
+        );
+      }
+
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+
+      const { accountid, starttime, endtime } = validateAllInputs(schema, {
+        accountid: req.params.accountid,
+        starttime: Number(req.query.starttime || 0),
+        endtime: Number(req.query.endtime || 0),
+      });
+
+      let result =
+        await this.accountHdlrImpl.GetAccountAllFleetsCreditsHistoryLogic(
+          accountid,
+          starttime,
+          endtime
+        );
+
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Account all fleets credits history fetched successfully"
+      );
+    } catch (e) {
+      this.logger.error("GetAccountAllFleetsCreditsHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          e,
+          "Failed to get account all fleets credits history"
+        );
+      }
+    }
+  };
+
   ListAccountVehicles = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.account.view",
+          "consolemgmt.accountvehicle.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get account vehicles."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Account ID is required" })
           .uuid({ message: "Account ID must be a valid UUID" }),
-        subscriptiontype: z
-          .string({ message: "Invalid  Subscription Type" })
-          .nonempty({ message: "Invalid  Subscription Type" }),
       });
 
-      let { accountid, subscriptiontype } = validateAllInputs(schema, {
+      let { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
-        subscriptiontype: req.query.subscriptiontype,
       });
 
       let result = await this.accountHdlrImpl.ListAccountVehiclesLogic(
-        accountid,
-        subscriptiontype
+        accountid
       );
 
       APIResponseOK(req, res, result, "Account vehicles fetched successfully");
     } catch (e) {
+      this.logger.error("ListAccountVehicles error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1143,6 +1795,10 @@ export default class AccountHdlr {
             z
               .string({ message: "Invalid VIN No format" })
               .nonempty({ message: "VIN NO cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message:
+                  "VIN NO must contain only letters, numbers, and spaces, and must not start or end with a space",
+              })
           )
           .min(1, { message: "At least one VIN is required" }),
       });
@@ -1169,6 +1825,7 @@ export default class AccountHdlr {
 
       APIResponseOK(req, res, result, "Vehicles subscribed successfully");
     } catch (e) {
+      this.logger.error("SubscribeVehicles error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1197,6 +1854,10 @@ export default class AccountHdlr {
         vinno: z
           .string({ message: "VIN number is required" })
           .nonempty({ message: "VIN number cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN NO must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
           .max(128, { message: "VIN number must be at most 128 characters" }),
       });
 
@@ -1214,6 +1875,7 @@ export default class AccountHdlr {
 
       APIResponseOK(req, res, result, "Vehicle unsubscribed successfully");
     } catch (e) {
+      this.logger.error("UnsubscribeVehicle error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1230,6 +1892,15 @@ export default class AccountHdlr {
 
   CheckChangeSubscriptionPackage = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountpkg.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to check change subscription package."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -1237,10 +1908,7 @@ export default class AccountHdlr {
 
         newpkgid: z
           .string({ message: "Invalid New Package format" })
-          .nonempty({ message: "Invalid New Package format" })
-          .max(128, {
-            message: "New Package ID must be at most 128 characters",
-          }),
+          .uuid({ message: "Invalid New Package format" }),
       });
 
       let { accountid, newpkgid } = validateAllInputs(schema, {
@@ -1261,8 +1929,20 @@ export default class AccountHdlr {
         "Check change subscription package success"
       );
     } catch (e) {
+      this.logger.error("CheckChangeSubscriptionPackage error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.message === "INVALID_PACKAGE_ID" ||
+        e.message === "PACKAGE_NOT_FOUND"
+      ) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          e.message,
+          {},
+          "Invalid package id or package not found"
+        );
       } else {
         return APIResponseInternalErr(
           req,
@@ -1277,6 +1957,15 @@ export default class AccountHdlr {
 
   ChangeSubscriptionPackage = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.accountpkg.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to change subscription package."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Account ID is required" })
@@ -1284,10 +1973,7 @@ export default class AccountHdlr {
 
         newpkgid: z
           .string({ message: "New package ID is required" })
-          .nonempty({ message: "New package ID is required" })
-          .max(128, {
-            message: "New Package ID must be at most 128 characters",
-          }),
+          .uuid({ message: "New package ID must be a valid UUID" }),
         updatedby: z
           .string({ message: "User ID is required" })
           .uuid({ message: "User ID must be a valid UUID" }),
@@ -1311,8 +1997,22 @@ export default class AccountHdlr {
         "Subscription package changed successfully"
       );
     } catch (e) {
+      this.logger.error("ChangeSubscriptionPackage error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "SAME_PACKAGE_ID" ||
+        e.errcode === "MULTIPLE_SUBSCRIPTIONS_FOUND" ||
+        e.errcode === "INVALID_PACKAGE_ID" ||
+        e.errcode === "PACKAGE_NOT_FOUND" ||
+        e.errcode === "NO_ACCOUNT_CREDITS" ||
+        e.errcode === "INSUFFICIENT_CREDITS" ||
+        e.errcode === "FAILED_TO_UPDATE_SUBSCRIPTION" ||
+        e.errcode === "FAILED_TO_CREATE_SUBSCRIPTION" ||
+        e.errcode === "FAILED_TO_CREATE_SUBSCRIPTION_HISTORY" ||
+        e.errcode === "FAILED_TO_RETRIEVE_SUBSCRIPTION_HISTORY"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -1327,6 +2027,21 @@ export default class AccountHdlr {
 
   GetSubscriptionHistory = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.account.view",
+          "consolemgmt.accountpkg.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get subscription history."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Account ID is required" })
@@ -1346,6 +2061,7 @@ export default class AccountHdlr {
         "Subscription history fetched successfully"
       );
     } catch (e) {
+      this.logger.error("GetSubscriptionHistory error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1379,6 +2095,7 @@ export default class AccountHdlr {
       );
       APIResponseOK(req, res, fleets);
     } catch (e) {
+      this.logger.error("GetAllFleetsWithVinInfo error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1389,6 +2106,17 @@ export default class AccountHdlr {
 
   AddVehicleToAccount = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, ["consolemgmt.accountvehicle.admin"])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to add vehicle to account."
+        );
+      }
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -1401,14 +2129,24 @@ export default class AccountHdlr {
         vinno: z
           .string({ message: "Invalid VIN format" })
           .nonempty({ message: "VIN cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN NO must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
           .max(128, { message: "VIN must not exceed 128 characters" }),
 
         regno: z
           .string({ message: "Invalid Registration Number format" })
-          .nonempty({ message: "Registration Number cannot be empty" })
           .max(128, {
             message: "Registration Number must not exceed 128 characters",
-          }),
+          })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "Registration Number must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
+          .optional()
+          .nullable(),
+
         isowner: z.boolean({ message: "isowner must be a boolean" }),
         accvininfo: z
           .record(z.any(), { message: "accvininfo must be an object" })
@@ -1435,6 +2173,7 @@ export default class AccountHdlr {
 
       APIResponseOK(req, res, result, "Vehicle added to account successfully");
     } catch (e) {
+      this.logger.error("AddVehicleToAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1451,6 +2190,18 @@ export default class AccountHdlr {
 
   RemoveVehicleFromAccount = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, ["consolemgmt.accountvehicle.admin"])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to remove vehicle from account."
+        );
+      }
+
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
@@ -1459,6 +2210,10 @@ export default class AccountHdlr {
         vinno: z
           .string({ message: "Invalid VIN format" })
           .nonempty({ message: "VIN cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN NO must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
           .max(128, { message: "VIN must not exceed 128 characters" }),
 
         removedby: z
@@ -1485,8 +2240,15 @@ export default class AccountHdlr {
         "Vehicle removed from account successfully"
       );
     } catch (e) {
+      this.logger.error("RemoveVehicleFromAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "VEHICLE_NOT_FOUND") {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
+      } else if (e.errcode === "VEHICLE_NOT_IN_FLEET") {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
+      } else if (e.errcode === "VEHICLE_NOT_OWNED") {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -1501,6 +2263,17 @@ export default class AccountHdlr {
 
   ListAssignableVehicles = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, ["consolemgmt.accountvehicle.admin"])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list assignable vehicles."
+        );
+      }
       const schema = z.object({
         accountid: z
           .string({ message: "Account ID is required" })
@@ -1521,6 +2294,7 @@ export default class AccountHdlr {
         "Assignable vehicles fetched successfully"
       );
     } catch (error) {
+      this.logger.error("ListAssignableVehicles error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -1536,6 +2310,74 @@ export default class AccountHdlr {
           "LIST_ASSIGNABLE_VEHICLES_ERR",
           error.toString(),
           "List assignable vehicles failed"
+        );
+      }
+    }
+  };
+
+  ListPendingAccounts = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.account.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list pending accounts."
+        );
+      }
+      let result = await this.accountHdlrImpl.ListPendingAccountsLogic();
+      APIResponseOK(req, res, result, "Pending accounts listed successfully");
+    } catch (e) {
+      this.logger.error("ListPendingAccounts error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "LIST_PENDING_ACCOUNTS_ERR",
+          e.toString(),
+          "List pending accounts failed"
+        );
+      }
+    }
+  };
+
+  ListDoneAccounts = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.account.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list done accounts."
+        );
+      }
+      let result = await this.accountHdlrImpl.ListDoneAccountsLogic();
+      APIResponseOK(req, res, result, "Done accounts listed successfully");
+    } catch (e) {
+      this.logger.error("ListDoneAccounts error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "LIST_DONE_ACCOUNTS_ERR",
+          e.toString(),
+          "List done accounts failed"
         );
       }
     }

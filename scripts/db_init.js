@@ -72,7 +72,8 @@ async function main() {
       [targetdb]
     );
     if (dblistres.rowCount == 0) {
-      await pgclient.query("CREATE DATABASE $1", [targetdb]);
+      // Use string interpolation for CREATE DATABASE (no parameterized queries allowed)
+      await pgclient.query(`CREATE DATABASE "${targetdb}"`);
     }
     console.log("1. Database created..");
 
@@ -93,10 +94,8 @@ async function main() {
     );
 
     if (userlistres.rowCount == 0) {
-      let queryresp = await pgclient.query(
-        "CREATE USER $1 WITH PASSWORD $2",
-        [targetusername, targetpassword]
-      );
+      // Use string interpolation for CREATE USER (no parameterized queries allowed)
+      await pgclient.query(`CREATE USER "${targetusername}" WITH PASSWORD '${targetpassword}'`);
     }
     console.log("2. User created..");
 
@@ -108,16 +107,15 @@ async function main() {
 
     //   console.log(nsplistres.rows);
     if (nsplistres.rowCount == 0) {
-      await pgclient.query("CREATE SCHEMA $1", [targetschema]);
+      // Use string interpolation for CREATE SCHEMA (no parameterized queries allowed)
+      await pgclient.query(`CREATE SCHEMA "${targetschema}"`);
     }
     await pgclient.query("REVOKE ALL ON SCHEMA public FROM PUBLIC");
 
     // 3.2 Grant schema permission to user...
-    await pgclient.query(
-      "GRANT ALL ON SCHEMA $1 TO $2",
-      [targetschema, targetusername]
-    );
-    await pgclient.query("GRANT USAGE ON SCHEMA public TO $1", [targetusername]);
+    // Use string interpolation for GRANT (no parameterized queries allowed)
+    await pgclient.query(`GRANT ALL ON SCHEMA "${targetschema}" TO "${targetusername}"`);
+    await pgclient.query(`GRANT USAGE ON SCHEMA public TO "${targetusername}"`);
 
     console.log("3. Schema created..");
 

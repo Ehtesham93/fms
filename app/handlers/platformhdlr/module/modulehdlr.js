@@ -3,13 +3,16 @@ import {
   ValidateModuleCode,
   ValidatePermissionId,
 } from "../../../utils/commonutil.js";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
 import {
   APIResponseBadRequest,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import ModuleHdlrImpl from "./modulehdlr_impl.js";
+import { UUID_PATTERN } from "../../../utils/constant.js";
 export default class ModuleHdlr {
   constructor(moduleSvcI, userSvcI, logger) {
     this.moduleSvcI = moduleSvcI;
@@ -22,20 +25,41 @@ export default class ModuleHdlr {
     router.post("/", this.CreateModule);
     router.get("/types", this.GetModuleTypes);
     router.get("/list", this.ListModules);
-    router.get("/:moduleid", this.GetModule);
-    router.put("/:moduleid", this.UpdateModule);
-    router.post("/:moduleid/perm", this.AddModulePerm);
-    router.post("/:moduleid/perms", this.AddModulePerms);
-    router.put("/:moduleid/perm/:permid", this.UpdateModulePerm);
-    router.delete("/:moduleid/perm/:permid", this.DeleteModulePerm);
-    router.delete("/:moduleid", this.DeleteModule);
+    router.get(`/:moduleid(${UUID_PATTERN})`, this.GetModule);
+    router.put(`/:moduleid(${UUID_PATTERN})`, this.UpdateModule);
+    router.post(`/:moduleid(${UUID_PATTERN})/perm`, this.AddModulePerm);
+    router.post(`/:moduleid(${UUID_PATTERN})/perms`, this.AddModulePerms);
+    router.put(
+      `/:moduleid(${UUID_PATTERN})/perm/:permid`,
+      this.UpdateModulePerm
+    );
+    router.delete(
+      `/:moduleid(${UUID_PATTERN})/perm/:permid`,
+      this.DeleteModulePerm
+    );
+    router.delete(`/:moduleid(${UUID_PATTERN})`, this.DeleteModule);
   }
 
   GetModuleTypes = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.module.view",
+        "consolemgmt.module.admin",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get module types."
+      );
+    }
     try {
       let result = await this.moduleHdlrImpl.GetModuleTypesLogic();
       APIResponseOK(req, res, result, "Module types fetched successfully");
     } catch (e) {
+      this.logger.error("GetModuleTypes error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -47,23 +71,40 @@ export default class ModuleHdlr {
   };
 
   CreateModule = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create module."
+      );
+    }
     try {
       let schema = z.object({
         modulename: z
           .string({ message: "Invalid module name format" })
           .nonempty({ message: "Module name cannot be empty" })
-          .max(128, { message: "Module name must be at most 128 characters" })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Module name can only contain letters, numbers, spaces, hyphens, and underscores",
-          }),
+          })
+          .max(128, { message: "Module name must be at most 128 characters" }),
         moduletype: z
           .string({ message: "Invalid module type format" })
           .nonempty({ message: "Module type cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Module type can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Module type must not exceed 128 characters" }),
         modulecode: z
           .string({ message: "Invalid module code format" })
           .nonempty({ message: "Module code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Module code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Module code must not exceed 128 characters" }),
         creditspervehicleday: z
           .number({ message: "creditspervehicleday must be a number" })
@@ -98,6 +139,7 @@ export default class ModuleHdlr {
       );
       APIResponseOK(req, res, result, "Module created successfully");
     } catch (e) {
+      this.logger.error("CreateModule error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -113,10 +155,25 @@ export default class ModuleHdlr {
   };
 
   ListModules = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.module.admin",
+        "consolemgmt.module.view",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to list modules."
+      );
+    }
     try {
       let result = await this.moduleHdlrImpl.ListModulesLogic();
       APIResponseOK(req, res, result, "Modules fetched successfully");
     } catch (e) {
+      this.logger.error("ListModules error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -128,12 +185,25 @@ export default class ModuleHdlr {
   };
 
   GetModule = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.module.admin",
+        "consolemgmt.module.view",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get module."
+      );
+    }
     try {
       let schema = z.object({
         moduleid: z
           .string({ message: "Module ID is required" })
-          .nonempty({ message: "Module ID cannot be empty" })
-          .max(128, { message: "Module ID must not exceed 128 characters" }),
+          .uuid({ message: "Module ID must be a valid UUID" })
       });
 
       let { moduleid } = validateAllInputs(schema, {
@@ -143,6 +213,7 @@ export default class ModuleHdlr {
       let result = await this.moduleHdlrImpl.GetModuleLogic(moduleid);
       APIResponseOK(req, res, result, "Module fetched successfully");
     } catch (e) {
+      this.logger.error("GetModule error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -158,17 +229,26 @@ export default class ModuleHdlr {
   };
 
   UpdateModule = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to update module."
+      );
+    }
     try {
       const schema = z.object({
         moduleid: z
           .string({ message: "Invalid Module ID format" })
           .uuid({ message: "Module ID must be a valid UUID" }),
-
+ 
         modulename: z
           .string({ message: "Invalid Module Name format" })
           .nonempty({ message: "Module Name cannot be empty" })
           .max(128, { message: "Module Name must be at most 128 characters" })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Module Name can only contain letters, numbers, spaces, hyphens, and underscores",
           })
@@ -178,6 +258,10 @@ export default class ModuleHdlr {
           .string({ message: "Invalid module type format" })
           .nonempty({ message: "Module type cannot be empty" })
           .max(128, { message: "Module type must not exceed 128 characters" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Module type can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .optional(),
 
         creditspervehicleday: z
@@ -244,6 +328,7 @@ export default class ModuleHdlr {
 
       APIResponseOK(req, res, result, "Module updated successfully");
     } catch (e) {
+      this.logger.error("UpdateModule error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -259,14 +344,22 @@ export default class ModuleHdlr {
   };
 
   AddModulePerm = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to add module permission."
+      );
+    }
     try {
       let createdby = req.userid;
 
       const schema = z.object({
         moduleid: z
           .string({ message: "Invalid Module ID format" })
-          .nonempty({ message: "Module ID cannot be empty" })
-          .max(128, { message: "Module ID must not exceed 128 characters" }),
+          .uuid({ message: "Module ID must be a valid UUID" }),
 
         permid: z
           .string({ message: "Invalid Permission ID format" })
@@ -304,6 +397,7 @@ export default class ModuleHdlr {
 
       APIResponseOK(req, res, result, "Module permission added successfully");
     } catch (e) {
+      this.logger.error("AddModulePerm error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -319,14 +413,22 @@ export default class ModuleHdlr {
   };
 
   AddModulePerms = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to add module permissions."
+      );
+    }
     try {
       let createdby = req.userid;
 
       const schema = z.object({
         moduleid: z
           .string({ message: "Invalid Module ID format" })
-          .nonempty({ message: "Module ID cannot be empty" })
-          .max(128, { message: "Module ID must not exceed 128 characters" }),
+          .uuid({ message: "Module ID must be a valid UUID" }),
 
         permids: z
           .array(
@@ -358,6 +460,7 @@ export default class ModuleHdlr {
 
       APIResponseOK(req, res, result, "Module permissions added successfully");
     } catch (e) {
+      this.logger.error("AddModulePerms error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -373,6 +476,15 @@ export default class ModuleHdlr {
   };
 
   UpdateModulePerm = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to update module permission."
+      );
+    }
     try {
       let updatedby = req.userid;
       let moduleid = req.params.moduleid;
@@ -383,8 +495,7 @@ export default class ModuleHdlr {
           .uuid({ message: "User ID must be a valid UUID" }),
         moduleid: z
           .string({ message: "Invalid Module ID format" })
-          .nonempty({ message: "Module ID cannot be empty" })
-          .max(128, { message: "Module ID must not exceed 128 characters" }),
+          .uuid({ message: "Module ID must be a valid UUID" }),
         permid: z
           .string({ message: "Invalid Permission ID format" })
           .nonempty({ message: "Permission ID cannot be empty" })
@@ -422,6 +533,7 @@ export default class ModuleHdlr {
 
       APIResponseOK(req, res, result, "Module permission updated successfully");
     } catch (e) {
+      this.logger.error("UpdateModulePerm error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -437,14 +549,22 @@ export default class ModuleHdlr {
   };
 
   DeleteModulePerm = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to delete module permission."
+      );
+    }
     try {
       let updatedby = req.userid;
 
       const schema = z.object({
         moduleid: z
           .string({ message: "Module ID is required" })
-          .nonempty({ message: "Module ID cannot be empty" })
-          .max(128, { message: "Module ID must not exceed 128 characters" }),
+          .uuid({ message: "Module ID must be a valid UUID" }),
 
         permid: z
           .string({ message: "Permission ID is required" })
@@ -472,6 +592,7 @@ export default class ModuleHdlr {
 
       APIResponseOK(req, res, result, "Module permission deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteModulePerm error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -487,6 +608,15 @@ export default class ModuleHdlr {
   };
 
   DeleteModule = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to delete module."
+      );
+    }
     try {
       const schema = z.object({
         moduleid: z
@@ -510,6 +640,7 @@ export default class ModuleHdlr {
 
       APIResponseOK(req, res, result, "Module deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteModule error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {

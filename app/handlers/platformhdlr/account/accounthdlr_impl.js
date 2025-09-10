@@ -1,15 +1,30 @@
 import { v4 as uuidv4 } from "uuid";
 import { EmailMobileValidation } from "../../../utils/commonutil.js";
+import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
 
+const PLATFORM_ACCOUNT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+const PLATFORM_ROOT_FLEET_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+const PLATFORM_ROOT_FLEET_PARENT_ID = "00000000-0000-0000-0000-000000000000";
+const PLATFORM_ACCOUNT_TYPE = "platform";
 const CUSTOMER_ACCOUNT_TYPE = "customer";
 const ROOT_FLEET_NAME = "Home";
 
 export default class AccountHdlrImpl {
-  constructor(accountSvcI, userSvcI, authSvcI, fmsAccountSvcI, logger) {
+  constructor(
+    accountSvcI,
+    userSvcI,
+    authSvcI,
+    fmsAccountSvcI,
+    platformSvcI,
+    redisSvc,
+    logger
+  ) {
     this.accountSvcI = accountSvcI;
     this.userSvcI = userSvcI;
     this.authSvcI = authSvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
+    this.platformSvcI = platformSvcI;
+    this.redisSvc = redisSvc;
     this.logger = logger;
   }
 
@@ -17,18 +32,34 @@ export default class AccountHdlrImpl {
     accountname,
     accountinfo,
     isenabled = true,
-    createdby
+    createdby,
+    mobile,
+    accountid = null
   ) => {
-    let accountid = uuidv4();
-    let rootfleetid = uuidv4();
-    let rootfleetparentid = uuidv4();
+    let rootfleetid = null;
+    let rootfleetparentid = null;
+    let accounttype = CUSTOMER_ACCOUNT_TYPE;
+    let rootfleetname = ROOT_FLEET_NAME;
+
+    if (!accountid) {
+      accountid = uuidv4();
+      rootfleetid = uuidv4();
+      rootfleetparentid = uuidv4();
+    }
+
+    if (accountid === PLATFORM_ACCOUNT_ID) {
+      rootfleetid = PLATFORM_ROOT_FLEET_ID;
+      rootfleetparentid = PLATFORM_ROOT_FLEET_PARENT_ID;
+      accounttype = PLATFORM_ACCOUNT_TYPE;
+    }
+
     let account = {
       accountid: accountid,
       rootfleetid: rootfleetid,
       rootFleetParentId: rootfleetparentid,
-      rootFleetName: ROOT_FLEET_NAME,
+      rootFleetName: rootfleetname,
       accountname: accountname,
-      accounttype: CUSTOMER_ACCOUNT_TYPE,
+      accounttype: accounttype,
       accountinfo: accountinfo,
       isenabled: isenabled,
       createdby: createdby,
@@ -56,8 +87,7 @@ export default class AccountHdlrImpl {
   };
 
   ListAccountsLogic = async () => {
-    let platformAccountId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    let accounts = await this.accountSvcI.GetAllAccounts(platformAccountId);
+    let accounts = await this.accountSvcI.GetAllAccounts(PLATFORM_ACCOUNT_ID);
     if (!accounts) {
       accounts = [];
     }
@@ -111,11 +141,37 @@ export default class AccountHdlrImpl {
   };
 
   DeleteAccountLogic = async (accountid, deletedby) => {
+    const accountInfo = await this.accountSvcI.GetAccountInfo(accountid);
+    if (!accountInfo) {
+      throw {
+        errcode: "ACCOUNT_NOT_FOUND",
+        message: "Account not found",
+      };
+    }
+
+    if (accountInfo.isdeleted) {
+      throw {
+        errcode: "ACCOUNT_ALREADY_DELETED",
+        message: "Account is already deleted",
+      };
+    }
+
+    const vehicleCount = await this.accountSvcI.GetAccountVehicleCount(
+      accountid
+    );
+    if (vehicleCount > 0) {
+      throw {
+        errcode: "ACCOUNT_HAS_VEHICLES",
+        message: `Cannot delete account. ${vehicleCount} vehicle(s) are still assigned to this account. Please remove all vehicles before deleting the account.`,
+      };
+    }
+
     let res = await this.accountSvcI.DeleteAccount(accountid, deletedby);
     if (!res) {
       this.logger.error("Failed to delete account");
       throw new Error("Failed to delete account");
     }
+
     return {
       accountid: accountid,
       accountname: res.accountname,
@@ -125,6 +181,21 @@ export default class AccountHdlrImpl {
   };
 
   AddAdminToAccRootFleetLogic = async (accountid, contact, updatedby) => {
+    const accountInfo = await this.accountSvcI.GetAccountInfo(accountid);
+    if (!accountInfo) {
+      throw {
+        errcode: "ACCOUNT_NOT_FOUND",
+        message: "Account not found",
+      };
+    }
+
+    if (accountInfo.isdeleted) {
+      throw {
+        errcode: "ACCOUNT_ALREADY_DELETED",
+        message: "Account is already deleted",
+      };
+    }
+
     let res = await this.accountSvcI.AddAdminToAccRootFleet(
       accountid,
       contact,
@@ -494,28 +565,69 @@ export default class AccountHdlrImpl {
   };
 
   GetAccountCreditsLogic = async (accountid) => {
-    let credits = await this.accountSvcI.GetAccountCredits(accountid);
+    let credits = await this.fmsAccountSvcI.GetAccountCredits(accountid);
     if (!credits) {
       credits = 0;
     }
-    return { accountid: accountid, totalcredits: credits };
+    return { accountid: accountid, credits: credits };
   };
 
   UpdateAccountCreditsLogic = async (accountid, credits, updatedby) => {
-    let res = await this.accountSvcI.UpdateAccountCredits(
+    let updatedcredits = await this.fmsAccountSvcI.UpdateAccountCredits(
       accountid,
       credits,
       updatedby
     );
-    if (!res) {
+    if (!updatedcredits) {
       this.logger.error("Failed to update account credits");
       throw new Error("Failed to update account credits");
     }
-    return { accountid: accountid, totalcredits: res };
+    return { accountid: accountid, credits: updatedcredits };
   };
 
-  GetAccountCreditsHistoryLogic = async (accountid) => {
-    let history = await this.accountSvcI.GetAccountCreditsHistory(accountid);
+  GetAccountCreditsOverviewLogic = async (accountid, starttime, endtime) => {
+    let overview = await this.fmsAccountSvcI.GetAccountCreditsOverview(
+      accountid,
+      starttime,
+      endtime
+    );
+
+    const chartData = {
+      accountid: accountid,
+      credits: {
+        dates: [], // targetdate values for x-axis
+        creditsadded: [],
+        creditsconsumed: [],
+      },
+      vehicles: {
+        dates: [], // targetdate values for x-axis
+        totalvehicles: [],
+        subscribedvehicles: [],
+        connectedvehicles: [],
+      },
+    };
+
+    overview.forEach((item) => {
+      chartData.credits.dates.push(item.targetdate);
+      chartData.vehicles.dates.push(item.targetdate);
+
+      chartData.credits.creditsadded.push(item.creditsadded || 0);
+      chartData.credits.creditsconsumed.push(-(item.creditsconsumed || 0));
+
+      chartData.vehicles.totalvehicles.push(item.totalvehicles || 0);
+      chartData.vehicles.subscribedvehicles.push(item.subscribedvehicles || 0);
+      chartData.vehicles.connectedvehicles.push(item.connectedvehicles || 0);
+    });
+
+    return chartData;
+  };
+
+  GetAccountCreditsHistoryLogic = async (accountid, starttime, endtime) => {
+    let history = await this.fmsAccountSvcI.GetAccountCreditsHistory(
+      accountid,
+      starttime,
+      endtime
+    );
     if (!history) {
       history = [];
     }
@@ -523,21 +635,79 @@ export default class AccountHdlrImpl {
     return { accountid: accountid, history: history };
   };
 
-  ListAccountVehiclesLogic = async (accountid, subscriptiontype) => {
-    let vehicles = [];
-    if (subscriptiontype === "all.all.all") {
-      vehicles = await this.accountSvcI.GetAccountVehicles(accountid);
-    } else if (subscriptiontype === "subscribed") {
-      vehicles = await this.accountSvcI.GetSubscribedVehicles(accountid);
-    } else if (subscriptiontype === "subscribeable") {
-      vehicles = await this.accountSvcI.GetSubscribeableVehicles(accountid);
-    } else {
-      this.logger.error("Invalid subscription type");
-      throw new Error("Invalid subscription type");
+  GetAccountVehicleCreditsHistoryLogic = async (
+    accountid,
+    vinno,
+    starttime,
+    endtime
+  ) => {
+    let isVehicleInAccount = await this.accountSvcI.IsVehicleInAccount(
+      accountid,
+      vinno
+    );
+    if (!isVehicleInAccount) {
+      throw {
+        errcode: "INPUT_ERROR",
+        errdata: "Vehicle not found in account",
+        message: "Vehicle not found in account",
+      };
     }
+
+    let history = await this.fmsAccountSvcI.GetAccountVehicleCreditsHistory(
+      accountid,
+      [vinno],
+      starttime,
+      endtime
+    );
+    if (!history) {
+      history = [];
+    }
+    return history;
+  };
+
+  GetAccountAllFleetsCreditsHistoryLogic = async (
+    accountid,
+    starttime,
+    endtime
+  ) => {
+    let allvehiclesinfo = await this.ListAccountVehiclesLogic(accountid);
+    if (!allvehiclesinfo || allvehiclesinfo.vehicles.length === 0) {
+      return [];
+    }
+    let vehicles = allvehiclesinfo.vehicles.map((v) => v.vinno);
+
+    let history = await this.fmsAccountSvcI.GetAccountVehicleCreditsHistory(
+      accountid,
+      vehicles,
+      starttime,
+      endtime
+    );
+    if (!history) {
+      history = [];
+    }
+    return history;
+  };
+
+  ListAccountVehiclesLogic = async (accountid) => {
+    let vehicles = await this.accountSvcI.GetAccountVehicles(accountid);
+
     if (!vehicles) {
       vehicles = [];
     }
+
+    vehicles = vehicles.map((vehicle) => {
+      let status = "NOTSUBSCRIBED";
+
+      if (vehicle.subscription && vehicle.subscription.state === 1) {
+        status = "SUBSCRIBED";
+      }
+
+      return {
+        ...vehicle,
+        status: status,
+      };
+    });
+
     return { accountid: accountid, vehicles: vehicles };
   };
 
@@ -568,8 +738,7 @@ export default class AccountHdlrImpl {
     return {
       accountid: accountid,
       vinno: vinno,
-      useablecredits: res.useablecredits,
-      lockedcredits: res.lockedcredits,
+      credits: res.credits,
     };
   };
 
@@ -586,10 +755,15 @@ export default class AccountHdlrImpl {
   };
 
   ChangeSubscriptionPackageLogic = async (accountid, newpkgid, updatedby) => {
+    let currentTime = new Date();
+    let endTime = new Date(currentTime);
+    endTime.setFullYear(endTime.getFullYear() + 5);
+
     let subscriptioninfo = {
-      startdate: Date.now(),
-      enddate: Date.now() + 5 * 365 * 24 * 60 * 60 * 1000, // TODO: remove this hardcoded value
+      startdate: currentTime.toISOString(),
+      enddate: endTime.toISOString(),
     };
+
     let res = await this.accountSvcI.ChangeSubscriptionPackage(
       accountid,
       newpkgid,
@@ -733,10 +907,36 @@ export default class AccountHdlrImpl {
       this.logger.error("Failed to add vehicle to account");
       throw new Error("Failed to add vehicle to account");
     }
+    // set and publish vehicle update
+    await publishVehicleUpdate(accountid, "added", this.redisSvc, this.logger);
+
     return { accountid: accountid, fleetid: res.fleetid, vehicle: res.vehicle };
   };
 
   RemoveVehicleFromAccountLogic = async (accountid, vinno, removedby) => {
+    const vehicleExists = await this.platformSvcI.CheckVehicleExists(vinno);
+    if (!vehicleExists) {
+      throw {
+        errcode: "VEHICLE_NOT_FOUND",
+        message: "Vehicle not found",
+      };
+    }
+
+    const vehicleFleetInfo = await this.accountSvcI.GetVehicleFleetInfo(vinno);
+    if (!vehicleFleetInfo) {
+      throw {
+        errcode: "VEHICLE_NOT_IN_FLEET",
+        message: "Vehicle not found in fleet",
+      };
+    }
+
+    if (vehicleFleetInfo.accountid !== accountid) {
+      throw {
+        errcode: "VEHICLE_NOT_OWNED",
+        message: "Vehicle does not belong to this account",
+      };
+    }
+
     let res = await this.accountSvcI.RemoveVehicleFromAccount(
       accountid,
       vinno,
@@ -746,6 +946,14 @@ export default class AccountHdlrImpl {
       this.logger.error("Failed to remove vehicle from account");
       throw new Error("Failed to remove vehicle from account");
     }
+    // set and publish vehicle update
+    await publishVehicleUpdate(
+      accountid,
+      "removed",
+      this.redisSvc,
+      this.logger
+    );
+
     return { accountid: accountid, vinno: vinno };
   };
 
@@ -755,6 +963,22 @@ export default class AccountHdlrImpl {
       vehicles = [];
     }
     return { vehicles: vehicles };
+  };
+
+  ListPendingAccountsLogic = async () => {
+    let accounts = await this.accountSvcI.ListPendingAccounts();
+    if (!accounts) {
+      accounts = [];
+    }
+    return accounts;
+  };
+
+  ListDoneAccountsLogic = async () => {
+    let accounts = await this.accountSvcI.ListDoneAccounts();
+    if (!accounts) {
+      accounts = [];
+    }
+    return accounts;
   };
 
   formatDateToDDMMMYYYY(date) {

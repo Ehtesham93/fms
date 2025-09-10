@@ -37,7 +37,6 @@ tags:
   - name: FMS JS > FMS > ChargeInsight
   - name: FMS JS > FMS > TripInsight
   - name: FMS JS > FMS > FleetInsights
-  
 
 paths:
   /api/v1/platform/modules:
@@ -242,7 +241,12 @@ paths:
                         maxLength: 128
                       minItems: 1
                       description: "Array of VIN numbers"
-                      example: ["WBAFW31050F123456", "WBAFW31050F123457", "WBAFW31050F123458"]
+                      example:
+                        [
+                          "WBAFW31050F123456",
+                          "WBAFW31050F123457",
+                          "WBAFW31050F123458",
+                        ]
                   description: "Single VIN number or array of VIN numbers for which to get insights"
                 starttime:
                   type: integer
@@ -255,7 +259,15 @@ paths:
                 filter:
                   type: string
                   description: "Optional filter to specify which insights to retrieve"
-                  enum: ["all", "distancetravelled", "chargingsessions", "energyconsumed", "trips", "chargingdeviation"]
+                  enum:
+                    [
+                      "all",
+                      "distancetravelled",
+                      "chargingsessions",
+                      "energyconsumed",
+                      "trips",
+                      "chargingdeviation",
+                    ]
                   default: "all"
                   example: "all"
       responses:
@@ -815,7 +827,13 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["ROLE_IN_USE", "ROLE_HAS_PERMISSIONS", "ROLE_NOT_FOUND", "CANNOT_DELETE_ADMIN_ROLE"]
+                        enum:
+                          [
+                            "ROLE_IN_USE",
+                            "ROLE_HAS_PERMISSIONS",
+                            "ROLE_NOT_FOUND",
+                            "CANNOT_DELETE_ADMIN_ROLE",
+                          ]
                       errdata:
                         type: string
                   data:
@@ -950,11 +968,11 @@ paths:
           description: Successful response
           content:
             application/json: {}
-  /api/v1/platform/user/{userid}/roles:
+  /api/v1/platform/user/{userid}/assignableroles:
     get:
       tags:
         - FMS JS > Platform > Users
-      summary: List User Roles (to show when assigning a role to user)
+      summary: List Assignable User Roles (to show when assigning a role to user)
       security:
         - cookieAuth: []
       parameters:
@@ -963,11 +981,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: roletype
-          in: query
-          schema:
-            type: string
-          example: platform
       responses:
         "200":
           description: Successful response
@@ -1186,7 +1199,13 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "PACKAGE_IN_USE", "PACKAGE_HAS_MODULES", "PACKAGE_HAS_HISTORY"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "PACKAGE_IN_USE",
+                            "PACKAGE_HAS_MODULES",
+                            "PACKAGE_HAS_HISTORY",
+                          ]
                       errdata:
                         type: string
                   data:
@@ -1268,8 +1287,7 @@ paths:
           description: Successful response
           content:
             application/json: {}
-    
-     
+
   /api/v1/platform/account/{accountid}/user:
     post:
       tags:
@@ -1287,7 +1305,7 @@ paths:
             schema:
               type: object
               example:
-                email: tejasurya@intellicar.in
+                email: onboarding@nemo3.com
       security:
         - cookieAuth: []
       responses:
@@ -1940,7 +1958,12 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "INVALID_ACCOUNT_ID", "INVALID_STATUS"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "INVALID_ACCOUNT_ID",
+                            "INVALID_STATUS",
+                          ]
                         example: "INPUT_ERROR"
                       errdata:
                         type: string
@@ -2238,7 +2261,7 @@ paths:
           description: Successful response
           content:
             application/json: {}
-         
+
   /api/v1/platform/home:
     get:
       tags:
@@ -2278,14 +2301,14 @@ paths:
       summary: SignIn
       description: |
         User authentication using email and password with reCAPTCHA verification.
-        
+
         **For reCAPTCHA testing, visit: {PORT}/api/v1/api-docs/captcha.html**
-        
+
         This endpoint requires:
         - Valid email address
         - Password (8-128 characters)
         - reCAPTCHA token for security verification
-        
+
         Hash your password here -> https://academo.org/demos/SHA-256-hash-generator/
       requestBody:
         required: true
@@ -2302,7 +2325,7 @@ paths:
                   type: string
                   format: email
                   description: "Valid email address"
-                  example: "tejasurya@intellicar.in"
+                  example: "onboarding@nemo3.com"
                 password:
                   type: string
                   minLength: 8
@@ -2313,7 +2336,7 @@ paths:
                   type: string
                   description: "reCAPTCHA token from Google reCAPTCHA verification. Get this from {PORT}/docs/captcha.html"
                   example: "03AFcWeA7Bx..."
-                
+
       responses:
         "200":
           description: "Sign in successful"
@@ -2353,7 +2376,8 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "CAPTCHA_MISSING", "CAPTCHA_FAILED"]
+                        enum:
+                          ["INPUT_ERROR", "CAPTCHA_MISSING", "CAPTCHA_FAILED"]
                         example: "CAPTCHA_MISSING"
                       errdata:
                         type: string
@@ -2389,9 +2413,9 @@ paths:
       summary: Signup with Invite
       description: |
         Sign up with an invite and create a new user account with reCAPTCHA verification.
-        
+
         **For reCAPTCHA testing, visit: {PORT}/api/v1/api-docs/captcha.html**
-        
+
         This endpoint requires:
         - Valid invite ID
         - Password (8-128 characters)
@@ -2426,7 +2450,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 128
-                  pattern: '^[A-Za-z0-9 _-]+$'
+                  pattern: "^[A-Za-z0-9 _-]+$"
                   description: "Display name for the user (letters, numbers, spaces, hyphens, underscores only)"
                   example: "Teja Surya"
                 g-recaptcha-response:
@@ -2469,23 +2493,23 @@ paths:
         content:
           application/json:
             schema:
-                type: object
-                properties:
-                  err:
-                    type: object
-                    properties:
-                      errcode:
-                        type: string
-                        enum: ["INPUT_ERROR", "INVALID_INVITE", "INVITE_EXPIRED"]
-                        example: "INPUT_ERROR"
-                      errdata:
-                        type: object
-                        description: "Details about the validation error"
-                  data:
-                    type: "null"
-                  msg:
-                    type: string
-                    example: "Invalid input data"
+              type: object
+              properties:
+                err:
+                  type: object
+                  properties:
+                    errcode:
+                      type: string
+                      enum: ["INPUT_ERROR", "INVALID_INVITE", "INVITE_EXPIRED"]
+                      example: "INPUT_ERROR"
+                    errdata:
+                      type: object
+                      description: "Details about the validation error"
+                data:
+                  type: "null"
+                msg:
+                  type: string
+                  example: "Invalid input data"
         "500":
           description: "Internal Server Error - Signup failed"
           content:
@@ -2663,14 +2687,13 @@ paths:
               type: object
               example:
                 mobile: "9078151429"
-                
+
       responses:
         "200":
           description: Successful response
           content:
             application/json: {}
-  
- 
+
   /api/v1/fms/account/invites:
     get:
       tags:
@@ -2733,7 +2756,7 @@ paths:
               example:
                 fleetid: 39c034bd-1a44-48e9-b4d3-74cc797947cf
                 roleids: ["b297d0ee-d48e-4157-9abf-f28df7f4fd7a"]
-                contact: tejasurya@intellicar.in
+                contact: onboarding@nemo3.com
       security:
         - cookieAuth: []
       responses:
@@ -2899,7 +2922,14 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "FLEET_NOT_FOUND", "FLEET_HAS_VEHICLES", "FLEET_HAS_SUBFLEETS", "FLEET_HAS_USERS"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "FLEET_NOT_FOUND",
+                            "FLEET_HAS_VEHICLES",
+                            "FLEET_HAS_SUBFLEETS",
+                            "FLEET_HAS_USERS",
+                          ]
                         example: "FLEET_HAS_VEHICLES"
                       errdata:
                         type: string
@@ -3162,7 +3192,7 @@ paths:
         "400":
           description: Bad Request - Invalid fleet ID format
         "403":
-          description: Forbidden - Insufficient permissions  
+          description: Forbidden - Insufficient permissions
         "500":
           description: Internal Server Error
   /api/v1/fms/account/fleet/{fleetid}/user/{userid}:
@@ -3317,7 +3347,7 @@ paths:
           description: Successful response
           content:
             application/json: {}
-  
+
   /api/v1/fms/user/invites:
     get:
       tags:
@@ -3599,7 +3629,15 @@ paths:
                     maxLength: 128
                   minItems: 1
                   description: "Optional array of specific CAN parameters to retrieve"
-                  example: ["intime", "valid", "tstamp", "cycletime", "charger_sts_live", "bms_charger_plug_in_sts"]
+                  example:
+                    [
+                      "intime",
+                      "valid",
+                      "tstamp",
+                      "cycletime",
+                      "charger_sts_live",
+                      "bms_charger_plug_in_sts",
+                    ]
       responses:
         "200":
           description: "CAN history data retrieved successfully"
@@ -3679,26 +3717,34 @@ paths:
                     maxLength: 128
                   minItems: 1
                   description: "Optional array of specific CAN parameters to retrieve"
-                  example: ["intime", "valid", "tstamp", "cycletime", "charger_sts_live", "bms_charger_plug_in_sts"]
+                  example:
+                    [
+                      "intime",
+                      "valid",
+                      "tstamp",
+                      "cycletime",
+                      "charger_sts_live",
+                      "bms_charger_plug_in_sts",
+                    ]
       responses:
         "200":
           description: "Merged CAN+GPS history data retrieved successfully"
           content:
             application/json:
               schema:
-                    type: object
-                    properties:
-                      err:
-                        type: "null"
-                      data:
-                        type: array
-                        description: "Array of merged CAN+GPS data points"
-                        items:
-                          type: object
-                          description: "Individual data point with merged CAN and GPS information"
-                      msg:
-                        type: string
-                        example: "Merged CAN+GPS history data listed successfully"
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    type: array
+                    description: "Array of merged CAN+GPS data points"
+                    items:
+                      type: object
+                      description: "Individual data point with merged CAN and GPS information"
+                  msg:
+                    type: string
+                    example: "Merged CAN+GPS history data listed successfully"
         "400":
           description: "Bad Request - Invalid input parameters"
           content:
@@ -3779,7 +3825,8 @@ paths:
                     maxLength: 128
                   minItems: 1
                   description: "Array of VIN numbers for which to retrieve latest data"
-                  example: ["MKMDJD7Y732282", "MKMDJD7Y732283", "MKMDJD7Y732284"]
+                  example:
+                    ["MKMDJD7Y732282", "MKMDJD7Y732283", "MKMDJD7Y732284"]
       responses:
         "200":
           description: "Vehicle latest data retrieved successfully"
@@ -4041,8 +4088,7 @@ paths:
           description: Bad Request - Invalid parameter format
         "403":
           description: Forbidden - Insufficient permissions
-  
-  
+
   /api/v1/platform/model/family/{familycode}:
     put:
       tags:
@@ -4424,7 +4470,7 @@ paths:
                   msg:
                     type: string
                     example: "Vehicle creation failed"
-  
+
   /api/v1/fms/account/subscriptions:
     get:
       tags:
@@ -4562,7 +4608,12 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "INVALID_VIN", "VEHICLE_ALREADY_SUBSCRIBED"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "INVALID_VIN",
+                            "VEHICLE_ALREADY_SUBSCRIBED",
+                          ]
                         example: "INPUT_ERROR"
                       errdata:
                         type: string
@@ -4630,7 +4681,6 @@ paths:
               properties:
                 vinnos:
                   oneOf:
-                
                     - type: array
                       items:
                         type: string
@@ -4683,7 +4733,12 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "INVALID_VIN", "VEHICLE_NOT_SUBSCRIBED"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "INVALID_VIN",
+                            "VEHICLE_NOT_SUBSCRIBED",
+                          ]
                         example: "INPUT_ERROR"
                       errdata:
                         type: string
@@ -4789,7 +4844,14 @@ paths:
                         example: "USD"
                       status:
                         type: string
-                        enum: ["requires_payment_method", "requires_confirmation", "processing", "succeeded", "canceled"]
+                        enum:
+                          [
+                            "requires_payment_method",
+                            "requires_confirmation",
+                            "processing",
+                            "succeeded",
+                            "canceled",
+                          ]
                         description: "Current status of the payment intent"
                         example: "requires_payment_method"
                       createdat:
@@ -4811,7 +4873,13 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "INVALID_AMOUNT", "INVALID_CURRENCY", "SUBSCRIPTION_NOT_FOUND"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "INVALID_AMOUNT",
+                            "INVALID_CURRENCY",
+                            "SUBSCRIPTION_NOT_FOUND",
+                          ]
                         example: "INPUT_ERROR"
                       errdata:
                         type: string
@@ -5072,9 +5140,9 @@ paths:
               type: object
               properties:
                 useridtype:
-                    type: string
-                    enum: ["email", "mobile"]
-                    description: Type of user identifier
+                  type: string
+                  enum: ["email", "mobile"]
+                  description: Type of user identifier
                 forceuseridtypeverified:
                   type: boolean
                   default: false
@@ -5122,10 +5190,10 @@ paths:
               type: object
               properties:
                 password:
-                    type: string
-                    minLength: 6
-                    maxLength: 128
-                    description: New password for the user (minimum 6 characters, maximum 128 characters)
+                  type: string
+                  minLength: 6
+                  maxLength: 128
+                  description: New password for the user (minimum 6 characters, maximum 128 characters)
               required:
                 - password
               example:
@@ -5140,23 +5208,23 @@ paths:
             schema:
               type: object
               properties:
-                  data:
-                    type: object
-                    properties:
-                      userid:
-                        type: string
-                        format: uuid
-                        description: Target user ID
-                      resetby:
-                        type: string
-                        format: uuid
-                        description: User ID who performed the reset
-                      message:
-                        type: string
-                        example: "Password reset successfully and email notification sent"
-                  msg:
-                    type: string
-                    example: "User password reset successfully"
+                data:
+                  type: object
+                  properties:
+                    userid:
+                      type: string
+                      format: uuid
+                      description: Target user ID
+                    resetby:
+                      type: string
+                      format: uuid
+                      description: User ID who performed the reset
+                    message:
+                      type: string
+                      example: "Password reset successfully and email notification sent"
+                msg:
+                  type: string
+                  example: "User password reset successfully"
         "400":
           description: Bad Request
           content:
@@ -5164,18 +5232,18 @@ paths:
             schema:
               type: object
               properties:
-                  err:
-                    type: object
-                    properties:
-                      errcode:
-                        type: string
-                        example: INPUT_ERROR
-                      errdata:
+                err:
+                  type: object
+                  properties:
+                    errcode:
                       type: string
-                      message:
-                        type: string
-                  data:
-                    type: "null"
+                      example: INPUT_ERROR
+                    errdata:
+                    type: string
+                    message:
+                      type: string
+                data:
+                  type: "null"
         "403":
           description: Forbidden - Only superadmin can reset passwords
           content:
@@ -5183,17 +5251,17 @@ paths:
             schema:
               type: object
               properties:
-                  err:
-                    type: object
-                    properties:
-                      errcode:
-                        type: string
-                        example: RESET_USER_PASSWORD_ERR
-                      errdata:
-                        type: string
-                        example: "Only superadmin can reset user passwords"
-                  data:
-                    type: "null"
+                err:
+                  type: object
+                  properties:
+                    errcode:
+                      type: string
+                      example: RESET_USER_PASSWORD_ERR
+                    errdata:
+                      type: string
+                      example: "Only superadmin can reset user passwords"
+                data:
+                  type: "null"
   /api/v1/platform/model/getallmodelswithfamily:
     get:
       tags:
@@ -5209,35 +5277,35 @@ paths:
             schema:
               type: object
               properties:
-                  data:
-                    type: object
-                    properties:
-                      models:
-                  type: array
-                  items:
-                          type: object
-                          properties:
-                            modelcode:
-                              type: string
-                              description: Model code
-                            modelname:
-                              type: string
-                              description: Model name
-                            modelvariant:
-                              type: string
-                              description: Model variant
-                            modelfamilycode:
-                              type: string
-                              description: Model family code
-                            modeldisplayname:
-                              type: string
-                              description: Model display name
-                            familyname:
-                              type: string
-                              description: Family name
-                  msg:
-                    type: string
-                    example: Models with family fetched successfully
+                data:
+                  type: object
+                  properties:
+                    models:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    modelcode:
+                      type: string
+                      description: Model code
+                    modelname:
+                      type: string
+                      description: Model name
+                    modelvariant:
+                      type: string
+                      description: Model variant
+                    modelfamilycode:
+                      type: string
+                      description: Model family code
+                    modeldisplayname:
+                      type: string
+                      description: Model display name
+                    familyname:
+                      type: string
+                      description: Family name
+                msg:
+                  type: string
+                  example: Models with family fetched successfully
   /api/v1/fms/fleetinsights/getallfleets:
     get:
       tags:
@@ -5286,11 +5354,11 @@ paths:
         - cookieAuth: []
       parameters:
         - in: query
-          name: accountid
-          equired: true
+          name: fleetid
+          required: false
           schema:
-                type: string
-                format: uuid
+            type: string
+            format: uuid
       responses:
         "200":
           description: Successful response
@@ -5371,13 +5439,13 @@ paths:
           required: true
           schema:
             type: string
-          example: "1672531200"  
+          example: "1672531200"
         - in: query
           name: endtime
           required: true
           schema:
             type: string
-          example: "1675209599"  
+          example: "1675209599"
         - in: query
           name: recursive
           schema:
@@ -5589,7 +5657,7 @@ paths:
       description: Validate email verification link/token for adding new email address
       parameters:
         - in: query
-          name: verifyid       # ✅ Only this parameter (from code)
+          name: verifyid # ✅ Only this parameter (from code)
           required: true
           schema:
             type: string
@@ -5637,7 +5705,8 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INVALID_TOKEN", "EXPIRED_TOKEN", "TOKEN_REQUIRED"]
+                        enum:
+                          ["INVALID_TOKEN", "EXPIRED_TOKEN", "TOKEN_REQUIRED"]
                         example: "INVALID_TOKEN"
                       errdata:
                         type: string
@@ -6455,7 +6524,13 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "USER_NOT_FOUND", "USER_ALREADY_ACTIVE", "USER_NOT_RECOVERABLE"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "USER_NOT_FOUND",
+                            "USER_ALREADY_ACTIVE",
+                            "USER_NOT_RECOVERABLE",
+                          ]
                         example: "USER_ALREADY_ACTIVE"
                       errdata:
                         type: string
@@ -6640,54 +6715,54 @@ paths:
             schema:
               type: object
               properties:
-                  err:
-                    type: "null"
-                  data:
-                    type: object
-                    properties:
-                      totalchargingevents:
+                err:
+                  type: "null"
+                data:
+                  type: object
+                  properties:
+                    totalchargingevents:
+                      type: number
+                      description: "Total number of charging events for the day"
+                    totalvehicles:
+                      type: number
+                      example: 1
+                    hourlydistribution:
+                      type: object
+                      description: "Number of charging sessions started in each hour (0-23)"
+                      additionalProperties:
                         type: number
-                        description: "Total number of charging events for the day"
-                      totalvehicles:
-                        type: number
-                        example: 1
-                      hourlydistribution:
-                        type: object
-                        description: "Number of charging sessions started in each hour (0-23)"
-                        additionalProperties:
+                      example:
+                        "0": 0
+                        "1": 0
+                        "6": 2
+                        "9": 1
+                        "18": 3
+                        "22": 1
+                    durationdistribution:
+                      type: object
+                      description: "Distribution of charging sessions by duration"
+                      properties:
+                        less_than_30min:
                           type: number
-                        example:
-                          "0": 0
-                          "1": 0
-                          "6": 2
-                          "9": 1
-                          "18": 3
-                          "22": 1
-                      durationdistribution:
-                        type: object
-                        description: "Distribution of charging sessions by duration"
-                        properties:
-                          less_than_30min:
-                            type: number
-                            example: 2
-                          "30min_to_1hr":
-                            type: number
-                            example: 3
-                          "1hr_to_2hr":
-                            type: number
-                            example: 1
-                          "2hr_to_4hr":
-                            type: number
-                            example: 1
-                          "4hr_to_8hr":
-                            type: number
-                            example: 0
-                          "8hr_plus":
-                            type: number
-                            example: 0
-                  msg:
-                    type: string
-                    example: "Charge distribution retrieved successfully"
+                          example: 2
+                        "30min_to_1hr":
+                          type: number
+                          example: 3
+                        "1hr_to_2hr":
+                          type: number
+                          example: 1
+                        "2hr_to_4hr":
+                          type: number
+                          example: 1
+                        "4hr_to_8hr":
+                          type: number
+                          example: 0
+                        "8hr_plus":
+                          type: number
+                          example: 0
+                msg:
+                  type: string
+                  example: "Charge distribution retrieved successfully"
         "400":
           description: "Bad Request - Missing or invalid parameters"
           content:
@@ -6700,7 +6775,12 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["MISSING_PARAMETERS", "INVALID_TIMESTAMP", "INPUT_ERROR"]
+                        enum:
+                          [
+                            "MISSING_PARAMETERS",
+                            "INVALID_TIMESTAMP",
+                            "INPUT_ERROR",
+                          ]
                       errdata:
                         type: string
                         example: "timestamp is required"
@@ -6750,8 +6830,8 @@ paths:
           in: path
           required: true
           schema:
-                  type: string
-                  format: uuid
+            type: string
+            format: uuid
           description: "Fleet ID"
           example: "16d1bfc0-249f-41a9-b894-57f9630d8135"
         - name: timestamp
@@ -7104,7 +7184,7 @@ paths:
         "200":
           description: Successful response
         content:
-            application/json: {}
+          application/json: {}
   /api/v1/fms/tripinsights/fleet/{fleetid}/fleetutilizationheatmap:
     get:
       tags:
@@ -7322,7 +7402,7 @@ paths:
                   description: "Unix timestamp in seconds"
                   example: 1675209599
         security:
-        - cookieAuth: []
+          - cookieAuth: []
       responses:
         "200":
           description: Successful response
@@ -7418,9 +7498,9 @@ paths:
       summary: Reset Password
       description: |
         Reset user password using a reset token with reCAPTCHA verification.
-        
+
         **For reCAPTCHA testing, visit: {PORT}/api/v1/api-docs/captcha.html**
-        
+
         This endpoint requires:
         - Valid reset ID/token
         - New password (8-128 characters)
@@ -7478,7 +7558,13 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "CAPTCHA_MISSING", "CAPTCHA_FAILED", "INVALID_RESET_TOKEN"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "CAPTCHA_MISSING",
+                            "CAPTCHA_FAILED",
+                            "INVALID_RESET_TOKEN",
+                          ]
                         example: "CAPTCHA_MISSING"
                       errdata:
                         type: string
@@ -7556,27 +7642,26 @@ paths:
             schema:
               type: object
               properties:
-                  data:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        fleetid:
-                          type: string
-                          format: uuid
-                          description: Fleet ID
-                        fleetname:
-                          type: string
-                          description: Fleet name
-                        parentfleetid:
-                          type: string
-                          format: uuid
-                          description: Parent fleet ID
-                  msg:
-                    type: string
-                    example: "Account fleets fetched successfully"
-  
-     
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      fleetid:
+                        type: string
+                        format: uuid
+                        description: Fleet ID
+                      fleetname:
+                        type: string
+                        description: Fleet name
+                      parentfleetid:
+                        type: string
+                        format: uuid
+                        description: Parent fleet ID
+                msg:
+                  type: string
+                  example: "Account fleets fetched successfully"
+
   /api/v1/fms/account/tagvehicle:
     post:
       tags:
@@ -7666,7 +7751,12 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "SAME_ACCOUNT_ERROR", "TAG_VEHICLE_FAILED"]
+                        enum:
+                          [
+                            "INPUT_ERROR",
+                            "SAME_ACCOUNT_ERROR",
+                            "TAG_VEHICLE_FAILED",
+                          ]
                         example: "INPUT_ERROR"
                       errdata:
                         type: string
@@ -8219,7 +8309,8 @@ paths:
                     properties:
                       errcode:
                         type: string
-                        enum: ["INPUT_ERROR", "INVALID_VIN", "INVALID_TIME_RANGE"]
+                        enum:
+                          ["INPUT_ERROR", "INVALID_VIN", "INVALID_TIME_RANGE"]
                         example: "INPUT_ERROR"
                       errdata:
                         type: string

@@ -1,16 +1,16 @@
 import PgPool from "../pgpool.js";
 // 0. Utils...
 console.log = (function () {
-  var console_log = console.log;
-  var timeStart = new Date().getTime();
+  let console_log = console.log;
+  let timeStart = new Date().getTime();
 
   return function () {
-    var currtime = new Date().getTime();
-    var delta = currtime - timeStart;
-    var args = [];
+    let currtime = new Date().getTime();
+    let delta = currtime - timeStart;
+    let args = [];
     args.push(currtime);
     args.push((delta / 1000).toFixed(3) + ":");
-    for (var i = 0; i < arguments.length; i++) {
+    for (let i = 0; i < arguments.length; i++) {
       args.push(arguments[i]);
     }
     console_log.apply(console, args);

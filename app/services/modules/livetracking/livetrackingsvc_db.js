@@ -1,7 +1,8 @@
 export default class LivetrackingsvcDB {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
+    this.config = config;
   }
 
   async getVehicles(accountid, fleetid, recursive) {
@@ -53,10 +54,52 @@ export default class LivetrackingsvcDB {
       if (result.rowCount === 0) {
         return [];
       }
-      return result.rows;
+      const allVehicles = result.rows;
+
+      const shouldFilterSubscribed =
+        this.config?.fmsFeatures?.enableSubscribedVehiclesFilter || false;
+
+      if (!shouldFilterSubscribed) {
+        return allVehicles;
+      }
+
+      const vinNumbers = allVehicles.map((vehicle) => vehicle.vinno);
+
+      const subscribedQuery = `
+        SELECT vinno FROM account_vehicle_subscription 
+        WHERE accountid = $1 AND vinno = ANY($2) AND state = 1
+      `;
+      const subscribedResult = await this.pgPoolI.Query(subscribedQuery, [
+        accountid,
+        vinNumbers,
+      ]);
+
+      if (subscribedResult.rowCount === 0) {
+        return [];
+      }
+
+      const subscribedVins = new Set(
+        subscribedResult.rows.map((row) => row.vinno)
+      );
+
+      const subscribedVehicles = allVehicles.filter((vehicle) =>
+        subscribedVins.has(vehicle.vinno)
+      );
+
+      return subscribedVehicles;
     } catch (error) {
       throw new Error("Unable to retrieve vehicle information");
     }
+  }
+
+  async checkVehicleExists(accountid, vinno) {
+    let query = `
+      SELECT fv.vinno 
+      FROM fleet_vehicle fv 
+      WHERE fv.accountid = $1 AND fv.vinno = $2;
+    `;
+    let result = await this.pgPoolI.Query(query, [accountid, vinno]);
+    return result.rowCount > 0;
   }
 
   async getVehicleInfo(accountid, vinno) {

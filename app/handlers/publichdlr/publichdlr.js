@@ -2,7 +2,14 @@ import z from "zod";
 import PublicApiAuditSvc from "../../services/auditsvc/publicsvc_audit.js";
 import { bindAuditToMethods } from "../../utils/auditutil.js";
 import {
+  COOKIE_MAX_AGE,
+  REFRESH_TOKEN_EXPIRY_TIME,
+  TOKEN_EXPIRY_TIME,
+} from "../../utils/constant.js";
+import { GetUnVerifiedClaims } from "../../utils/jwtutil.js";
+import {
   APIResponseBadRequest,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
 } from "../../utils/responseutil.js";
@@ -14,18 +21,28 @@ import PublicHdlrImpl from "./publichdlr_impl.js";
 import PublicRateLimiter from "./publichdlr_ratelimit.js";
 
 export default class PublicHdlr {
-  constructor(userSvcI, authSvcI, fmsSvcI, platformSvcI, config, logger) {
+  constructor(
+    userSvcI,
+    authSvcI,
+    fmsSvcI,
+    platformSvcI,
+    inMemCacheI,
+    config,
+    logger
+  ) {
     this.userSvcI = userSvcI;
     this.authSvcI = authSvcI;
     this.fmsSvcI = fmsSvcI;
     this.platformSvcI = platformSvcI;
     this.config = config;
     this.logger = logger;
+    this.inMemCacheI = inMemCacheI;
     this.publicHdlrImpl = new PublicHdlrImpl(
       userSvcI,
       authSvcI,
       fmsSvcI,
       platformSvcI,
+      inMemCacheI,
       logger
     );
 
@@ -123,7 +140,7 @@ export default class PublicHdlr {
 
     router.post(
       "/gettestusertoken",
-      ...this.rateLimiter.getSigninLimiters(),
+      ...this.rateLimiter.getTestUserTokenLimiters(),
       this.GetTestUserToken
     );
   }
@@ -136,117 +153,82 @@ export default class PublicHdlr {
         req,
         res,
         error.errcode,
-        error.errdata,
+        error.errdata || {},
         error.message
       );
     }
 
     if (error.errcode === "RATE_LIMIT_EXCEEDED") {
-      return APIResponseBadRequest(
-        req,
-        res,
-        error.errcode,
-        null,
-        error.message
-      );
+      return APIResponseBadRequest(req, res, error.errcode, {}, error.message);
     }
 
     const userFriendlyErrors = {
-      "User not found": {
+      USER_NOT_FOUND: {
         code: "USER_NOT_FOUND",
-        message:
-          "We couldn't find an account with the provided details. Please check and try again.",
+        message: "User with this contact doesn't exist",
       },
-      "Invalid email or password": {
+      INVALID_CREDENTIALS: {
         code: "INVALID_CREDENTIALS",
-        message:
-          "The email or password you entered is incorrect. Please try again.",
+        message: "Invalid email or password",
       },
-      "Invalid OTP": {
+      INVALID_OTP: {
         code: "INVALID_OTP",
-        message:
-          "The OTP you entered is incorrect or has expired. Please try again.",
+        message: "Invalid OTP",
       },
-      "Invalid MPIN": {
+      INVALID_MPIN: {
         code: "INVALID_MPIN",
-        message: "The MPIN you entered is incorrect. Please try again.",
+        message: "Invalid MPIN",
       },
-      "User is not enabled": {
+      ACCOUNT_DISABLED: {
         code: "ACCOUNT_DISABLED",
-        message:
-          "Your account has been disabled. Please contact support for assistance.",
+        message: "Account is disabled",
       },
-      "User is deleted": {
+      ACCOUNT_DELETED: {
         code: "ACCOUNT_DELETED",
-        message:
-          "This account is no longer active. Please contact support if you believe this is an error.",
+        message: "Account is deleted",
       },
-      "User is disabled": {
-        code: "ACCOUNT_DISABLED",
-        message:
-          "Your account has been disabled. Please contact support for assistance.",
-      },
-      "User has been deleted": {
-        code: "ACCOUNT_DELETED",
-        message:
-          "This account is no longer active. Please contact support if you believe this is an error.",
-      },
-      "User is not superadmin": {
-        code: "INSUFFICIENT_PERMISSIONS",
+      USER_IS_NOT_SUPERADMIN: {
+        code: "USER_IS_NOT_SUPERADMIN",
         message:
           "You don't have the required permissions to access this resource.",
       },
-      "MPIN not set for this user": {
+      MPIN_NOT_SET: {
         code: "MPIN_NOT_SET",
-        message:
-          "MPIN is not set for this account. Please set up your MPIN first.",
+        message: "MPIN is not set for this account",
       },
-      "MPIN is disabled for this user": {
+      MPIN_DISABLED: {
         code: "MPIN_DISABLED",
-        message:
-          "MPIN authentication is disabled for this account. Please use alternative login method.",
+        message: "MPIN authentication is disabled for this account",
       },
-      "Invalid or expired reset token": {
+      INVALID_RESET_TOKEN: {
         code: "INVALID_RESET_TOKEN",
-        message:
-          "This password reset link is invalid or has expired. Please request a new one.",
+        message: "Password reset link is invalid or has expired",
       },
-      "Reset token has expired": {
+      RESET_TOKEN_EXPIRED: {
         code: "RESET_TOKEN_EXPIRED",
-        message:
-          "This password reset link has expired. Please request a new one.",
+        message: "Password reset link has expired",
       },
-      "Reset token has already been used": {
+      RESET_TOKEN_USED: {
         code: "RESET_TOKEN_USED",
-        message:
-          "This password reset link has already been used. Please request a new one if needed.",
+        message: "Password reset link has already been used",
       },
-      "Failed to create account for mobile user": {
-        code: "ACCOUNT_CREATION_FAILED",
-        message:
-          "We encountered an issue creating your account. Please try again later.",
-      },
-      "Failed to signup with invite": {
+      SIGNUP_FAILED: {
         code: "SIGNUP_FAILED",
-        message:
-          "We couldn't complete your signup. Please check your invite link and try again.",
+        message: "Failed to signup with invite",
       },
-      "Failed to create user in auth service": {
+      AUTH_SERVICE_ERROR: {
         code: "AUTH_SERVICE_ERROR",
-        message:
-          "We encountered an issue setting up your account. Please try again later.",
+        message: "Failed to create user in auth service",
       },
-      "User not found with this email address": {
+      EMAIL_NOT_FOUND: {
         code: "EMAIL_NOT_FOUND",
-        message:
-          "We couldn't find an account associated with this email address.",
+        message: "User with this email doesn't exist",
       },
-      "New password cannot be the same as the old password": {
+      PASSWORD_SAME_AS_OLD: {
         code: "PASSWORD_SAME_AS_OLD",
-        message:
-          "New password cannot be the same as your current password. Please choose a different password.",
+        message: "New password cannot be the same as the old password",
       },
-      "Password has expired": {
+      PASSWORD_EXPIRED: {
         code: "PASSWORD_EXPIRED",
         message:
           "Your password has expired. Please reset your password to continue.",
@@ -254,6 +236,18 @@ export default class PublicHdlr {
     };
 
     const errorMessage = error.message || error.toString();
+
+    if (errorMessage.startsWith("ACCOUNT_LOCKED:")) {
+      const remainingTime = errorMessage.split(":")[1];
+      return APIResponseBadRequest(
+        req,
+        res,
+        "ACCOUNT_LOCKED",
+        { remainingTimeMinutes: parseInt(remainingTime) },
+        `Account temporarily locked due to multiple unsuccessful login attempts. Try Again in ${remainingTime} minutes.`
+      );
+    }
+
     const friendlyError = userFriendlyErrors[errorMessage];
 
     if (friendlyError) {
@@ -261,7 +255,7 @@ export default class PublicHdlr {
         req,
         res,
         friendlyError.code,
-        null,
+        {},
         friendlyError.message
       );
     }
@@ -270,9 +264,51 @@ export default class PublicHdlr {
       req,
       res,
       defaultErrorCode,
-      error.toString(),
+      {},
       defaultMessage
     );
+  };
+
+  ExtractOptionalUserIdFromToken = async (req) => {
+    try {
+      let token = req.headers["Cookie"] || req.headers["cookie"];
+
+      if (!token) {
+        token = req.headers["Authorization"] || req.headers["authorization"];
+        if (token && token.startsWith("Bearer ")) {
+          token = token.substring(7);
+        }
+      } else {
+        if (token.includes(";")) {
+          let cookies = token.split(";");
+          for (let eachcookie of cookies) {
+            eachcookie = eachcookie.trim();
+            if (eachcookie.startsWith("token=")) {
+              token = eachcookie.substring(6);
+              break;
+            }
+          }
+        }
+
+        if (token.startsWith("token=")) {
+          token = token.substring(6);
+        }
+      }
+
+      if (!token) {
+        return null;
+      }
+
+      let claims = await GetUnVerifiedClaims(token);
+      if (!claims || !claims.userid) {
+        return null;
+      }
+
+      return claims.userid;
+    } catch (error) {
+      this.logger.error("ExtractOptionalUserIdFromToken error: ", error);
+      return null;
+    }
   };
 
   CheckContact = async (req, res, next) => {
@@ -287,7 +323,7 @@ export default class PublicHdlr {
             req,
             res,
             "CAPTCHA_MISSING",
-            null,
+            {},
             "Please complete the security verification to continue."
           );
         }
@@ -303,7 +339,7 @@ export default class PublicHdlr {
             req,
             res,
             "CAPTCHA_FAILED",
-            null,
+            {},
             "Security verification failed. Please try again."
           );
         }
@@ -327,12 +363,13 @@ export default class PublicHdlr {
       let result = await this.publicHdlrImpl.CheckContactLogic(contact);
       APIResponseOK(req, res, result, "Contact verified successfully");
     } catch (error) {
+      this.logger.error("CheckContact error: ", error);
       return this.handleError(
         error,
         req,
         res,
         "CHECK_CONTACT_ERR",
-        "We couldn't verify your contact information. Please try again."
+        "User with this contact doesn't exist"
       );
     }
   };
@@ -349,7 +386,7 @@ export default class PublicHdlr {
             req,
             res,
             "CAPTCHA_MISSING",
-            null,
+            {},
             "Please complete the security verification to continue."
           );
         }
@@ -365,7 +402,7 @@ export default class PublicHdlr {
             req,
             res,
             "CAPTCHA_FAILED",
-            null,
+            {},
             "Security verification failed. Please try again."
           );
         }
@@ -392,13 +429,44 @@ export default class PublicHdlr {
         "OTP sent successfully to your mobile number"
       );
     } catch (error) {
-      return this.handleError(
-        error,
-        req,
-        res,
-        "MOBILE_SEND_OTP_ERR",
-        "We couldn't send the OTP to your mobile number. Please try again."
-      );
+      this.logger.error("MobileSendOtp error: ", error);
+      if (error.errcode === "RATE_LIMIT_EXCEEDED") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          {},
+          error.message
+        );
+      } else if (
+        error.errcode === "TOO_MANY_OTP_REQUESTS" ||
+        error.errcode === "SMS_SEND_FAILED" ||
+        error.errcode === "INVALID_MOBILE"
+      ) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          {},
+          error.message
+        );
+      } else if (error.message === "USER_NOT_FOUND") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "USER_NOT_FOUND",
+          {},
+          "User not found with this mobile number"
+        );
+      } else {
+        return this.handleError(
+          error,
+          req,
+          res,
+          "MOBILE_SEND_OTP_ERR",
+          "We couldn't send the OTP to your mobile number. Please try again."
+        );
+      }
     }
   };
 
@@ -411,29 +479,24 @@ export default class PublicHdlr {
             message:
               "Mobile number must be exactly 10 digits and start with 6 to 9",
           }),
-
-        // TODO: Uncomment OTP validation after new Android build
-        // otp: z
-        //   .string({ message: "Invalid OTP format" })
-        //   .nonempty({ message: "OTP cannot be empty" }),
+        otp: z
+          .string({ message: "Invalid OTP format" })
+          .nonempty({ message: "OTP cannot be empty" }),
       });
 
-      //TODO: uncomment this after new Android build
-      // let { mobile, otp } = validateAllInputs(schema, {
-      //   mobile: req.body.mobile,
-      //   otp: req.body.otp,
-      // });
-
-      //TODO: remove this after new Android build
-      let { mobile } = validateAllInputs(schema, {
+      let { mobile, otp } = validateAllInputs(schema, {
         mobile: req.body.mobile,
+        otp: req.body.otp,
       });
-
-      let otp = req.body.otp;
 
       let validityMs = req.body.validity;
-      let expiresin = 1 * 24 * 60 * 60;
-      let refreshTokenMaxAge = 30 * 24 * 60 * 60;
+      let expiresin = TOKEN_EXPIRY_TIME;
+      let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
+
+      // if (mobile == "9742720873") {
+      //   //if (mobile == "7739464603" || mobile == "9742720873") {
+      //   expiresin = 10;
+      // }
 
       if (validityMs) {
         expiresin = Math.floor(validityMs / 1000);
@@ -443,19 +506,20 @@ export default class PublicHdlr {
         mobile,
         otp,
         expiresin,
-        refreshTokenMaxAge
+        refreshTokenMaxAge,
+        req
       );
       res.cookie("token", result.usertoken, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 day
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
       res.cookie("refreshtoken", result.refreshtoken, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 days
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
@@ -467,6 +531,7 @@ export default class PublicHdlr {
         "Successfully signed in with your mobile number"
       );
     } catch (error) {
+      this.logger.error("MobileSignIn error: ", error);
       return this.handleError(
         error,
         req,
@@ -496,8 +561,8 @@ export default class PublicHdlr {
       });
 
       let validityMs = req.body.validity;
-      let expiresin = 1 * 24 * 60 * 60;
-      let refreshTokenMaxAge = 30 * 24 * 60 * 60;
+      let expiresin = TOKEN_EXPIRY_TIME;
+      let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
       if (validityMs) {
         expiresin = Math.floor(validityMs / 1000);
@@ -512,20 +577,31 @@ export default class PublicHdlr {
       res.cookie("token", result.token, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 day
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
       res.cookie("refreshtoken", result.refreshtoken, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 days
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
 
       APIResponseOK(req, res, result, "Admin access granted successfully");
     } catch (error) {
+      this.logger.error("GetSuperAdminToken error: ", error);
+      if (error.message === "USER_IS_NOT_SUPERADMIN") {
+        return APIResponseForbidden(
+          req,
+          res,
+          "USER_IS_NOT_SUPERADMIN",
+          {},
+          "You don't have the required permissions to access this resource."
+        );
+      }
+
       return this.handleError(
         error,
         req,
@@ -542,33 +618,33 @@ export default class PublicHdlr {
       const remoteIp = req.ip;
 
       // TODO: Remove this once we have a proper captcha implementation
-      // if (captchaToken) {
-      if (!captchaToken) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          "CAPTCHA_MISSING",
-          null,
-          "Please complete the security verification to continue."
-        );
-      }
+      if (captchaToken) {
+        if (!captchaToken) {
+          return APIResponseBadRequest(
+            req,
+            res,
+            "CAPTCHA_MISSING",
+            {},
+            "Please complete the security verification to continue."
+          );
+        }
 
-      const isValidCaptcha = await ValidateCaptcha(
-        captchaToken,
-        remoteIp,
-        this.config
-      );
-
-      if (!isValidCaptcha) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          "CAPTCHA_FAILED",
-          null,
-          "Security verification failed. Please try again."
+        const isValidCaptcha = await ValidateCaptcha(
+          captchaToken,
+          remoteIp,
+          this.config
         );
+
+        if (!isValidCaptcha) {
+          return APIResponseBadRequest(
+            req,
+            res,
+            "CAPTCHA_FAILED",
+            {},
+            "Security verification failed. Please try again."
+          );
+        }
       }
-      // }
 
       let schema = z.object({
         email: z
@@ -587,8 +663,8 @@ export default class PublicHdlr {
       });
 
       let validity = req.body.validity;
-      let expiresin = 1 * 60 * 60;
-      let refreshTokenMaxAge = 30 * 24 * 60 * 60;
+      let expiresin = TOKEN_EXPIRY_TIME;
+      let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
       if (validity && Array.isArray(validity) && validity.length >= 2) {
         expiresin = Math.floor(validity[0] / 1000);
@@ -606,20 +682,21 @@ export default class PublicHdlr {
       res.cookie("token", result.token, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 day
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
       res.cookie("refreshtoken", result.refreshtoken, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 days
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
 
       APIResponseOK(req, res, result, "Successfully signed in with your email");
     } catch (error) {
+      this.logger.error("UserEmailSignIn error: ", error);
       return this.handleError(
         error,
         req,
@@ -648,8 +725,8 @@ export default class PublicHdlr {
         password: req.body.password,
       });
 
-      let expiresin = 24 * 60 * 60;
-      let refreshTokenMaxAge = 30 * 24 * 60 * 60;
+      let expiresin = TOKEN_EXPIRY_TIME;
+      let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
       let result = await this.publicHdlrImpl.GetTestUserTokenLogic(
         email,
@@ -660,20 +737,21 @@ export default class PublicHdlr {
       res.cookie("token", result.token, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 day
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
       res.cookie("refreshtoken", result.refreshtoken, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 days
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
 
       APIResponseOK(req, res, result, "Successfully signed in with your email");
     } catch (error) {
+      this.logger.error("GetTestUserToken error: ", error);
       return this.handleError(
         error,
         req,
@@ -689,31 +767,31 @@ export default class PublicHdlr {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
 
-      if (!captchaToken) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          "CAPTCHA_MISSING",
-          null,
-          "Please complete the security verification to continue."
-        );
-      }
+      // if (!captchaToken) {
+      //   return APIResponseBadRequest(
+      //     req,
+      //     res,
+      //     "CAPTCHA_MISSING",
+      //     {},
+      //     "Please complete the security verification to continue."
+      //   );
+      // }
 
-      const isValidCaptcha = await ValidateCaptcha(
-        captchaToken,
-        remoteIp,
-        this.config
-      );
+      // const isValidCaptcha = await ValidateCaptcha(
+      //   captchaToken,
+      //   remoteIp,
+      //   this.config
+      // );
 
-      if (!isValidCaptcha) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          "CAPTCHA_FAILED",
-          null,
-          "Security verification failed. Please try again."
-        );
-      }
+      // if (!isValidCaptcha) {
+      //   return APIResponseBadRequest(
+      //     req,
+      //     res,
+      //     "CAPTCHA_FAILED",
+      //     {},
+      //     "Security verification failed. Please try again."
+      //   );
+      // }
 
       let schema = z.object({
         inviteid: z
@@ -730,7 +808,7 @@ export default class PublicHdlr {
           .max(128, {
             message: "Display name must be at most 128 characters long",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Display name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -768,6 +846,7 @@ export default class PublicHdlr {
         "Welcome! Your account has been created successfully"
       );
     } catch (error) {
+      this.logger.error("SignupWithInvite error: ", error);
       return this.handleError(
         error,
         req,
@@ -791,9 +870,15 @@ export default class PublicHdlr {
         inviteid: req.body.inviteid,
       });
 
-      let result = await this.publicHdlrImpl.ValidateInviteLogic(inviteid);
+      let userid = await this.ExtractOptionalUserIdFromToken(req);
+
+      let result = await this.publicHdlrImpl.ValidateInviteLogic(
+        inviteid,
+        userid
+      );
       APIResponseOK(req, res, result, "Invite link is valid and ready to use");
     } catch (error) {
+      this.logger.error("ValidateInvite error: ", error);
       return this.handleError(
         error,
         req,
@@ -816,7 +901,7 @@ export default class PublicHdlr {
             req,
             res,
             "CAPTCHA_MISSING",
-            null,
+            {},
             "Please complete the security verification to continue."
           );
         }
@@ -832,7 +917,7 @@ export default class PublicHdlr {
             req,
             res,
             "CAPTCHA_FAILED",
-            null,
+            {},
             "Security verification failed. Please try again."
           );
         }
@@ -855,7 +940,7 @@ export default class PublicHdlr {
           req,
           res,
           "HEADER_REFERER_MISSING",
-          null,
+          {},
           "Invalid request source. Please try again from the application."
         );
       }
@@ -871,6 +956,7 @@ export default class PublicHdlr {
         "Password reset instructions have been sent to your email"
       );
     } catch (error) {
+      this.logger.error("ForgotPassword error: ", error);
       return this.handleError(
         error,
         req,
@@ -893,7 +979,7 @@ export default class PublicHdlr {
           req,
           res,
           "CAPTCHA_MISSING",
-          null,
+          {},
           "Please complete the security verification to continue."
         );
       }
@@ -909,7 +995,7 @@ export default class PublicHdlr {
           req,
           res,
           "CAPTCHA_FAILED",
-          null,
+          {},
           "Security verification failed. Please try again."
         );
       }
@@ -942,6 +1028,7 @@ export default class PublicHdlr {
         "Your password has been reset successfully"
       );
     } catch (error) {
+      this.logger.error("ResetPassword error: ", error);
       return this.handleError(
         error,
         req,
@@ -964,7 +1051,7 @@ export default class PublicHdlr {
             req,
             res,
             "CAPTCHA_MISSING",
-            null,
+            {},
             "Please complete the security verification to continue."
           );
         }
@@ -980,7 +1067,7 @@ export default class PublicHdlr {
             req,
             res,
             "CAPTCHA_FAILED",
-            null,
+            {},
             "Security verification failed. Please try again."
           );
         }
@@ -996,9 +1083,15 @@ export default class PublicHdlr {
         resetid: req.body.resetid,
       });
 
-      let result = await this.publicHdlrImpl.ValidateResetTokenLogic(resetid);
-      APIResponseOK(req, res, result, "Password reset link is valid");
+      const userid = await this.ExtractOptionalUserIdFromToken(req);
+
+      let result = await this.publicHdlrImpl.ValidateResetTokenLogic(
+        resetid,
+        userid
+      );
+      APIResponseOK(req, res, result, result.message);
     } catch (error) {
+      this.logger.error("ValidateResetToken error: ", error);
       return this.handleError(
         error,
         req,
@@ -1014,6 +1107,7 @@ export default class PublicHdlr {
       res.clearCookie("token");
       APIResponseOK(req, res, {}, "You have been signed out successfully");
     } catch (error) {
+      this.logger.error("DeleteSession error: ", error);
       return this.handleError(
         error,
         req,
@@ -1044,8 +1138,12 @@ export default class PublicHdlr {
       });
 
       let validityMs = req.body.validity;
-      let expiresin = 1 * 24 * 60 * 60;
-      let refreshTokenMaxAge = 30 * 24 * 60 * 60;
+      let expiresin = TOKEN_EXPIRY_TIME;
+      let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
+
+      if (mobile == "7739464603" || mobile == "9742720873") {
+        expiresin = 10;
+      }
 
       if (validityMs) {
         expiresin = Math.floor(validityMs / 1000);
@@ -1060,20 +1158,21 @@ export default class PublicHdlr {
       res.cookie("token", result.usertoken, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 day
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
       res.cookie("refreshtoken", result.refreshtoken, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 days
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
 
       APIResponseOK(req, res, result, "Successfully signed in with your MPIN");
     } catch (error) {
+      this.logger.error("MpinSignIn error: ", error);
       return this.handleError(
         error,
         req,
@@ -1094,7 +1193,7 @@ export default class PublicHdlr {
           req,
           res,
           "CAPTCHA_MISSING",
-          null,
+          {},
           "Please complete the security verification to continue."
         );
       }
@@ -1110,7 +1209,7 @@ export default class PublicHdlr {
           req,
           res,
           "CAPTCHA_FAILED",
-          null,
+          {},
           "Security verification failed. Please try again."
         );
       }
@@ -1145,6 +1244,7 @@ export default class PublicHdlr {
         "Your password has been changed successfully"
       );
     } catch (error) {
+      this.logger.error("ChangePassword error: ", error);
       return this.handleError(
         error,
         req,

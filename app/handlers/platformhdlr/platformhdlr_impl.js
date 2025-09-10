@@ -1,5 +1,3 @@
-import { v4 as uuidv4 } from "uuid";
-
 export default class PlatformHdlrImpl {
   constructor(platformSvcI, userSvcI, authSvcI, fmsAccountSvcI, logger) {
     this.platformSvcI = platformSvcI;
@@ -50,10 +48,19 @@ export default class PlatformHdlrImpl {
     };
   };
 
+  GetAPIKeyLogic = async (platform, environment) => {
+    let apiKey = await this.platformSvcI.GetAPIKey(platform, environment);
+    if (!apiKey) {
+      this.logger.error("API key not found");
+      throw new Error("API key not found");
+    }
+    return apiKey;
+  };
+
   prepareConsolePermissions = (consolePerms) => {
     let showModules = false;
     let showPackages = false;
-    let showSubscriptions = false; // TODO: there is no show subscriptions in the console
+    let showSubscriptions = false;
     let showRoles = false;
     let showAdministrators = false;
     let showUsers = false;
@@ -105,90 +112,28 @@ export default class PlatformHdlrImpl {
     };
   };
 
-  CreateVehicleLogic = async (
-    vinno,
-    modelcode,
-    vehicleinfo,
-    mobileno,
-    assignedby
-  ) => {
-    let res = await this.platformSvcI.CreateVehicle(
-      vinno,
-      modelcode,
-      vehicleinfo,
-      mobileno,
-      assignedby
-    );
-    if (!res) {
-      this.logger.error("Failed to seed vehicle");
-      throw new Error("Failed to seed vehicle");
+  GetConsolePlatformOverviewLogic = async () => {
+    let platformOverview = await this.platformSvcI.GetConsolePlatformOverview();
+    if (!platformOverview) {
+      this.logger.error("Platform overview not found");
+      throw new Error("Platform overview not found");
     }
-    return {
-      vinno: vinno,
-      modelcode: modelcode,
-      vehicleinfo: vehicleinfo,
-    };
+    return platformOverview;
   };
 
-  AddVehicleToCustomFleetLogic = async (
-    accountid,
-    fleetid,
-    vinno,
-    assignedby
-  ) => {
-    let res = await this.platformSvcI.AddVehicleToCustomFleet(
-      accountid,
-      fleetid,
-      vinno,
-      assignedby
-    );
-    if (!res) {
-      this.logger.error("Failed to add vehicle to custom fleet");
-      throw new Error("Failed to add vehicle to custom fleet");
+  GetConsoleAccountAssignmentHistoryLogic = async (accountid, starttime, endtime) => {
+    let history = await this.platformSvcI.GetConsoleAccountAssignmentHistory(accountid, starttime, endtime);
+    if (!history) {
+      history = [];
     }
-    return { accountid: accountid, fleetid: fleetid, vinno: vinno };
+    return history;
   };
-
-  UpdateVehicleInfoLogic = async (vinno, updateFields, updatedby) => {
-    const allowedFields = [
-      "vehicleinfo",
-      "mobile",
-      "license_plate",
-      "color",
-      "vehicle_city",
-      "dealer",
-      "delivered",
-      "delivered_date",
-      "data_freq",
-      "tgu_model",
-      "tgu_sw_version",
-      "tgu_phone_no",
-      "tgu_imei_no",
-    ];
-
-    const fieldsToUpdate = {};
-    for (const [key, value] of Object.entries(updateFields)) {
-      if (allowedFields.includes(key)) {
-        fieldsToUpdate[key] = value;
-      }
+  
+  GetConsoleVehicleAssignmentHistoryLogic = async (vinno, starttime, endtime) => {
+    let history = await this.platformSvcI.GetConsoleVehicleAssignmentHistory(vinno, starttime, endtime);
+    if (!history) {
+      history = [];
     }
-
-    if (Object.keys(fieldsToUpdate).length === 0) {
-      throw new Error("No valid fields provided for update");
-    }
-
-    let res = await this.platformSvcI.UpdateVehicleInfo(
-      vinno,
-      fieldsToUpdate,
-      updatedby
-    );
-    if (!res) {
-      this.logger.error("Failed to update vehicle info");
-      throw new Error("Failed to update vehicle info");
-    }
-    return {
-      vinno: vinno,
-      updatedFields: Object.keys(fieldsToUpdate),
-    };
+    return history;
   };
 }

@@ -3,9 +3,9 @@ import z from "zod";
 import { validateAllInputs } from "../../../app/utils/validationutil.js";
 import {
   APIResponseBadRequest,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
-  APIResponseUnauthorized,
 } from "../../utils/responseutil.js";
 import { AuthenticateUserTokenFromCookie } from "../../utils/tokenutil.js";
 import AccountHdlr from "./account/accounthdlr.js";
@@ -15,12 +15,25 @@ import PackageHdlr from "./pacakge/packagehdlr.js";
 import PlatformHdlrImpl from "./platformhdlr_impl.js";
 import RoleHdlr from "./role/rolehdlr.js";
 import PUserHdlr from "./user/puserhdlr.js";
+import VehicleHdlr from "./vehicle/vehiclehdlr.js";
 export default class PlatformHdlr {
-  constructor(platformSvcI, userSvcI, authSvcI, fmsAccountSvcI, logger) {
+  constructor(
+    platformSvcI,
+    userSvcI,
+    authSvcI,
+    fmsAccountSvcI,
+    historyDataSvcI,
+    inMemCacheI,
+    redisSvc,
+    logger
+  ) {
     this.platformSvcI = platformSvcI;
     this.userSvcI = userSvcI;
     this.authSvcI = authSvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
+    this.historyDataSvcI = historyDataSvcI;
+    this.inMemCacheI = inMemCacheI;
+    this.redisSvc = redisSvc;
     this.logger = logger;
     this.platformHdlrImpl = new PlatformHdlrImpl(
       platformSvcI,
@@ -29,48 +42,54 @@ export default class PlatformHdlr {
       fmsAccountSvcI,
       logger
     );
-    this.moudleHdlr = new ModuleHdlr(
+    this.moduleHdlr = new ModuleHdlr(
       platformSvcI.getModuleSvc(),
       userSvcI,
       logger
     );
     this.packageHdlr = new PackageHdlr(platformSvcI.getPackageSvc(), logger);
-    this.pUserHdlr = new PUserHdlr(
-      platformSvcI.getPUserSvc(),
-      userSvcI,
-      fmsAccountSvcI,
-      authSvcI,
-      logger
-    );
-    this.roleHdlr = new RoleHdlr(platformSvcI.getRoleSvc(), logger);
     this.accountHdlr = new AccountHdlr(
       platformSvcI.getAccountSvc(),
       userSvcI,
       authSvcI,
       fmsAccountSvcI,
+      platformSvcI,
+      inMemCacheI,
+      redisSvc,
       logger
     );
+    this.pUserHdlr = new PUserHdlr(
+      platformSvcI.getPUserSvc(),
+      userSvcI,
+      platformSvcI.getAccountSvc(),
+      fmsAccountSvcI,
+      authSvcI,
+      platformSvcI,
+      this.accountHdlr,
+      inMemCacheI,
+      logger
+    );
+    this.roleHdlr = new RoleHdlr(platformSvcI.getRoleSvc(), logger);
     this.modelHdlr = new ModelHdlr(
       platformSvcI.getModelSvc(),
       userSvcI,
       logger
     );
+    this.vehicleHdlr = new VehicleHdlr(platformSvcI, historyDataSvcI, logger);
   }
 
-  CheckConsolePermissions = async (req, res, next) => {
+  GetUserPermsHelper = async (req, res, next) => {
     try {
       const userid = req.userid;
-
-      let consolePerms = await this.userSvcI.GetConsolePerms(userid);
+      let userPerms = await this.userSvcI.GetConsolePerms(userid);
       let showConsole = false;
 
-      // check if user has console permission
-      if (consolePerms && consolePerms.length > 0) {
+      if (userPerms && userPerms.length > 0) {
         showConsole = true;
       }
 
       if (!showConsole) {
-        APIResponseUnauthorized(
+        APIResponseForbidden(
           req,
           res,
           "CONSOLE_ACCESS_DENIED",
@@ -80,9 +99,10 @@ export default class PlatformHdlr {
         return;
       }
 
+      req.userperms = userPerms;
       next();
     } catch (error) {
-      this.logger.error("Console permission check failed", error);
+      this.logger.error("GetUserPermsHelper error: ", error);
       APIResponseInternalErr(
         req,
         res,
@@ -93,33 +113,40 @@ export default class PlatformHdlr {
     }
   };
 
-  // TODO: add permission check for each route
   RegisterRoutes(router) {
-    // models
-    // added this in the top to avoid check console permission for model routes
     let modelRouter = promiserouter();
     modelRouter.use(AuthenticateUserTokenFromCookie);
+    this.modelHdlr.RegisterNoPermsRoutes(modelRouter);
+
+    modelRouter.use(this.GetUserPermsHelper);
     this.modelHdlr.RegisterRoutes(modelRouter);
     router.use("/model", modelRouter);
 
     const authRouter = promiserouter();
     authRouter.use(AuthenticateUserTokenFromCookie);
-    authRouter.use(this.CheckConsolePermissions);
+    // this api does not need console permission check
+    authRouter.get("/apikey", this.GetAPIKey);
+
+    authRouter.use(this.GetUserPermsHelper);
     router.use("/", authRouter);
 
     // console
     authRouter.get("/home", this.GetConsoleHomePage);
     authRouter.get("/modules", this.GetConsoleModules);
-
-    // vehicles - only super admin and SOP APIs
-    authRouter.post("/vehicle/create", this.CreateVehicle);
-    authRouter.post("/vehicle/add", this.AddVehicleToCustomFleet);
-    authRouter.put("/vehicle/:vinno/info", this.UpdateVehicleInfo);
+    authRouter.get("/overview", this.GetConsolePlatformOverview);
+    authRouter.get(
+      "/account/:accountid/assignmenthistory",
+      this.GetConsoleAccountAssignmentHistory
+    );
+    authRouter.get(
+      "/vehicle/:vinno/assignmenthistory",
+      this.GetConsoleVehicleAssignmentHistory
+    );
 
     // module
     let moduleRouter = promiserouter();
     moduleRouter.use(AuthenticateUserTokenFromCookie);
-    this.moudleHdlr.RegisterRoutes(moduleRouter);
+    this.moduleHdlr.RegisterRoutes(moduleRouter);
     router.use("/module", moduleRouter);
 
     // packages
@@ -145,7 +172,33 @@ export default class PlatformHdlr {
     accountRouter.use(AuthenticateUserTokenFromCookie);
     this.accountHdlr.RegisterRoutes(accountRouter);
     router.use("/account", accountRouter);
+
+    // vehicles
+    let vehicleRouter = promiserouter();
+    vehicleRouter.use(AuthenticateUserTokenFromCookie);
+    this.vehicleHdlr.RegisterRoutes(vehicleRouter);
+    router.use("/vehicle", vehicleRouter);
   }
+
+  ValidateEpochTime = (timeStr, fieldName) => {
+    if (!/^\d+$/.test(timeStr)) {
+      throw {
+        errcode: "INPUT_ERROR",
+        message: `${fieldName} must be a valid epoch time (integer)`,
+      };
+    }
+
+    const epochTime = parseInt(timeStr, 10);
+
+    if (epochTime < 1000000000000 || epochTime > 9999999999999) {
+      throw {
+        errcode: "INPUT_ERROR",
+        message: `${fieldName} must be a valid epoch time`,
+      };
+    }
+
+    return epochTime;
+  };
 
   GetConsoleHomePage = async (req, res, next) => {
     try {
@@ -164,6 +217,7 @@ export default class PlatformHdlr {
       );
       APIResponseOK(req, res, result, "Console home page fetched successfully");
     } catch (e) {
+      this.logger.error("GetConsoleHomePage error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -199,6 +253,7 @@ export default class PlatformHdlr {
         "Console permissions fetched successfully"
       );
     } catch (e) {
+      this.logger.error("GetConsoleModules error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -213,150 +268,191 @@ export default class PlatformHdlr {
     }
   };
 
-  CreateVehicle = async (req, res, next) => {
+  GetAPIKey = async (req, res, next) => {
     try {
       let schema = z.object({
-        vinno: z
-          .string({ message: "Invalid VIN format" })
-          .nonempty({ message: "VIN cannot be empty" })
-          .max(128, { message: "VIN must not exceed 128 characters" }),
-
-        modelcode: z
-          .string({ message: "Invalid Model Code format" })
-          .nonempty({ message: "Model Code cannot be empty" })
-          .max(128, { message: "Model Code must not exceed 128 characters" }),
-
-        vehicleinfo: z
-          .record(z.any(), { message: "Vehicle Info must be an object" })
-          .default({}),
-
-        mobileno: z
-          .string({ message: "Invalid Mobile Number format" })
-          .regex(/^[6-9]\d{9}$/, {
-            message:
-              "Mobile number must be exactly 10 digits and start with 6 to 9",
+        platform: z.enum(["web", "ios", "android"], {
+          errorMap: () => ({
+            message: "Platform must be one of: web, ios, android",
           }),
+        }),
+        environment: z.enum(["staging", "development", "production", "local"], {
+          errorMap: () => ({
+            message:
+              "Environment must be one of: staging, development, production, local",
+          }),
+        }),
       });
-      let createdby = req.userid;
 
-      let { vinno, modelcode, vehicleinfo, mobileno } = validateAllInputs(
-        schema,
-        {
-          vinno: req.body.vinno,
-          modelcode: req.body.modelcode,
-          vehicleinfo: req.body.vehicleinfo,
-          mobileno: req.body.mobileno,
-        }
+      let { platform, environment } = validateAllInputs(schema, {
+        platform: req.query.platform,
+        environment: req.query.environment,
+      });
+
+      let result = await this.platformHdlrImpl.GetAPIKeyLogic(
+        platform,
+        environment
       );
 
-      let result = await this.platformHdlrImpl.CreateVehicleLogic(
-        vinno,
-        modelcode,
-        vehicleinfo,
-        mobileno,
-        createdby
-      );
-
-      APIResponseOK(req, res, result, "Vehicle created successfully");
+      APIResponseOK(req, res, result, "API key fetched successfully");
     } catch (e) {
+      this.logger.error("GetAPIKey error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         APIResponseInternalErr(
           req,
           res,
-          "CREATE_VEHICLE_ERR",
+          "GET_KEY_ERR",
           e.toString(),
-          "Create vehicle failed"
+          "Get key failed"
         );
       }
     }
   };
 
-  AddVehicleToCustomFleet = async (req, res, next) => {
+  GetConsolePlatformOverview = async (req, res, next) => {
+    try {
+      let result =
+        await this.platformHdlrImpl.GetConsolePlatformOverviewLogic();
+      APIResponseOK(req, res, result, "Platform overview fetched successfully");
+    } catch (e) {
+      APIResponseInternalErr(
+        req,
+        res,
+        "GET_PLATFORM_OVERVIEW_ERR",
+        e.toString(),
+        "Get platform overview failed"
+      );
+    }
+  };
+
+  GetConsoleVehicleAssignmentHistory = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        vinno: z
+          .string({ message: "Invalid VIN number" })
+          .nonempty({ message: "VIN number cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message: "VIN must be a valid format",
+          })
+          .max(128, { message: "VIN number must not exceed 128 characters" }),
+        starttime: z.number({ message: "Invalid Start Time format" }),
+        endtime: z.number({ message: "Invalid End Time format" }),
+      });
+
+      let { vinno, starttime, endtime } = validateAllInputs(schema, {
+        vinno: req.params.vinno,
+        starttime: Number(req.query.starttime || 0),
+        endtime: Number(req.query.endtime || 0),
+      });
+
+      const startepoch = this.ValidateEpochTime(starttime, "starttime");
+      const endepoch = this.ValidateEpochTime(endtime, "endtime");
+
+      if (startepoch >= endepoch) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Start time must be less than end time"
+        );
+      }
+
+      if (endepoch - startepoch > 1000 * 60 * 60 * 24 * 100) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Only 100 days of history is available"
+        );
+      }
+
+      let result =
+        await this.platformHdlrImpl.GetConsoleVehicleAssignmentHistoryLogic(
+          vinno,
+          startepoch,
+          endepoch
+        );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Vehicle assignment history fetched successfully"
+      );
+    } catch (e) {
+      this.logger.error("GetConsoleVehicleAssignmentHistory error: ", e);
+      APIResponseInternalErr(
+        req,
+        res,
+        "GET_VEHICLE_ASSIGNMENT_HISTORY_ERR",
+        e.toString(),
+        "Get vehicle assignment history failed"
+      );
+    }
+  };
+
+  GetConsoleAccountAssignmentHistory = async (req, res, next) => {
     try {
       let schema = z.object({
         accountid: z
           .string({ message: "Invalid Account ID format" })
           .uuid({ message: "Invalid Account ID format" }),
-        fleetid: z
-          .string({ message: "Invalid Fleet ID format" })
-          .uuid({ message: "Invalid Fleet ID format" }),
-        vinno: z
-          .string({ message: "Invalid VIN number" })
-          .nonempty({ message: "VIN number cannot be empty" })
-          .max(128, { message: "VIN number must not exceed 128 characters" }),
-        assignedby: z
-          .string({ message: "User ID is required" })
-          .uuid({ message: "Invalid User ID format" }),
+        starttime: z.number({ message: "Invalid Start Time format" }),
+        endtime: z.number({ message: "Invalid End Time format" }),
       });
 
-      let { accountid, fleetid, vinno, assignedby } = validateAllInputs(
-        schema,
-        {
-          ...req.body,
-          assignedby: req.userid,
-        }
-      );
+      let { accountid, starttime, endtime } = validateAllInputs(schema, {
+        accountid: req.params.accountid,
+        starttime: Number(req.query.starttime || 0),
+        endtime: Number(req.query.endtime || 0),
+      });
 
-      let result = await this.platformHdlrImpl.AddVehicleToCustomFleetLogic(
-        accountid,
-        fleetid,
-        vinno,
-        assignedby
-      );
+      const startepoch = this.ValidateEpochTime(starttime, "starttime");
+      const endepoch = this.ValidateEpochTime(endtime, "endtime");
 
+      if (startepoch >= endepoch) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Start time must be less than end time"
+        );
+      }
+
+      if (endepoch - startepoch > 1000 * 60 * 60 * 24 * 100) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Only 100 days of history is available"
+        );
+      }
+
+      let result =
+        await this.platformHdlrImpl.GetConsoleAccountAssignmentHistoryLogic(
+          accountid,
+          startepoch,
+          endepoch
+        );
       APIResponseOK(
         req,
         res,
         result,
-        "Vehicle added to custom fleet successfully"
+        "Account assignment history fetched successfully"
       );
     } catch (e) {
-      if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
-      } else {
-        APIResponseInternalErr(
-          req,
-          res,
-          "ADD_VEHICLE_TO_CUSTOM_FLEET_ERR",
-          e.toString(),
-          "Add vehicle to custom fleet failed"
-        );
-      }
-    }
-  };
-
-  UpdateVehicleInfo = async (req, res, next) => {
-    try {
-      let vinno = req.params.vinno;
-      let updatedby = req.userid;
-
-      const { vinno: bodyVinno, ...updateFields } = req.body;
-
-      if (!updateFields || Object.keys(updateFields).length === 0) {
-        APIResponseBadRequest(
-          req,
-          res,
-          "NO_UPDATE_FIELDS",
-          "No fields provided for update"
-        );
-        return;
-      }
-
-      let result = await this.platformHdlrImpl.UpdateVehicleInfoLogic(
-        vinno,
-        updateFields,
-        updatedby
-      );
-      APIResponseOK(req, res, result, "Vehicle info updated successfully");
-    } catch (e) {
+      this.logger.error("GetConsoleAccountAssignmentHistory error: ", e);
       APIResponseInternalErr(
         req,
         res,
-        "UPDATE_VEHICLE_INFO_ERR",
+        "GET_ACCOUNT_ASSIGNMENT_HISTORY_ERR",
         e.toString(),
-        "Update vehicle info failed"
+        "Get account assignment history failed"
       );
     }
   };

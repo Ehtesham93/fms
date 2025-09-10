@@ -336,19 +336,19 @@ export default class ModuleSvcDB {
     }
     try {
       let query = `
-                DELETE FROM perm WHERE permid = $1
+                DELETE FROM module_perm WHERE moduleid = $1 AND permid = $2
             `;
-      let result = await txclient.query(query, [permid]);
+      let result = await txclient.query(query, [moduleid, permid]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to delete permission");
+        throw new Error("Failed to delete module permission");
       }
 
       query = `
-                DELETE FROM module_perm WHERE moduleid = $1 AND permid = $2
+                DELETE FROM perm WHERE permid = $1
             `;
-      result = await txclient.query(query, [moduleid, permid]);
+      result = await txclient.query(query, [permid]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to delete module permission");
+        throw new Error("Failed to delete permission");
       }
 
       await this.pgPoolI.TxCommit(txclient);

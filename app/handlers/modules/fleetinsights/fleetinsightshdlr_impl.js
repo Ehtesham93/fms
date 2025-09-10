@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { toFormattedString } from "../../../utils/epochconverter.js";
 
 export default class FleetInsightsHdlrImpl {
   constructor(fleetInsightsSvcI, fmsAccountSvcI, logger) {
@@ -49,7 +50,13 @@ export default class FleetInsightsHdlrImpl {
           recursive
         )) || [];
 
-      const totalfleets = new Set(vehicles.map((v) => v.fleetid)).size;
+      const childFleets = await this.fmsAccountSvcI.GetChildFleets(
+        accountid,
+        rootFleetId,
+        recursive
+      );
+
+      const totalfleets = childFleets?.length || 0;
       const totalvehicles = vehicles.length;
       const totalmodels = new Set(vehicles.map((v) => v.modelcode)).size;
 
@@ -414,35 +421,27 @@ export default class FleetInsightsHdlrImpl {
           totaldistancetravelled,
           totalenergyconsumed,
           totaltrips,
-        } = this.calculateTotalCounts(chargeData, tripData, vinToRegnoMap));
+        } = this.calculateTotalCounts(chargeData, tripData));
         totalchargingdeviation =
           this.calculateTotalChargingDeviation(vinChargeMap);
         result = {
-          totalchargingsessions: this.toFormattedString(totalchargingsessions),
-          totaldistancetravelled: `${this.toFormattedString(
+          totalchargingsessions: toFormattedString(totalchargingsessions),
+          totaldistancetravelled: `${toFormattedString(
             totaldistancetravelled
           )} km`,
-          totalenergyconsumed: `${this.toFormattedString(
-            totalenergyconsumed
-          )} kWh`,
-          totaltrips: this.toFormattedString(totaltrips),
-          totalchargingdeviation: this.toFormattedString(
-            totalchargingdeviation
-          ),
+          totalenergyconsumed: `${toFormattedString(totalenergyconsumed)} kWh`,
+          totaltrips: toFormattedString(totaltrips),
+          totalchargingdeviation: toFormattedString(totalchargingdeviation),
         };
       } else if (filter === "all") {
         result = {
-          totalchargingsessions: this.toFormattedString(totalchargingsessions),
-          totaldistancetravelled: `${this.toFormattedString(
+          totalchargingsessions: toFormattedString(totalchargingsessions),
+          totaldistancetravelled: `${toFormattedString(
             totaldistancetravelled
           )} km`,
-          totalenergyconsumed: `${this.toFormattedString(
-            totalenergyconsumed
-          )} kWh`,
-          totaltrips: this.toFormattedString(totaltrips),
-          totalchargingdeviation: this.toFormattedString(
-            totalchargingdeviation
-          ),
+          totalenergyconsumed: `${toFormattedString(totalenergyconsumed)} kWh`,
+          totaltrips: toFormattedString(totaltrips),
+          totalchargingdeviation: toFormattedString(totalchargingdeviation),
           distancetravelled,
           chargingsessions,
           trips,
@@ -451,30 +450,26 @@ export default class FleetInsightsHdlrImpl {
         };
       } else if (filter === "chargingsessions") {
         result = {
-          totalchargingsessions: this.toFormattedString(totalchargingsessions),
+          totalchargingsessions: toFormattedString(totalchargingsessions),
           chargingsessions,
         };
       } else if (filter === "distancetravelled") {
         result = {
-          totaldistancetravelled: `${this.toFormattedString(
+          totaldistancetravelled: `${toFormattedString(
             totaldistancetravelled
           )} km`,
           distancetravelled,
         };
       } else if (filter === "energyconsumed") {
         result = {
-          totalenergyconsumed: `${this.toFormattedString(
-            totalenergyconsumed
-          )} kWh`,
+          totalenergyconsumed: `${toFormattedString(totalenergyconsumed)} kWh`,
           energyconsumed,
         };
       } else if (filter === "trips") {
-        result = { totaltrips: this.toFormattedString(totaltrips), trips };
+        result = { totaltrips: toFormattedString(totaltrips), trips };
       } else if (filter === "chargingdeviation") {
         result = {
-          totalchargingdeviation: this.toFormattedString(
-            totalchargingdeviation
-          ),
+          totalchargingdeviation: toFormattedString(totalchargingdeviation),
           chargingdeviation,
         };
       }
@@ -1121,7 +1116,7 @@ export default class FleetInsightsHdlrImpl {
           vinMap[vin] += 1;
         });
 
-        chargingsessions[dateKey].displaytotal = this.toFormattedString(
+        chargingsessions[dateKey].displaytotal = toFormattedString(
           chargingsessions[dateKey].total
         );
         chargingsessions[dateKey].total = parseFloat(
@@ -1134,7 +1129,7 @@ export default class FleetInsightsHdlrImpl {
           chargingsessions[dateKey].vehicles.push({
             vin: vin,
             regno: regno,
-            total: this.toFormattedString(vinMap[vin]),
+            total: toFormattedString(vinMap[vin]),
           });
         });
       }
@@ -1192,7 +1187,7 @@ export default class FleetInsightsHdlrImpl {
             vinMap[vin] += tripDistance;
           }
         });
-        distancetravelled[dateKey].displaytotal = `${this.toFormattedString(
+        distancetravelled[dateKey].displaytotal = `${toFormattedString(
           distancetravelled[dateKey].total
         )} km`;
         distancetravelled[dateKey].total = parseFloat(
@@ -1204,7 +1199,7 @@ export default class FleetInsightsHdlrImpl {
           distancetravelled[dateKey].vehicles.push({
             vin: vin,
             regno: regno,
-            total: `${this.toFormattedString(vinMap[vin])} km`,
+            total: `${toFormattedString(vinMap[vin])} km`,
           });
         });
       }
@@ -1266,7 +1261,7 @@ export default class FleetInsightsHdlrImpl {
           }
         });
 
-        energyconsumed[dateKey].displaytotal = `${this.toFormattedString(
+        energyconsumed[dateKey].displaytotal = `${toFormattedString(
           energyconsumed[dateKey].total
         )} kWh`;
         energyconsumed[dateKey].total = parseFloat(
@@ -1279,7 +1274,7 @@ export default class FleetInsightsHdlrImpl {
           energyconsumed[dateKey].vehicles.push({
             vin: vin,
             regno: regno,
-            total: `${this.toFormattedString(vinMap[vin])} kWh`,
+            total: `${toFormattedString(vinMap[vin])} kWh`,
           });
         });
       }
@@ -1326,9 +1321,7 @@ export default class FleetInsightsHdlrImpl {
           vinMap[vin] += 1;
         });
 
-        trips[dateKey].displaytotal = this.toFormattedString(
-          trips[dateKey].total
-        );
+        trips[dateKey].displaytotal = toFormattedString(trips[dateKey].total);
         trips[dateKey].total = parseFloat(trips[dateKey].total.toFixed(2));
 
         // Convert VIN map to vehicles array
@@ -1337,7 +1330,7 @@ export default class FleetInsightsHdlrImpl {
           trips[dateKey].vehicles.push({
             vin: vin,
             regno: regno,
-            total: this.toFormattedString(vinMap[vin]),
+            total: toFormattedString(vinMap[vin]),
           });
         });
       }
@@ -1547,7 +1540,7 @@ export default class FleetInsightsHdlrImpl {
       }
     }
     for (const date in chargingdeviation) {
-      chargingdeviation[date].displaytotal = this.toFormattedString(
+      chargingdeviation[date].displaytotal = toFormattedString(
         chargingdeviation[date].total
       );
       chargingdeviation[date].total = parseFloat(
@@ -1557,18 +1550,62 @@ export default class FleetInsightsHdlrImpl {
     return { totalchargingdeviation, chargingdeviation };
   };
 
+  GetFleetVehicleEcoContributionLogic = async (
+    accountid,
+    fleetid,
+    vehiclematric,
+    recursive
+  ) => {
+    try {
+      if (!fleetid) {
+        throw new Error("Fleet ID is required");
+      }
+
+      const vehicles =
+        (await this.fmsAccountSvcI.GetVehicles(
+          accountid,
+          fleetid,
+          recursive
+        )) || [];
+      if (vehicles.length === 0) {
+        return {
+          cumulativecontribution: {
+            fuelcostsaved: "₹0",
+            treesaved: "0",
+            co2emissionssaved: "0 t",
+          },
+        };
+      }
+
+      const vinNumbers = vehicles.map((v) => v.vinno);
+
+      return this.processEcoContribution(vinNumbers, vehiclematric);
+    } catch (error) {
+      throw new Error(error);
+    }
+  };
+
   GetVehicleEcoContributionLogic = async (
     accountid,
     vinnumbers,
     vehiclematric
   ) => {
-    if (!accountid || !vinnumbers || vinnumbers.length === 0) {
-      return {
-        treesaved: "0",
-        co2emissionssaved: "0 t",
-        fuelcostsaved: "₹0",
-      };
+    try {
+      if (!accountid || !vinnumbers || vinnumbers.length === 0) {
+        return {
+          treesaved: "0",
+          co2emissionssaved: "0 t",
+          fuelcostsaved: "₹0",
+        };
+      }
+
+      return this.processEcoContribution(vinnumbers, vehiclematric);
+    } catch (error) {
+      throw new Error(error);
     }
+  };
+
+  processEcoContribution = async (vinnumbers, vehiclematric) => {
     const [regnoData, canData] = await Promise.all([
       this.fmsAccountSvcI.GetRegno(vinnumbers),
       this.fmsAccountSvcI.getLatestCanDataForVins(vinnumbers),
@@ -1625,7 +1662,7 @@ export default class FleetInsightsHdlrImpl {
               vin,
               fuelsaved: `₹${this.rupeeToFormattedString(canFuelCostSaved)}`,
               treessaved: Math.round(canTreesSaved).toString(),
-              co2saved: `${this.toFormattedString(canCO2EmissionsSaved)} t`,
+              co2saved: `${toFormattedString(canCO2EmissionsSaved)} t`,
             });
             fuelcostsaved += canFuelCostSaved;
             treesaved += canTreesSaved;
@@ -1638,7 +1675,7 @@ export default class FleetInsightsHdlrImpl {
         cumulativecontribution: {
           fuelcostsaved: `₹${this.rupeeToFormattedString(fuelcostsaved)}`,
           treesaved: Math.round(treesaved).toString(),
-          co2emissionssaved: `${this.toFormattedString(co2emissionssaved)} t`,
+          co2emissionssaved: `${toFormattedString(co2emissionssaved)} t`,
         },
         vehiclecontribution,
       };
@@ -1693,13 +1730,13 @@ export default class FleetInsightsHdlrImpl {
         cumulativecontribution: {
           fuelcostsaved: `₹${this.rupeeToFormattedString(fuelcostsaved)}`,
           treesaved: Math.round(treesaved).toString(),
-          co2emissionssaved: `${this.toFormattedString(co2emissionssaved)} t`,
+          co2emissionssaved: `${toFormattedString(co2emissionssaved)} t`,
         },
       };
     }
   };
 
-  calculateTotalCounts = (chargeData, tripData, vinToRegnoMap) => {
+  calculateTotalCounts = (chargeData, tripData) => {
     let totalchargingsessions = 0,
       totaldistancetravelled = 0,
       totalenergyconsumed = 0,
@@ -1863,27 +1900,6 @@ export default class FleetInsightsHdlrImpl {
     } else if (absValue >= 1_00_000) {
       // 1,00,000 = 1 Lakh
       return `${sign}${trimmedTo2Decimals(value / 1_00_000)}L`;
-    } else if (absValue >= 1_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000)}K`;
-    } else {
-      return trimmedTo2Decimals(value);
-    }
-  };
-
-  toFormattedString = (value) => {
-    const absValue = Math.abs(value);
-    const sign = value < 0 ? "-" : "";
-
-    const trimmedTo2Decimals = (num) => {
-      return parseFloat(num.toFixed(1)).toString();
-    };
-
-    if (absValue >= 1_000_000_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000_000_000)}T`;
-    } else if (absValue >= 1_000_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000_000)}B`;
-    } else if (absValue >= 1_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000)}M`;
     } else if (absValue >= 1_000) {
       return `${sign}${trimmedTo2Decimals(value / 1_000)}K`;
     } else {

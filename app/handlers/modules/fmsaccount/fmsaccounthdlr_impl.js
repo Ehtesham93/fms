@@ -1,18 +1,42 @@
 import { v4 as uuidv4 } from "uuid";
-import { EncryptPassword } from "../../../utils/eccutil.js";
+import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
 
 export default class fmsAccountHdlrImpl {
-  constructor(fmsAccountSvcI, userSvcI, authSvcI, logger) {
+  constructor(fmsAccountSvcI, userSvcI, logger, platformSvcI) {
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.userSvcI = userSvcI;
     this.logger = logger;
-    this.authSvcI = authSvcI;
+    this.platformSvcI = platformSvcI;
   }
 
   ListInvitesOfAccountLogic = async (accountid) => {
     let result = await this.fmsAccountSvcI.ListInvitesOfAccount(accountid);
     if (!result) {
       throw new Error("Failed to list invites of account");
+    }
+
+    const currentTime = new Date();
+
+    for (let invite of result) {
+      if (invite.invitestatus === "PENDING" && invite.expiresat) {
+        const expiresAt = new Date(invite.expiresat);
+        if (currentTime > expiresAt) {
+          invite.invitestatus = "EXPIRED";
+        }
+      }
+    }
+
+    return result;
+  };
+
+  ListInvitesOfFleetLogic = async (accountid, fleetid, recursive = false) => {
+    let result = await this.fmsAccountSvcI.ListInvitesOfFleet(
+      accountid,
+      fleetid,
+      recursive
+    );
+    if (!result) {
+      throw new Error("Failed to list invites of fleet");
     }
 
     const currentTime = new Date();
@@ -101,7 +125,9 @@ export default class fmsAccountHdlrImpl {
         let res = await this.userSvcI.AddUserToAccount(
           invitedby,
           contact,
-          accountid
+          accountid,
+          fleetid,
+          roleids
         );
         if (!res) {
           throw new Error("Failed to add user to account");
@@ -138,25 +164,31 @@ export default class fmsAccountHdlrImpl {
   };
 
   GetAccountModulesLogic = async (accountid, userid) => {
-    let webModulesInfo = await this.fmsAccountSvcI.GetAllWebModulesInfo(
-      accountid
-    );
-    if (!webModulesInfo || webModulesInfo.length === 0) {
-      webModulesInfo = [];
-    }
-    let modules = [];
-    for (let module of webModulesInfo) {
-      modules.push({
-        moduleid: module.moduleid,
-        moduleinfo: module,
-      });
-    }
+    try {
+      let accountModules = await this.fmsAccountSvcI.GetAllAccountModules(
+        accountid
+      );
 
-    return {
-      userid: userid,
-      accountid: accountid,
-      modules: modules,
-    };
+      let modules = [];
+      for (let module of accountModules) {
+        modules.push({
+          moduleid: module.moduleid,
+          moduleinfo: module,
+        });
+      }
+
+      return {
+        userid: userid,
+        accountid: accountid,
+        modules: modules,
+      };
+    } catch (error) {
+      throw {
+        errcode: "FAILED_TO_GET_ACCOUNT_MODULES",
+        errdata: "Failed to get account modules",
+        message: "Failed to get account modules",
+      };
+    }
   };
 
   GetChargeStationTypesLogic = async (accountid) => {
@@ -168,8 +200,8 @@ export default class fmsAccountHdlrImpl {
     }
   };
 
-  ValidateInviteLogic = async (inviteid) => {
-    let result = await this.fmsAccountSvcI.ValidateInvite(inviteid);
+  ValidateInviteLogic = async (inviteid, userid) => {
+    let result = await this.fmsAccountSvcI.ValidateInvite(inviteid, userid);
     if (!result) {
       throw new Error("Failed to validate invite");
     }
@@ -184,24 +216,97 @@ export default class fmsAccountHdlrImpl {
       referer
     );
     if (!result) {
-      throw new Error("Failed to resend platform invite");
+      throw new Error("Failed to resend email invite");
     }
     return result;
   };
 
   // fleet management
   CreateFleetLogic = async (accountid, parentfleetid, fleetname, createdby) => {
+    const trimmedFleetName = fleetname.trim();
+
+    const reservedNames = ["Home"];
+    if (reservedNames.includes(trimmedFleetName.toLowerCase())) {
+      throw {
+        errcode: "RESERVED_FLEET_NAME",
+        errdata: "Reserved fleet name",
+        message: "Fleet name is reserved and cannot be used",
+      };
+    }
+
+    let totalFleets = await this.fmsAccountSvcI.GetFleetCount(accountid);
+    if (totalFleets >= 1000) {
+      throw {
+        errcode: "FLEET_COUNT_LIMIT_EXCEEDED",
+        errdata: "Maximum fleet count exceeded",
+        message: "Cannot create more than 1000 fleets per account",
+      };
+    }
+
+    let parentFleet = await this.fmsAccountSvcI.GetFleetInfo(
+      accountid,
+      parentfleetid
+    );
+
+    if (!parentFleet) {
+      throw {
+        errcode: "PARENT_FLEET_NOT_FOUND",
+        errdata: "Parent fleet not found",
+        message: "Parent fleet not found or does not belong to this account",
+      };
+    }
+
+    if (!parentFleet.isroot) {
+      let parentDepth = await this.fmsAccountSvcI.GetFleetDepthFromRoot(
+        accountid,
+        parentfleetid
+      );
+      if (parentDepth > 8) {
+        throw {
+          errcode: "FLEET_DEPTH_LIMIT_EXCEEDED",
+          errdata: "Maximum fleet depth exceeded",
+          message:
+            "Cannot create fleet more than 8 levels deep from Home fleet",
+        };
+      }
+    }
+
+    let existingSubfleets = await this.fmsAccountSvcI.GetSubFleets(
+      accountid,
+      parentfleetid,
+      false
+    );
+
+    if (existingSubfleets && existingSubfleets.length > 0) {
+      const duplicateFleet = existingSubfleets.find(
+        (fleet) =>
+          fleet.fleetname &&
+          fleet.fleetname.toLowerCase() === trimmedFleetName.toLowerCase()
+      );
+
+      if (duplicateFleet) {
+        throw {
+          errcode: "DUPLICATE_FLEET_NAME",
+          errdata: "Fleet name already exists",
+          message:
+            "A fleet with this name already exists under the same parent fleet",
+        };
+      }
+    }
+
     let fleetid = uuidv4();
     let result = await this.fmsAccountSvcI.CreateFleet(
       accountid,
       fleetid,
       parentfleetid,
-      fleetname,
+      trimmedFleetName,
       createdby
     );
+
     if (!result) {
       throw new Error("Failed to create fleet");
     }
+
     return result;
   };
 
@@ -447,60 +552,99 @@ export default class fmsAccountHdlrImpl {
     };
   };
 
-  GetRoleLogic = async (accountid, roleid) => {
+  GetRoleInfoLogic = async (accountid, roleid) => {
     let roleInfo = await this.fmsAccountSvcI.GetRoleInfo(accountid, roleid);
     if (roleInfo === null) {
-      throw new Error("Role not found");
+      throw {
+        errcode: "ROLE_NOT_FOUND",
+        errdata: "Role not found",
+        message: "Role not found",
+      };
     }
-    delete roleInfo.accountid;
+    roleInfo.isadmin = false;
+    roleInfo.isreadonly = false;
 
-    let allPlatformModulePerms =
-      await this.fmsAccountSvcI.GetAllPlatformModulePerms();
-    if (!allPlatformModulePerms) {
-      allPlatformModulePerms = [];
+    let accountModules = await this.fmsAccountSvcI.GetAllAccountModules(
+      accountid
+    );
+
+    if (!accountModules) {
+      accountModules = [];
     }
 
-    let rolePerms = await this.fmsAccountSvcI.GetRolePerms(accountid, roleid);
+    let accountModuleIds = accountModules.map((m) => m.moduleid);
+
+    let accountModulePerms = await this.fmsAccountSvcI.GetAllModulePerms(
+      accountModuleIds
+    );
+
+    if (!accountModulePerms) {
+      accountModulePerms = [];
+    }
+
+    let rolePerms = await this.fmsAccountSvcI.GetRolePermsForAccount(
+      accountid,
+      roleid
+    );
+
     if (!rolePerms) {
       rolePerms = [];
     }
 
-    rolePerms = rolePerms.map((permid) => permid.permid);
-
-    let permmap = {};
-
-    for (let platformModulePerm of allPlatformModulePerms) {
-      if (!permmap[platformModulePerm.moduleid]) {
-        permmap[platformModulePerm.moduleid] = {
-          moduleid: platformModulePerm.moduleid,
-          moduleName: platformModulePerm.modulename,
-          perms: [],
-        };
-      }
-      let perm = {
-        permid: platformModulePerm.permid,
-        isAssigned: false,
-      };
-      if (rolePerms.includes(platformModulePerm.permid)) {
-        perm.isAssigned = true;
-      }
-      permmap[platformModulePerm.moduleid].perms.push(perm);
+    rolePerms = rolePerms.map((perm) => perm.permid);
+    if (rolePerms.includes("all.all.all")) {
+      roleInfo.isadmin = true;
+      roleInfo.isreadonly = true;
     }
 
-    permmap = Object.values(permmap);
+    let permMap = {};
+
+    for (let module of accountModules) {
+      permMap[module.moduleid] = {
+        moduleid: module.moduleid,
+        modulename: module.modulename,
+        modulepriority: module.priority,
+        perms: [],
+      };
+    }
+
+    for (let accountModulePerm of accountModulePerms) {
+      if (!permMap[accountModulePerm.moduleid]) {
+        continue;
+      }
+
+      let perm = {
+        permid: accountModulePerm.permid,
+        isassigned: false,
+      };
+
+      if (rolePerms.includes(accountModulePerm.permid) || roleInfo.isadmin) {
+        perm.isassigned = true;
+      }
+
+      permMap[accountModulePerm.moduleid].perms.push(perm);
+    }
+
+    permMap = Object.values(permMap);
 
     return {
-      roleInfo: roleInfo,
-      perms: permmap,
+      roleinfo: roleInfo,
+      perms: permMap,
     };
   };
 
   // vehicle management
-  GetVehiclesLogic = async (accountid, fleetid, recursive = false) => {
+  GetVehiclesLogic = async (
+    accountid,
+    fleetid,
+    recursive = false,
+    isforcedfilter = false
+  ) => {
     let vehicles = await this.fmsAccountSvcI.GetVehicles(
       accountid,
       fleetid,
-      recursive
+      recursive,
+      isforcedfilter
     );
     if (!vehicles) {
       return [];
@@ -518,6 +662,14 @@ export default class fmsAccountHdlrImpl {
     if (!result) {
       throw new Error("Failed to move vehicle");
     }
+    // set and publish vehicle update
+    await publishVehicleUpdate(
+      accountid,
+      "fleetvehiclemoved",
+      this.redisSvc,
+      this.logger
+    );
+
     return result;
   };
 
@@ -530,6 +682,14 @@ export default class fmsAccountHdlrImpl {
     if (!result) {
       throw new Error("Failed to remove vehicle");
     }
+    // set and publish vehicle update
+    await publishVehicleUpdate(
+      accountid,
+      "fleetvehicleremoved",
+      this.redisSvc,
+      this.logger
+    );
+
     return result;
   };
 
@@ -546,8 +706,12 @@ export default class fmsAccountHdlrImpl {
   };
 
   // user management
-  ListUsersLogic = async (accountid, fleetid) => {
-    let users = await this.fmsAccountSvcI.ListUsers(accountid, fleetid);
+  ListUsersLogic = async (accountid, fleetid, recursive = false) => {
+    let users = await this.fmsAccountSvcI.ListUsers(
+      accountid,
+      fleetid,
+      recursive
+    );
     if (!users) {
       return [];
     }
@@ -625,6 +789,8 @@ export default class fmsAccountHdlrImpl {
     let accountRoles = userRoles.filter((role) => role.roletype === "account");
     accountRoles = accountRoles.map((role) => {
       return {
+        fleetid: role.fleetid,
+        fleetname: role.fleetname,
         roleid: role.roleid,
         rolename: role.rolename,
         roletype: role.roletype,
@@ -707,75 +873,6 @@ export default class fmsAccountHdlrImpl {
     };
   };
 
-  DeleteUserLogic = async (accountid, userid, deletedby) => {
-    if (userid === deletedby) {
-      throw {
-        errcode: "CANNOT_DELETE_SELF",
-        errdata: "Cannot delete self",
-        message: "You cannot delete yourself",
-      };
-    }
-
-    if (userid === "ffffffff-ffff-ffff-ffff-ffffffffffff") {
-      throw {
-        errcode: "CANNOT_DELETE_SEED_USER",
-        errdata: "Cannot delete seed user",
-        message:
-          "Cannot delete seed user (super admin). It is protected from deletion.",
-      };
-    }
-
-    let userDetails = await this.userSvcI.GetUserDetails(userid);
-    if (!userDetails) {
-      throw {
-        errcode: "USER_NOT_FOUND",
-        errdata: "User not found",
-        message: "User not found",
-      };
-    }
-
-    if (userDetails.isdeleted) {
-      throw {
-        errcode: "USER_ALREADY_DELETED",
-        errdata: "User already deleted",
-        message: "User is already deleted",
-      };
-    }
-
-    // Check if user is part of this account
-    let isUserInAccount = await this.fmsAccountSvcI.IsUserInAccount(
-      accountid,
-      userid
-    );
-    if (!isUserInAccount) {
-      throw {
-        errcode: "USER_NOT_IN_ACCOUNT",
-        errdata: "User not in account",
-        message: "User is not a member of this account",
-      };
-    }
-
-    let result = await this.fmsAccountSvcI.DeleteUser(
-      accountid,
-      userid,
-      deletedby
-    );
-    if (!result) {
-      this.logger.error("Failed to delete user from account");
-      throw new Error("Failed to delete user");
-    }
-
-    return {
-      userid: userid,
-      accountid: accountid,
-      original_displayname: userDetails.displayname,
-      new_displayname: result.new_displayname,
-      deletedat: new Date(),
-      deletedby: deletedby,
-      sso_records_updated: result.sso_records_updated || 0,
-    };
-  };
-
   /**
    * updatedperms is an array of objects with moduleid and permid
    * @param {*} roleid
@@ -784,6 +881,14 @@ export default class fmsAccountHdlrImpl {
    * @returns
    */
   UpdateRolePermsLogic = async (accountid, roleid, updatedperms, updatedby) => {
+    let roleInfo = await this.fmsAccountSvcI.GetRoleInfo(accountid, roleid);
+    if (!roleInfo) {
+      throw {
+        errcode: "ROLE_NOT_FOUND",
+        errdata: "Role not found",
+        message: "Role not found",
+      };
+    }
     let permsToAdd = [];
     let permsToRemove = [];
     for (let updatedperm of updatedperms) {
@@ -814,7 +919,7 @@ export default class fmsAccountHdlrImpl {
     if (!res) {
       throw new Error("Failed to update role permissions");
     }
-    return this.GetRoleLogic(accountid, roleid);
+    return this.GetRoleInfoLogic(accountid, roleid);
   };
 
   DeleteRoleLogic = async (accountid, roleid, deletedby) => {
@@ -951,17 +1056,13 @@ export default class fmsAccountHdlrImpl {
   };
 
   UpdateAccountSubscriptionLogic = async (accountid, pkgid, updatedby) => {
-    let startdate = new Date();
-    let enddate = new Date(
-      startdate.getFullYear(),
-      startdate.getMonth() + 1,
-      0
-    );
-    enddate.setHours(23, 59, 59, 999);
+    let currentTime = new Date();
+    let endTime = new Date(currentTime);
+    endTime.setFullYear(endTime.getFullYear() + 5);
 
     let subscriptioninfo = {
-      startdate: startdate.toISOString(),
-      enddate: enddate.toISOString(),
+      startdate: currentTime.toISOString(),
+      enddate: endTime.toISOString(),
     };
 
     let result = await this.fmsAccountSvcI.UpdateSubscription(
@@ -996,7 +1097,13 @@ export default class fmsAccountHdlrImpl {
       throw new Error("Failed to get root fleet for account");
     }
 
-    let allVehicles = await this.GetVehiclesLogic(accountid, rootFleetId, true);
+    const isforcedfilter = true;
+    let allVehicles = await this.GetVehiclesLogic(
+      accountid,
+      rootFleetId,
+      true,
+      isforcedfilter
+    );
     if (!allVehicles) {
       allVehicles = [];
     }
@@ -1259,6 +1366,122 @@ export default class fmsAccountHdlrImpl {
     return result;
   };
 
+  GetAccountCreditsLogic = async (accountid) => {
+    let credits = await this.fmsAccountSvcI.GetAccountCredits(accountid);
+    if (!credits) {
+      credits = 0;
+    }
+    return { accountid: accountid, credits: credits };
+  };
+
+  GetAccountCreditsOverviewLogic = async (accountid, starttime, endtime) => {
+    let overview = await this.fmsAccountSvcI.GetAccountCreditsOverview(
+      accountid,
+      starttime,
+      endtime
+    );
+
+    const chartData = {
+      accountid: accountid,
+      credits: {
+        dates: [], // targetdate values for x-axis
+        creditsadded: [],
+        creditsconsumed: [],
+      },
+      vehicles: {
+        dates: [], // targetdate values for x-axis
+        totalvehicles: [],
+        subscribedvehicles: [],
+        connectedvehicles: [],
+      },
+    };
+
+    overview.forEach((item) => {
+      chartData.credits.dates.push(item.targetdate);
+      chartData.vehicles.dates.push(item.targetdate);
+
+      chartData.credits.creditsadded.push(item.creditsadded || 0);
+      chartData.credits.creditsconsumed.push(-(item.creditsconsumed || 0));
+
+      chartData.vehicles.totalvehicles.push(item.totalvehicles || 0);
+      chartData.vehicles.subscribedvehicles.push(item.subscribedvehicles || 0);
+      chartData.vehicles.connectedvehicles.push(item.connectedvehicles || 0);
+    });
+
+    return chartData;
+  };
+
+  GetAccountCreditsHistoryLogic = async (accountid, starttime, endtime) => {
+    let history = await this.fmsAccountSvcI.GetAccountCreditsHistory(
+      accountid,
+      starttime,
+      endtime
+    );
+    if (!history) {
+      history = [];
+    }
+
+    return { accountid: accountid, history: history };
+  };
+
+  GetAccountVehicleCreditsHistoryLogic = async (
+    accountid,
+    vinno,
+    fleetid,
+    starttime,
+    endtime
+  ) => {
+    // check if vinno is in fleetid with recursive true
+    let vehicles = await this.GetVehiclesLogic(accountid, fleetid, true, true);
+    if (!vehicles || vehicles.length === 0) {
+      vehicles = [];
+    }
+    if (!vehicles.some((v) => v.vinno === vinno)) {
+      throw {
+        errcode: "INPUT_ERROR",
+        errdata: "Vehicle not found in fleet",
+        message: "Vehicle not found in fleet",
+      };
+    }
+
+    let history = await this.fmsAccountSvcI.GetAccountVehicleCreditsHistory(
+      accountid,
+      [vinno],
+      starttime,
+      endtime
+    );
+    return history;
+  };
+
+  GetAccountFleetCreditsHistoryLogic = async (
+    accountid,
+    fleetid,
+    starttime,
+    endtime,
+    recursive
+  ) => {
+    let vehicles = await this.GetVehiclesLogic(
+      accountid,
+      fleetid,
+      recursive,
+      true
+    );
+    if (!vehicles || vehicles.length === 0) {
+      vehicles = [];
+    }
+
+    let history = await this.fmsAccountSvcI.GetAccountVehicleCreditsHistory(
+      accountid,
+      vehicles.map((v) => v.vinno),
+      starttime,
+      endtime
+    );
+    if (!history) {
+      history = [];
+    }
+    return history;
+  };
+
   TagVehicleLogic = async (
     srcaccountid,
     dstaccountid,
@@ -1345,5 +1568,123 @@ export default class fmsAccountHdlrImpl {
     }
 
     return result;
+  };
+
+  GetMyFleetPermissionsLogic = async (userid, accountid, fleetid) => {
+    const fleetInfo = await this.fmsAccountSvcI.GetFleetInfo(
+      accountid,
+      fleetid
+    );
+    if (!fleetInfo) {
+      throw {
+        errcode: "FLEET_NOT_FOUND",
+        errdata: "Fleet not found",
+        message: "Fleet not found or does not belong to this account",
+      };
+    }
+
+    const userRoles = await this.fmsAccountSvcI.GetAllUserRolesOnFleet(
+      accountid,
+      fleetid,
+      userid
+    );
+
+    if (!userRoles || userRoles.length === 0) {
+      return {
+        permissions: [],
+        permissionsbymodule: [],
+      };
+    }
+
+    let accountModules = await this.fmsAccountSvcI.GetAllAccountModules(
+      accountid
+    );
+    if (!accountModules) {
+      accountModules = [];
+    }
+
+    const webModules = accountModules.filter(
+      (module) => module.moduletype === "web" || !module.moduletype
+    );
+
+    const accountModuleIds = webModules.map((m) => m.moduleid);
+
+    let accountModulePerms = await this.fmsAccountSvcI.GetAllModulePerms(
+      accountModuleIds
+    );
+    if (!accountModulePerms) {
+      accountModulePerms = [];
+    }
+
+    let userPermissions = await this.userSvcI.GetRolePerms(
+      accountid,
+      fleetid,
+      userid
+    );
+    if (!userPermissions) {
+      userPermissions = [];
+    }
+
+    const isAdmin =
+      userPermissions.includes("all.all.all") ||
+      userRoles.some((role) => role.rolename.toLowerCase().includes("admin"));
+
+    if (isAdmin) {
+      if (!userPermissions.includes("all.all.all")) {
+        userPermissions.push("all.all.all");
+      }
+
+      for (const accountModulePerm of accountModulePerms) {
+        if (!userPermissions.includes(accountModulePerm.permid)) {
+          userPermissions.push(accountModulePerm.permid);
+        }
+      }
+    }
+
+    const permMap = {};
+
+    for (const module of webModules) {
+      permMap[module.moduleid] = {
+        moduleid: module.moduleid,
+        modulename: module.modulename,
+        modulepriority: module.priority,
+        perms: [],
+      };
+    }
+
+    for (const accountModulePerm of accountModulePerms) {
+      if (!permMap[accountModulePerm.moduleid]) {
+        continue;
+      }
+
+      if (userPermissions.includes(accountModulePerm.permid) || isAdmin) {
+        const perm = {
+          permid: accountModulePerm.permid,
+          isassigned: true,
+        };
+        permMap[accountModulePerm.moduleid].perms.push(perm);
+      }
+    }
+
+    const permissionsbymodule = Object.values(permMap).filter(
+      (module) => module.perms.length > 0
+    );
+
+    return {
+      permissions: userPermissions,
+      permissionsbymodule: permissionsbymodule,
+    };
+  };
+
+  GetAccountAssignmentHistoryLogic = async (accountid, starttime, endtime) => {
+    let history = await this.platformSvcI.GetConsoleAccountAssignmentHistory(
+      accountid,
+      starttime,
+      endtime
+    );
+    if (!history) {
+      history = [];
+    }
+    return history;
   };
 }

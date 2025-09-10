@@ -1,17 +1,12 @@
-import { v4 as uuidv4 } from "uuid";
-import { GetRoleNameFromId } from "../../../utils/commonutil.js";
 import ClickHouseClient from "../../../utils/clickhouse.js";
+import { CREDIT_THRESHOLD, ADMIN_ROLE_ID } from "../../../utils/constant.js";
 import {
-  isRedundantInvite,
-  shouldUpdateExistingInvite,
-  updateInviteExpiryAndSendEmail,
-  markInviteAsExpired,
   getInviteEmailTemplate,
+  isRedundantInvite,
+  markInviteAsExpired,
+  updateInviteExpiryAndSendEmail,
 } from "../../../utils/inviteUtil.js";
-
-const ADMIN_ROLE_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-
-const EMAIL_PWD_SSO = "EMAIL_PWD"; // TODO: move these to constants util
+import { DateTime } from "luxon";
 
 const FLEET_INVITE_STATUS = {
   PENDING: "PENDING",
@@ -26,11 +21,14 @@ const FLEET_INVITE_TYPE = {
   MOBILE: "mobile",
 };
 
+const NEGATIVE_CREDIT_THRESHOLD = -10000;
+
 export default class FmsAccountSvcDB {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
     this.clickHouseClient = new ClickHouseClient();
+    this.config = config;
   }
 
   async getUserDisplayName(userid) {
@@ -44,14 +42,15 @@ export default class FmsAccountSvcDB {
       let query = `
       SELECT 
         fip.inviteid, fip.accountid, fip.fleetid, 
-        fip.info, fip.invitetype, fip.invitestatus, 
-        fip.createdat, u1.displayname as createdby, fip.updatedat, u2.displayname as updatedby,
-        NULL as isexternal,
+        fip.contact, fip.roleid, fip.invitetype, fip.invitestatus, 
+        fip.createdat as invitedat, u1.displayname as invitedby, fip.updatedat as updatedat, u2.displayname as updatedby,
         a.accountname, ft.name as fleetname,
-        (fip.info->>'expiresat')::timestamptz as expiresat
+        fip.expiresat,
+        r.rolename
       FROM fleet_invite_pending fip
       JOIN account a ON fip.accountid = a.accountid AND a.isenabled = true AND a.isdeleted = false
       JOIN fleet_tree ft ON fip.accountid = ft.accountid AND fip.fleetid = ft.fleetid
+      JOIN roles r ON fip.accountid = r.accountid AND fip.roleid = r.roleid
       LEFT JOIN users u1 ON fip.createdby = u1.userid
       LEFT JOIN users u2 ON fip.updatedby = u2.userid
       WHERE fip.accountid = $1
@@ -60,39 +59,165 @@ export default class FmsAccountSvcDB {
       
       SELECT 
         fid.inviteid, fid.accountid, fid.fleetid, 
-        fid.info, fid.invitetype, fid.invitestatus, 
-        fid.createdat, u1.displayname as createdby, fid.updatedat, u2.displayname as updatedby,
-        fid.isexternal,
+        fid.contact, fid.roleid, fid.invitetype, fid.invitestatus, 
+        fid.createdat as inviteacceptedat, u1.displayname as invitedby, fid.updatedat as updatedat, u2.displayname as updatedby,
         a.accountname, ft.name as fleetname,
-        COALESCE((fid.info->>'expiresat')::timestamptz, fid.updatedat) as expiresat
+        fid.updatedat as expiresat,
+        r.rolename
       FROM fleet_invite_done fid
       JOIN account a ON fid.accountid = a.accountid AND a.isenabled = true AND a.isdeleted = false
       JOIN fleet_tree ft ON fid.accountid = ft.accountid AND fid.fleetid = ft.fleetid
+      JOIN roles r ON fid.accountid = r.accountid AND fid.roleid = r.roleid
       LEFT JOIN users u1 ON fid.createdby = u1.userid
       LEFT JOIN users u2 ON fid.updatedby = u2.userid
       WHERE fid.accountid = $1
       
-      ORDER BY createdat DESC
+      ORDER BY invitedat DESC
     `;
       let result = await this.pgPoolI.Query(query, [accountid]);
       if (result.rowCount === 0) {
         return [];
       }
 
-      query = `SELECT DISTINCT roleid, rolename FROM roles;`;
-
-      let roles = await this.pgPoolI.Query(query);
-
       for (let invite of result.rows) {
-        GetRoleNameFromId(invite.info, roles.rows, accountid);
-        if (invite.info?.invitedby) {
-          invite.info.invitedby = await this.getUserName(invite.info.invitedby);
+        let contacttype = "contact";
+        if (invite.invitetype === FLEET_INVITE_TYPE.EMAIL) {
+          contacttype = "email";
+        } else if (invite.invitetype === FLEET_INVITE_TYPE.MOBILE) {
+          contacttype = "mobile";
         }
+        invite.info = {
+          [contacttype]: invite.contact,
+          roleids: [invite.roleid],
+          rolenames: [invite.rolename],
+        };
+        delete invite.contact;
+        delete invite.roleid;
+        delete invite.rolename;
       }
 
       return result.rows;
     } catch (error) {
       throw new Error("Failed to retrieve account invites");
+    }
+  }
+
+  async listInvitesOfFleet(accountid, fleetid, recursive = false) {
+    try {
+      let query;
+      let params = [accountid, fleetid];
+
+      if (recursive) {
+        query = `
+          WITH RECURSIVE fleet_hierarchy AS (
+            SELECT fleetid, accountid, pfleetid, name
+            FROM fleet_tree 
+            WHERE accountid = $1 AND fleetid = $2
+            
+            UNION ALL
+            
+            SELECT ft.fleetid, ft.accountid, ft.pfleetid, ft.name
+            FROM fleet_tree ft
+            INNER JOIN fleet_hierarchy fh ON ft.pfleetid = fh.fleetid AND ft.accountid = fh.accountid
+          )
+          SELECT 
+            fip.inviteid, fip.accountid, fip.fleetid, 
+            fip.contact, fip.roleid, fip.invitetype, fip.invitestatus, 
+            fip.createdat as invitedat, u1.displayname as invitedby, fip.updatedat as updatedat, u2.displayname as updatedby,
+            a.accountname, ft.name as fleetname,
+            fip.expiresat,
+            r.rolename
+          FROM fleet_invite_pending fip
+          JOIN account a ON fip.accountid = a.accountid AND a.isenabled = true AND a.isdeleted = false
+          JOIN fleet_tree ft ON fip.accountid = ft.accountid AND fip.fleetid = ft.fleetid
+          JOIN roles r ON fip.accountid = r.accountid AND fip.roleid = r.roleid
+          LEFT JOIN users u1 ON fip.createdby = u1.userid
+          LEFT JOIN users u2 ON fip.updatedby = u2.userid
+          WHERE fip.accountid = $1 AND fip.fleetid IN (SELECT fleetid FROM fleet_hierarchy)
+          
+          UNION ALL
+          
+          SELECT 
+            fid.inviteid, fid.accountid, fid.fleetid, 
+            fid.contact, fid.roleid, fid.invitetype, fid.invitestatus, 
+            fid.createdat as inviteacceptedat, u1.displayname as invitedby, fid.updatedat as updatedat, u2.displayname as updatedby,
+            a.accountname, ft.name as fleetname,
+            fid.updatedat as expiresat,
+            r.rolename
+          FROM fleet_invite_done fid
+          JOIN account a ON fid.accountid = a.accountid AND a.isenabled = true AND a.isdeleted = false
+          JOIN fleet_tree ft ON fid.accountid = ft.accountid AND fid.fleetid = ft.fleetid
+          JOIN roles r ON fid.accountid = r.accountid AND fid.roleid = r.roleid
+          LEFT JOIN users u1 ON fid.createdby = u1.userid
+          LEFT JOIN users u2 ON fid.updatedby = u2.userid
+          WHERE fid.accountid = $1 AND fid.fleetid IN (SELECT fleetid FROM fleet_hierarchy)
+          
+          ORDER BY invitedat DESC
+        `;
+      } else {
+        query = `
+          SELECT 
+            fip.inviteid, fip.accountid, fip.fleetid, 
+            fip.contact, fip.roleid, fip.invitetype, fip.invitestatus, 
+            fip.createdat as invitedat, u1.displayname as invitedby, fip.updatedat as updatedat, u2.displayname as updatedby,
+            a.accountname, ft.name as fleetname,
+            fip.expiresat,
+            r.rolename
+          FROM fleet_invite_pending fip
+          JOIN account a ON fip.accountid = a.accountid AND a.isenabled = true AND a.isdeleted = false
+          JOIN fleet_tree ft ON fip.accountid = ft.accountid AND fip.fleetid = ft.fleetid
+          JOIN roles r ON fip.accountid = r.accountid AND fip.roleid = r.roleid
+          LEFT JOIN users u1 ON fip.createdby = u1.userid
+          LEFT JOIN users u2 ON fip.updatedby = u2.userid
+          WHERE fip.accountid = $1 AND fip.fleetid = $2
+          
+          UNION ALL
+          
+          SELECT 
+            fid.inviteid, fid.accountid, fid.fleetid, 
+            fid.contact, fid.roleid, fid.invitetype, fid.invitestatus, 
+            fid.createdat as inviteacceptedat, u1.displayname as invitedby, fid.updatedat as updatedat, u2.displayname as updatedby,
+            a.accountname, ft.name as fleetname,
+            fid.updatedat as expiresat,
+            r.rolename
+          FROM fleet_invite_done fid
+          JOIN account a ON fid.accountid = a.accountid AND a.isenabled = true AND a.isdeleted = false
+          JOIN fleet_tree ft ON fid.accountid = ft.accountid AND fid.fleetid = ft.fleetid
+          JOIN roles r ON fid.accountid = r.accountid AND fid.roleid = r.roleid
+          LEFT JOIN users u1 ON fid.createdby = u1.userid
+          LEFT JOIN users u2 ON fid.updatedby = u2.userid
+          WHERE fid.accountid = $1 AND fid.fleetid = $2
+          
+          ORDER BY invitedat DESC
+        `;
+      }
+
+      let result = await this.pgPoolI.Query(query, params);
+      if (result.rowCount === 0) {
+        return [];
+      }
+
+      for (let invite of result.rows) {
+        let contacttype = "contact";
+        if (invite.invitetype === FLEET_INVITE_TYPE.EMAIL) {
+          contacttype = "email";
+        } else if (invite.invitetype === FLEET_INVITE_TYPE.MOBILE) {
+          contacttype = "mobile";
+        }
+        invite.info = {
+          [contacttype]: invite.contact,
+          roleids: [invite.roleid],
+          rolenames: [invite.rolename],
+        };
+        delete invite.contact;
+        delete invite.roleid;
+        delete invite.rolename;
+      }
+
+      return result.rows;
+    } catch (err) {
+      this.logger.error(`listInvitesOfFleet error: ${err}`);
+      throw err;
     }
   }
 
@@ -137,10 +262,10 @@ export default class FmsAccountSvcDB {
         throw new Error("Invalid fleet id");
       }
 
+      // Check for existing pending invites for this email and role combinations
       query = `
-                SELECT fip.inviteid, fip.invitestatus, fip.info, fie.expiresat FROM fleet_invite_email fie 
-                JOIN fleet_invite_pending fip ON fie.accountid = fip.accountid AND fie.fleetid = fip.fleetid AND fie.inviteid = fip.inviteid
-                WHERE fie.accountid = $1 AND fie.fleetid = $2 AND fie.email = $3 AND fip.invitetype = $4 and (fip.invitestatus = $5 or fip.invitestatus = $6)
+                SELECT inviteid, invitestatus, roleid, expiresat FROM fleet_invite_pending 
+                WHERE accountid = $1 AND fleetid = $2 AND contact = $3 AND invitetype = $4 AND invitestatus = $5 AND roleid = ANY($6)
             `;
       result = await txclient.query(query, [
         accountid,
@@ -148,14 +273,14 @@ export default class FmsAccountSvcDB {
         contact,
         FLEET_INVITE_TYPE.EMAIL,
         FLEET_INVITE_STATUS.PENDING,
-        FLEET_INVITE_STATUS.PENDING,
+        roleids,
       ]);
 
       if (result?.rows?.length > 0) {
         let inviteToUpdate = null;
 
         for (const row of result.rows) {
-          // mark the invite as expired
+          // mark the invite as expired if it's expired
           if (new Date(row.expiresat) < currtime) {
             this.logger.info(
               `fmsaccountsvc_db.triggerEmailInviteToRootFleet: markInviteAsExpired: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${row.inviteid}`
@@ -169,19 +294,8 @@ export default class FmsAccountSvcDB {
               txclient
             );
           } else {
-            // check if invite is for same role
-            // if it is, update the expiry and trigger email again
-            // if not, send fresh invite
-            if (inviteToUpdate) {
-              // we only need to update one invite
-              continue;
-            }
-            let updateExistingInvite = shouldUpdateExistingInvite(
-              row.info.roleids,
-              roleids
-            );
-
-            if (updateExistingInvite) {
+            // if we find a matching role, we can update that invite
+            if (roleids.includes(row.roleid) && !inviteToUpdate) {
               inviteToUpdate = row;
             }
           }
@@ -190,13 +304,13 @@ export default class FmsAccountSvcDB {
         if (inviteToUpdate) {
           // update the expiry and trigger email again and exit
           this.logger.info(
-            `fmsaccountsvc_db.triggerEmailInviteToRootFleet: updateInviteExpiry: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteToUpdate.inviteid}, info: ${inviteToUpdate.info}, currtime: ${currtime}`
+            `fmsaccountsvc_db.triggerEmailInviteToRootFleet: updateInviteExpiry: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteToUpdate.inviteid}, roleid: ${inviteToUpdate.roleid}, currtime: ${currtime}`
           );
           let res = await updateInviteExpiryAndSendEmail(
             accountid,
             fleetid,
             inviteToUpdate.inviteid,
-            inviteToUpdate.info,
+            { email: contact, roleid: inviteToUpdate.roleid },
             currtime,
             headerReferer,
             contact,
@@ -218,47 +332,29 @@ export default class FmsAccountSvcDB {
       }
 
       let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
-      query = `
-                INSERT INTO fleet_invite_email (accountid, fleetid, inviteid, email, expiresat) VALUES ($1, $2, $3, $4, $5)
-            `;
-      result = await txclient.query(query, [
-        accountid,
-        fleetid,
-        inviteid,
-        contact,
-        expiresat,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create invite email");
-      }
-
-      query = `
-                INSERT INTO fleet_invite_pending (accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby) 
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            `;
-      let invitemeta = {
-        accountid: accountid,
-        fleetid: fleetid,
-        inviteid: inviteid,
-        email: contact,
-        expiresat: expiresat,
-        roleids: roleids,
-        invitedby: invitedby,
-      };
-      result = await txclient.query(query, [
-        accountid,
-        fleetid,
-        inviteid,
-        invitemeta,
-        FLEET_INVITE_TYPE.EMAIL,
-        FLEET_INVITE_STATUS.PENDING,
-        currtime,
-        invitedby,
-        currtime,
-        invitedby,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create invite email");
+      // Insert invites for each role (since new schema stores one role per row)
+      for (const roleid of roleids) {
+        query = `
+                  INSERT INTO fleet_invite_pending (inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby) 
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              `;
+        result = await txclient.query(query, [
+          inviteid,
+          accountid,
+          fleetid,
+          contact,
+          roleid,
+          FLEET_INVITE_TYPE.EMAIL,
+          FLEET_INVITE_STATUS.PENDING,
+          expiresat,
+          currtime,
+          invitedby,
+          currtime,
+          invitedby,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create invite pending record");
+        }
       }
 
       query = `
@@ -329,7 +425,7 @@ export default class FmsAccountSvcDB {
     try {
       // check if inviteid is valid
       let query = `
-                SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE accountid = $1 AND inviteid = $2
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE accountid = $1 AND inviteid = $2
             `;
       let result = await txclient.query(query, [accountid, inviteid]);
       if (result.rowCount !== 1) {
@@ -347,22 +443,7 @@ export default class FmsAccountSvcDB {
         throw new Error("Invite is not an email invite");
       }
 
-      query = `
-                SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-            `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Invite email not found");
-      }
-
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(invite.expiresat) < currtime) {
         this.logger.info(
           `fmsaccountsvc_db.cancelEmailInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${invite.inviteid}`
         );
@@ -380,14 +461,12 @@ export default class FmsAccountSvcDB {
       query = `
                 UPDATE fleet_invite_pending
                 SET invitestatus = $1, updatedat = $2, updatedby = $3
-                WHERE accountid = $4 AND fleetid = $5 AND inviteid = $6
+                WHERE inviteid = $4
             `;
       result = await txclient.query(query, [
         FLEET_INVITE_STATUS.CANCELLED,
         currtime,
         cancelledby,
-        accountid,
-        invite.fleetid,
         inviteid,
       ]);
       if (result.rowCount !== 1) {
@@ -412,8 +491,9 @@ export default class FmsAccountSvcDB {
     }
   }
 
-  async validateInvite(inviteid) {
+  async validateInvite(inviteid, userid) {
     let currtime = new Date();
+    let isdifferentuser = false;
 
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
@@ -421,13 +501,14 @@ export default class FmsAccountSvcDB {
       return {
         isvalid: false,
         invalidreason: "Something went wrong",
+        isdifferentuser: isdifferentuser,
       };
     }
 
     try {
       // check if inviteid is valid
       let query = `
-                SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
             `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
@@ -438,11 +519,29 @@ export default class FmsAccountSvcDB {
         }
         return {
           isvalid: false,
+          isdifferentuser: isdifferentuser,
           invalidreason: "Invalid invite id",
         };
       }
 
       let invite = result.rows[0];
+      const inviteemail = invite.contact;
+
+      // check if email already exists
+      query = `
+                SELECT userid FROM email_pwd_sso WHERE ssoid = $1
+            `;
+      result = await txclient.query(query, [inviteemail]);
+      let isuseralreadyexists = false;
+      let inviteuserid = null;
+      if (result.rowCount !== 0) {
+        inviteuserid = result.rows[0].userid;
+        isuseralreadyexists = true;
+      }
+
+      if (inviteuserid !== userid) {
+        isdifferentuser = true;
+      }
 
       if (invite.invitestatus !== FLEET_INVITE_STATUS.PENDING) {
         this.logger.error("Invite is not in sent state", inviteid);
@@ -452,6 +551,7 @@ export default class FmsAccountSvcDB {
         }
         return {
           isvalid: false,
+          isdifferentuser: isdifferentuser,
           invalidreason: "Invite is no longer valid state",
         };
       }
@@ -467,33 +567,13 @@ export default class FmsAccountSvcDB {
           isvalid: false,
           invalidreason:
             "Invite is not an email invite. currently only email invites are supported",
+          isdifferentuser: isdifferentuser,
         };
       }
 
-      query = `
-                SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-            `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        this.logger.error("Invite email not found", inviteid);
-        let rollbackerr = await this.pgPoolI.TxRollback(txclient);
-        if (rollbackerr) {
-          this.logger.error("Failed to rollback transaction", rollbackerr);
-        }
-        return {
-          isvalid: false,
-          invalidreason: "Invite email not found",
-        };
-      }
+      const inviteexpiresat = invite.expiresat;
 
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(inviteexpiresat) < currtime) {
         this.logger.info(
           `fmsaccountsvc_db.validateInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${invite.inviteid}`
         );
@@ -513,17 +593,8 @@ export default class FmsAccountSvcDB {
         return {
           isvalid: false,
           invalidreason: "Invite has expired",
+          isdifferentuser: isdifferentuser,
         };
-      }
-
-      // check if email already exists
-      query = `
-                SELECT userid FROM email_pwd_sso WHERE ssoid = $1
-            `;
-      result = await txclient.query(query, [inviteemail]);
-      let isuseralreadyexists = false;
-      if (result.rowCount !== 0) {
-        isuseralreadyexists = true;
       }
 
       // get account name and fleet name for invite text
@@ -540,6 +611,7 @@ export default class FmsAccountSvcDB {
         return {
           isvalid: false,
           invalidreason: "Invited account not found",
+          isdifferentuser: isdifferentuser,
         };
       }
       const accountname = result.rows[0].accountname;
@@ -557,6 +629,7 @@ export default class FmsAccountSvcDB {
         return {
           isvalid: false,
           invalidreason: "Invited fleet not found",
+          isdifferentuser: isdifferentuser,
         };
       }
       const fleetname = result.rows[0].name;
@@ -571,6 +644,7 @@ export default class FmsAccountSvcDB {
         return {
           isvalid: false,
           invalidreason: "Something went wrong",
+          isdifferentuser: isdifferentuser,
         };
       }
 
@@ -582,9 +656,10 @@ export default class FmsAccountSvcDB {
         fleetname: fleetname,
         inviteemail: inviteemail,
         inviteexpiresat: inviteexpiresat,
-        inviteinfo: invite.info,
+        inviteinfo: { email: invite.contact, roleids: [invite.roleid] }, // Convert to expected format
         isuseralreadyexists: isuseralreadyexists,
         isvalid: true,
+        isdifferentuser: isdifferentuser,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -595,6 +670,7 @@ export default class FmsAccountSvcDB {
       return {
         isvalid: false,
         invalidreason: "Unknown error",
+        isdifferentuser: isdifferentuser,
       };
     }
   }
@@ -610,21 +686,16 @@ export default class FmsAccountSvcDB {
       // 1. Insert back into fleet_invite_pending with sent status
       let query = `
         INSERT INTO fleet_invite_pending (
-          accountid, fleetid, inviteid, info, invitetype, 
-          invitestatus, createdat, createdby, updatedat, updatedby
+          inviteid, accountid, fleetid, contact, roleid, invitetype, 
+          invitestatus, expiresat, createdat, createdby, updatedat, updatedby
         ) 
         SELECT 
-        accountid, fleetid, inviteid, info, invitetype,
-        'sent', createdat, createdby, $1, updatedby
+          inviteid, accountid, fleetid, contact, roleid, invitetype,
+          'sent', CURRENT_TIMESTAMP + INTERVAL '7 days', createdat, createdby, $1, updatedby
         FROM fleet_invite_done 
-        WHERE accountid = $2 AND fleetid = $3 AND inviteid = $4
+        WHERE inviteid = $2
       `;
-      let result = await txclient.query(query, [
-        currtime,
-        accountid,
-        fleetid,
-        inviteid,
-      ]);
+      let result = await txclient.query(query, [currtime, inviteid]);
       if (result.rowCount === 0) {
         this.logger.warn("Failed to insert back into fleet_invite_pending", {
           accountid,
@@ -636,9 +707,9 @@ export default class FmsAccountSvcDB {
       // 2. Delete from fleet_invite_done
       query = `
        DELETE FROM fleet_invite_done 
-       WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
+       WHERE inviteid = $1
      `;
-      result = await txclient.query(query, [accountid, fleetid, inviteid]);
+      result = await txclient.query(query, [inviteid]);
       if (result.rowCount === 0) {
         this.logger.warn("No fleet_invite_done record found to delete", {
           accountid,
@@ -700,7 +771,7 @@ export default class FmsAccountSvcDB {
         });
       }
 
-      // 7. Finally delete from users table
+      // 7. Finally delete from users (this is the main table)
       query = `
         DELETE FROM users 
         WHERE userid = $1
@@ -710,6 +781,7 @@ export default class FmsAccountSvcDB {
         this.logger.warn("No user record found to delete", {
           userid,
         });
+        throw new Error("User record not found");
       }
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -717,11 +789,20 @@ export default class FmsAccountSvcDB {
         throw commiterr;
       }
 
-      return true;
+      return {
+        success: true,
+        message: "User records deleted successfully",
+        deletedRecords: {
+          userid,
+          accountid,
+          fleetid,
+          inviteid,
+        },
+      };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
       if (rollbackerr) {
-        throw rollbackerr;
+        this.logger.error("Failed to rollback transaction", rollbackerr);
       }
       throw e;
     }
@@ -738,40 +819,25 @@ export default class FmsAccountSvcDB {
     try {
       // check if inviteid is valid
       let query = `
-            SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+            SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
         `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
-        throw new Error("Invalid invite id");
+        throw new Error("INVALID_INVITE_ID");
       }
 
       let invite = result.rows[0];
 
       if (invite.invitestatus !== FLEET_INVITE_STATUS.PENDING) {
-        throw new Error("Invite is not in sent state");
+        throw new Error("INVITE_IS_NOT_IN_SENT_STATE");
       }
 
       // TODO: temporary condition
       if (invite.invitetype !== FLEET_INVITE_TYPE.EMAIL) {
-        throw new Error("Invite is not an email invite");
+        throw new Error("INVITE_IS_NOT_AN_EMAIL_INVITE");
       }
 
-      query = `
-            SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-        `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Invite email not found");
-      }
-
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(invite.expiresat) < currtime) {
         this.logger.info(
           `fmsaccountsvc_db.resendInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${inviteid}`
         );
@@ -783,19 +849,20 @@ export default class FmsAccountSvcDB {
           FLEET_INVITE_STATUS.EXPIRED,
           txclient
         );
-        throw new Error("Cannot resend an expired invite");
+        throw new Error("CANNOT_RESEND_AN_EXPIRED_INVITE");
       }
 
       let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+      // Update expiry in fleet_invite_pending
       query = `
-            UPDATE fleet_invite_email SET expiresat = $1 WHERE accountid = $2 AND fleetid = $3 AND inviteid = $4 AND email = $5
+            UPDATE fleet_invite_pending SET expiresat = $1, updatedat = $2, updatedby = $3 WHERE inviteid = $4
         `;
       result = await txclient.query(query, [
         expiresat,
-        invite.accountid,
-        invite.fleetid,
+        currtime,
+        invitedby,
         inviteid,
-        inviteemail,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update invite expiry");
@@ -828,7 +895,7 @@ export default class FmsAccountSvcDB {
         accountname,
         fleetname,
         headerReferer,
-        inviteemail
+        invite.contact
       );
 
       query = `
@@ -848,7 +915,7 @@ export default class FmsAccountSvcDB {
         inviteid: inviteid,
         accountid: invite.accountid,
         fleetid: invite.fleetid,
-        email: inviteemail,
+        email: invite.contact,
         expiresat: expiresat,
       };
     } catch (e) {
@@ -856,7 +923,6 @@ export default class FmsAccountSvcDB {
       if (rollbackerr) {
         throw rollbackerr;
       }
-      console.log("e", e);
       throw e;
     }
   }
@@ -960,7 +1026,7 @@ export default class FmsAccountSvcDB {
       const params = [accountid, fleetid, ...Object.values(updateFields)];
       let result = await this.pgPoolI.Query(query, params);
       if (result.rowCount !== 1) {
-        return null;
+        throw new Error("FLEET_NOT_FOUND");
       }
 
       return {
@@ -1031,6 +1097,112 @@ export default class FmsAccountSvcDB {
     }
   }
 
+  async getChildFleets(accountid, fleetid, isrecursive = false) {
+    try {
+      let query = `
+        SELECT fleetid FROM fleet_tree WHERE accountid = $1 AND pfleetid = $2 AND isdeleted = false
+      `;
+      if (isrecursive) {
+        query = `
+          WITH RECURSIVE child_fleets AS (
+            SELECT accountid, fleetid FROM fleet_tree WHERE accountid = $1 AND pfleetid = $2 AND isdeleted = false
+            UNION ALL
+            SELECT ft.accountid, ft.fleetid FROM fleet_tree ft
+            JOIN child_fleets cf ON ft.accountid = cf.accountid AND ft.pfleetid = cf.fleetid AND ft.isdeleted = false
+          )
+          SELECT fleetid FROM child_fleets
+        `;
+      }
+      let result = await this.pgPoolI.Query(query, [accountid, fleetid]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+
+      let fleets = result.rows.map((row) => row.fleetid);
+
+      fleets = fleets.filter((fleet) => fleet !== fleetid);
+
+      return fleets;
+    } catch (error) {
+      throw new Error(
+        "Failed to retrieve child fleets. Please try again later."
+      );
+    }
+  }
+
+  async getFleetCount(accountid) {
+    try {
+      let query = `
+        SELECT COUNT(*) as total_fleets
+        FROM account_fleet af
+        WHERE af.accountid = $1
+      `;
+      let result = await this.pgPoolI.Query(query, [accountid]);
+      return parseInt(result.rows[0].total_fleets);
+    } catch (error) {
+      throw new Error("Failed to count fleets for account");
+    }
+  }
+
+  async getFleetDepthFromRoot(accountid, fleetid) {
+    try {
+      let query = `
+        WITH RECURSIVE hierarchy AS (
+          SELECT 
+              ft.accountid,
+              ft.pfleetid,
+              ft.fleetid,
+              1 AS depth,
+              ARRAY[ft.fleetid] AS path
+          FROM fleet_tree ft
+          WHERE ft.accountid = $1 AND ft.fleetid = $2 AND ft.isdeleted = false
+
+          UNION ALL
+
+          SELECT 
+              parent.accountid,
+              parent.pfleetid,
+              parent.fleetid,
+              child.depth + 1,
+              child.path || parent.fleetid
+          FROM fleet_tree parent
+          JOIN hierarchy child
+            ON parent.accountid = child.accountid
+           AND parent.fleetid = child.pfleetid
+          WHERE parent.isdeleted = false
+            AND NOT parent.fleetid = ANY(child.path)
+        )
+        SELECT 
+            COALESCE(MAX(depth), 0) AS current_depth,
+            BOOL_OR(array_length(path, 1) > depth) AS cycle_detected
+        FROM hierarchy;
+      `;
+      let result = await this.pgPoolI.Query(query, [accountid, fleetid]);
+
+      if (result.rowCount === 0) {
+        throw new Error("Fleet not found or invalid fleet hierarchy");
+      }
+
+      const row = result.rows[0];
+
+      if (row.cycle_detected) {
+        throw new Error(
+          "Corrupted fleet hierarchy detected - cycle found in fleet tree"
+        );
+      }
+
+      return parseInt(row.current_depth);
+    } catch (error) {
+      if (
+        error.message.includes("cycle") ||
+        error.message.includes("Corrupted")
+      ) {
+        throw error;
+      }
+      throw new Error("Failed to calculate fleet depth from root");
+    }
+  }
+
   async getUserName(userid) {
     try {
       let query = `
@@ -1049,6 +1221,17 @@ export default class FmsAccountSvcDB {
   // role management
   async createRole(role) {
     try {
+      let checkQuery = `
+        SELECT roleid FROM roles WHERE accountid = $1 AND rolename = $2
+      `;
+      let checkResult = await this.pgPoolI.Query(checkQuery, [
+        role.accountid,
+        role.rolename,
+      ]);
+      if (checkResult.rowCount > 0) {
+        throw new Error("ROLE_NAME_ALREADY_EXISTS");
+      }
+
       let currtime = new Date();
       let query = `
         INSERT INTO roles (accountid, roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -1069,6 +1252,9 @@ export default class FmsAccountSvcDB {
       }
       return true;
     } catch (error) {
+      if (error.message === "ROLE_NAME_ALREADY_EXISTS") {
+        throw new Error("ROLE_NAME_ALREADY_EXISTS");
+      }
       throw new Error("Error creating role");
     }
   }
@@ -1172,22 +1358,17 @@ export default class FmsAccountSvcDB {
     }
   }
 
-  async getRolePermsForAcc(accountid, roleid) {
+  async getRolePermsForAccount(accountid, roleid) {
     try {
       let query = `
         SELECT permid FROM role_perm WHERE accountid = $1 AND roleid = $2
     `;
       let result = await this.pgPoolI.Query(query, [accountid, roleid]);
       if (result.rowCount === 0) {
-        return null;
+        return [];
       }
 
-      const accountPerms = result.rows.filter(
-        (row) =>
-          row.permid.startsWith("account.") || row.permid === "all.all.all"
-      );
-
-      return accountPerms;
+      return result.rows;
     } catch (error) {
       throw new Error("Unable to retrieve role permissions.");
     }
@@ -1268,56 +1449,88 @@ export default class FmsAccountSvcDB {
   }
 
   // vehicle management
-  async getVehicles(accountid, fleetid, recursive = false) {
+  async getVehicles(accountid, fleetid, recursive, isforcedfilter) {
     try {
       let query;
       if (recursive) {
         query = `
-      WITH RECURSIVE fleet_hierarchy AS (
-        SELECT ft.accountid, ft.fleetid, ft.name
-        FROM fleet_tree ft
-        WHERE ft.accountid = $1 AND ft.fleetid = $2 AND ft.isdeleted = false
-
-        UNION ALL
-
-        SELECT ft.accountid, ft.fleetid, ft.name
-        FROM fleet_tree ft
-        JOIN fleet_hierarchy fh ON ft.accountid = fh.accountid AND ft.pfleetid = fh.fleetid
-        WHERE ft.isdeleted = false
-      )
-      SELECT fv.accountid, fv.fleetid, fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, 
-             fv.assignedat, fv.updatedat, u1.displayname as assignedby, u2.displayname as updatedby,
-             v.vehiclevariant, v.vehiclemodel, v.modelcode, v.vehicleinfo, v.delivered_date, v.vehicle_city, vm.modeldisplayname, af.isroot
-      FROM fleet_vehicle fv
-      JOIN vehicle v ON fv.vinno = v.vinno
-      JOIN users u1 ON fv.assignedby = u1.userid
-      JOIN users u2 ON fv.updatedby = u2.userid
-      JOIN account_fleet af ON fv.accountid = af.accountid AND fv.fleetid = af.fleetid
-      JOIN fleet_hierarchy fh ON fv.accountid = fh.accountid AND fv.fleetid = fh.fleetid
-      JOIN vehicle_model vm ON v.modelcode = vm.modelcode
-      ORDER BY fv.assignedat DESC
-    `;
+          WITH RECURSIVE fleet_hierarchy AS (
+            SELECT ft.accountid, ft.fleetid, ft.name
+            FROM fleet_tree ft
+            WHERE ft.accountid = $1 AND ft.fleetid = $2 AND ft.isdeleted = false
+        
+            UNION ALL
+        
+            SELECT ft.accountid, ft.fleetid, ft.name
+            FROM fleet_tree ft
+            JOIN fleet_hierarchy fh ON ft.accountid = fh.accountid AND ft.pfleetid = fh.fleetid
+            WHERE ft.isdeleted = false
+          )
+          SELECT fv.accountid, fv.fleetid, fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, 
+                 fv.assignedat, fv.updatedat, u1.displayname as assignedby, u2.displayname as updatedby,
+                 v.vehiclevariant, v.vehiclemodel, v.modelcode, v.vehicleinfo, v.delivered_date, v.vehicle_city, vm.modeldisplayname, af.isroot
+          FROM fleet_vehicle fv
+          JOIN vehicle v ON fv.vinno = v.vinno
+          JOIN users u1 ON fv.assignedby = u1.userid
+          JOIN users u2 ON fv.updatedby = u2.userid
+          JOIN account_fleet af ON fv.accountid = af.accountid AND fv.fleetid = af.fleetid
+          JOIN fleet_hierarchy fh ON fv.accountid = fh.accountid AND fv.fleetid = fh.fleetid
+          JOIN vehicle_model vm ON v.modelcode = vm.modelcode
+          ORDER BY fv.assignedat DESC
+        `;
       } else {
         query = `
-      SELECT fv.accountid, fv.fleetid, fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, 
-             fv.assignedat, fv.updatedat, u1.displayname as assignedby, u2.displayname as updatedby,
-             v.vehiclevariant, v.vehiclemodel, v.modelcode, vm.modeldisplayname, v.vehicleinfo, v.delivered_date, v.vehicle_city, af.isroot
-      FROM fleet_vehicle fv
-      JOIN vehicle v ON fv.vinno = v.vinno
-      JOIN users u1 ON fv.assignedby = u1.userid
-      JOIN users u2 ON fv.updatedby = u2.userid
-      JOIN vehicle_model vm ON v.modelcode = vm.modelcode
-      JOIN account_fleet af ON fv.accountid = af.accountid AND fv.fleetid = af.fleetid
-      WHERE fv.accountid = $1 AND fv.fleetid = $2
-      ORDER BY fv.assignedat DESC
-    `;
+          SELECT fv.accountid, fv.fleetid, fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, 
+                 fv.assignedat, fv.updatedat, u1.displayname as assignedby, u2.displayname as updatedby,
+                 v.vehiclevariant, v.vehiclemodel, v.modelcode, vm.modeldisplayname, v.vehicleinfo, v.delivered_date, v.vehicle_city, af.isroot
+          FROM fleet_vehicle fv
+          JOIN vehicle v ON fv.vinno = v.vinno
+          JOIN users u1 ON fv.assignedby = u1.userid
+          JOIN users u2 ON fv.updatedby = u2.userid
+          JOIN vehicle_model vm ON v.modelcode = vm.modelcode
+          JOIN account_fleet af ON fv.accountid = af.accountid AND fv.fleetid = af.fleetid
+          WHERE fv.accountid = $1 AND fv.fleetid = $2
+          ORDER BY fv.assignedat DESC
+        `;
       }
 
       let result = await this.pgPoolI.Query(query, [accountid, fleetid]);
       if (result.rowCount === 0) {
         return [];
       }
-      return result.rows;
+      const allVehicles = result.rows;
+
+      const shouldFilterSubscribed =
+        this.config?.fmsFeatures?.enableSubscribedVehiclesFilter || false;
+
+      if (!shouldFilterSubscribed || isforcedfilter) {
+        return allVehicles;
+      }
+
+      const vinNumbers = allVehicles.map((vehicle) => vehicle.vinno);
+
+      const subscribedQuery = `
+        SELECT vinno FROM account_vehicle_subscription 
+        WHERE accountid = $1 AND vinno = ANY($2) AND state = 1
+      `;
+      const subscribedResult = await this.pgPoolI.Query(subscribedQuery, [
+        accountid,
+        vinNumbers,
+      ]);
+
+      if (subscribedResult.rowCount === 0) {
+        return [];
+      }
+
+      const subscribedVins = new Set(
+        subscribedResult.rows.map((row) => row.vinno)
+      );
+
+      const subscribedVehicles = allVehicles.filter((vehicle) =>
+        subscribedVins.has(vehicle.vinno)
+      );
+
+      return subscribedVehicles;
     } catch (error) {
       throw new Error("Unable to retrieve vehicle information");
     }
@@ -1347,7 +1560,6 @@ export default class FmsAccountSvcDB {
 
       const vehicleData = result.rows[0];
 
-      // Check if vehicle already exists in target fleet
       query = `
         SELECT vinno FROM fleet_vehicle 
         WHERE accountid = $1 AND fleetid = $2 AND vinno = $3
@@ -1463,7 +1675,7 @@ export default class FmsAccountSvcDB {
       `;
       let result = await txclient.query(query, [accountid, fleetid, vehicleid]);
       if (result.rowCount !== 1) {
-        throw new Error("Vehicle not found in fleet");
+        throw new Error("VEHICLE_NOT_FOUND");
       }
 
       const vehicleData = result.rows[0];
@@ -1475,13 +1687,13 @@ export default class FmsAccountSvcDB {
       `;
       result = await txclient.query(query, [accountid]);
       if (result.rowCount !== 1) {
-        throw new Error("Root fleet not found for account");
+        throw new Error("ROOT_FLEET_NOT_FOUND");
       }
 
       const rootFleetId = result.rows[0].fleetid;
 
       if (fleetid === rootFleetId) {
-        throw new Error("Vehicle is already in the root fleet");
+        throw new Error("VEHICLE_ALREADY_IN_ROOT_FLEET");
       }
 
       // Save the current state to history before moving
@@ -1503,7 +1715,7 @@ export default class FmsAccountSvcDB {
         vehicleData.updatedby,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to create history record");
+        throw new Error("FAILED_TO_CREATE_HISTORY_RECORD");
       }
 
       query = `
@@ -1581,7 +1793,7 @@ export default class FmsAccountSvcDB {
         vehicleid,
       ]);
       if (vehicleResult.rowCount === 0) {
-        throw new Error("Vehicle not found in account");
+        throw new Error("VEHICLE_NOT_FOUND");
       }
 
       // Get all fleets where user has permission to move vehicles
@@ -1715,25 +1927,56 @@ export default class FmsAccountSvcDB {
   }
 
   // user management
-  async getFleetUsers(accountid, fleetid) {
+  async getFleetUsers(accountid, fleetid, recursive = false) {
     try {
+      let fleetIds = [fleetid];
+
+      if (recursive) {
+        let childFleetsQuery = `
+          WITH RECURSIVE subfleets AS (
+            SELECT ft.fleetid
+            FROM fleet_tree ft
+            WHERE ft.accountid = $1 AND ft.pfleetid = $2 AND ft.isdeleted = false
+            
+            UNION ALL
+            
+            SELECT ft.fleetid
+            FROM fleet_tree ft
+            JOIN subfleets sf ON ft.pfleetid = sf.fleetid
+            WHERE ft.accountid = $1 AND ft.isdeleted = false
+          )
+          SELECT fleetid FROM subfleets
+        `;
+
+        let childFleetsResult = await this.pgPoolI.Query(childFleetsQuery, [
+          accountid,
+          fleetid,
+        ]);
+        if (childFleetsResult.rowCount > 0) {
+          let childFleetIds = childFleetsResult.rows.map((row) => row.fleetid);
+          fleetIds = fleetIds.concat(childFleetIds);
+        }
+      }
+
       let query = `
-      SELECT distinct u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, 
-      u.isemailverified, u.ismobileverified, u.createdat, creator.displayname as createdby, 
-      u.updatedat, updater.displayname as updatedby,
-      eps.ssoid as email, mps.ssoid as mobile 
-      FROM users u
-      JOIN fleet_user_role fur ON u.userid = fur.userid
-      LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
-      LEFT JOIN mobile_sso mps ON u.userid = mps.userid
-      LEFT JOIN users creator ON u.createdby = creator.userid
-      LEFT JOIN users updater ON u.updatedby = updater.userid
-      WHERE fur.accountid = $1 AND fur.fleetid = $2 AND u.isdeleted = false
-      ORDER BY u.createdat DESC
-    `;
-      let result = await this.pgPoolI.Query(query, [accountid, fleetid]);
+        SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, 
+          u.isemailverified, u.ismobileverified, u.createdat, creator.displayname as createdby, 
+          u.updatedat, updater.displayname as updatedby,
+          eps.ssoid as email, mps.ssoid as mobile 
+        FROM users u
+        JOIN fleet_user_role fur ON u.userid = fur.userid
+        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        LEFT JOIN users creator ON u.createdby = creator.userid
+        LEFT JOIN users updater ON u.updatedby = updater.userid
+        WHERE fur.accountid = $1 AND fur.fleetid = ANY($2) AND u.isdeleted = false
+        ORDER BY u.createdat DESC
+      `;
+
+      let result = await this.pgPoolI.Query(query, [accountid, fleetIds]);
       return result.rows;
     } catch (error) {
+      this.logger.error(`getFleetUsers error: ${error}`);
       throw new Error("Unable to retrieve fleet users");
     }
   }
@@ -1806,7 +2049,12 @@ export default class FmsAccountSvcDB {
         ]);
 
         if (adminResult.rowCount === 0) {
-          throw new Error("Users cannot assign roles. Permission denied");
+          throw {
+            errcode: "PERMISSION_DENIED",
+            errdata: "Users cannot assign roles to themselves",
+            message:
+              "Users cannot assign roles to themselves. Only admins can assign roles to themselves.",
+          };
         }
       }
 
@@ -1816,13 +2064,16 @@ export default class FmsAccountSvcDB {
       `;
       let result = await txclient.query(query, [accountid, fleetid]);
       if (result.rowCount === 0) {
-        throw new Error("Invalid fleet");
+        throw {
+          errcode: "FLEET_NOT_FOUND",
+          errdata: "Fleet not found",
+          message: "Fleet not found or does not belong to this account",
+        };
       }
 
       const isRootFleet = result.rows[0].isroot;
 
       if (!isRootFleet) {
-        // For non-root fleets, check if user exists in this fleet or any parent fleet
         query = `
           WITH RECURSIVE parent_fleets AS (
             -- Get the initial fleet
@@ -1843,35 +2094,41 @@ export default class FmsAccountSvcDB {
         `;
         result = await txclient.query(query, [accountid, fleetid, userid]);
         if (result.rowCount === 0) {
-          throw new Error(
-            "User is not a member of this fleet or any parent fleet"
-          );
+          throw {
+            errcode: "USER_NOT_IN_FLEET",
+            errdata: "User not found in fleet hierarchy",
+            message: "User is not a member of this fleet or any parent fleet",
+          };
         }
       } else {
-        // For root fleet, check if user exists in this fleet
         query = `
           SELECT userid FROM user_fleet 
           WHERE accountid = $1 AND fleetid = $2 AND userid = $3
         `;
         result = await txclient.query(query, [accountid, fleetid, userid]);
         if (result.rowCount === 0) {
-          throw new Error("User is not a member of this fleet");
+          throw {
+            errcode: "USER_NOT_IN_FLEET",
+            errdata: "User not found in fleet",
+            message: "User is not a member of this fleet",
+          };
         }
       }
 
-      // Assign each role
       for (const roleid of roleids) {
-        // Check if role exists and is enabled
         query = `
           SELECT roleid FROM roles 
           WHERE accountid = $1 AND roleid = $2 AND isenabled = true
         `;
         result = await txclient.query(query, [accountid, roleid]);
         if (result.rowCount === 0) {
-          throw new Error(`Invalid or disabled role: ${roleid}`);
+          throw {
+            errcode: "ROLE_INVALID",
+            errdata: `Role ${roleid} not found or disabled`,
+            message: `Role ${roleid} not found or is disabled`,
+          };
         }
 
-        // Check if role is already assigned
         query = `
           SELECT roleid FROM fleet_user_role 
           WHERE accountid = $1 AND fleetid = $2 AND userid = $3 AND roleid = $4
@@ -1882,21 +2139,31 @@ export default class FmsAccountSvcDB {
           userid,
           roleid,
         ]);
-        if (result.rowCount === 0) {
-          // Assign the role
-          query = `
-            INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) 
-            VALUES ($1, $2, $3, $4)
-          `;
-          result = await txclient.query(query, [
-            accountid,
-            fleetid,
-            userid,
-            roleid,
-          ]);
-          if (result.rowCount !== 1) {
-            throw new Error(`Failed to assign role: ${roleid}`);
-          }
+
+        if (result.rowCount > 0) {
+          throw {
+            errcode: "ROLE_ALREADY_ASSIGNED",
+            errdata: `Role ${roleid} already assigned`,
+            message: `Role ${roleid} is already assigned to this user`,
+          };
+        }
+
+        query = `
+          INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) 
+          VALUES ($1, $2, $3, $4)
+        `;
+        result = await txclient.query(query, [
+          accountid,
+          fleetid,
+          userid,
+          roleid,
+        ]);
+        if (result.rowCount !== 1) {
+          throw {
+            errcode: "ROLE_ASSIGNMENT_FAILED",
+            errdata: `Failed to assign role ${roleid}`,
+            message: `Failed to assign role ${roleid}`,
+          };
         }
       }
 
@@ -1990,12 +2257,36 @@ export default class FmsAccountSvcDB {
   async getAllUserRolesOnFleet(accountid, fleetid, userid) {
     try {
       let query = `
-        SELECT DISTINCT r.roleid, r.rolename, r.roletype, r.isenabled 
-        FROM fleet_user_role fur 
-        JOIN roles r ON fur.roleid = r.roleid AND r.accountid = fur.accountid AND r.isenabled = $1
-        WHERE fur.accountid = $2 
-        AND fur.fleetid = $3 
-        AND fur.userid = $4
+      WITH RECURSIVE parent_fleets AS (
+          SELECT ft.accountid, ft.pfleetid, ft.fleetid, ft.name FROM fleet_tree ft
+          WHERE ft.accountid = $2 AND ft.fleetid = $3 AND ft.isdeleted = false
+
+          UNION ALL
+
+          SELECT ft.accountid, ft.pfleetid, ft.fleetid, ft.name FROM fleet_tree ft
+          JOIN parent_fleets pf ON ft.accountid = pf.accountid AND ft.fleetid = pf.pfleetid
+          WHERE ft.isdeleted = false
+      ),
+      child_fleets AS (
+          SELECT ft.accountid, ft.pfleetid, ft.fleetid, ft.name FROM fleet_tree ft
+          WHERE ft.accountid = $2 AND ft.fleetid = $3 AND ft.isdeleted = false
+
+          UNION ALL
+
+          SELECT ft.accountid, ft.pfleetid, ft.fleetid, ft.name FROM fleet_tree ft
+          JOIN child_fleets cf ON ft.pfleetid = cf.fleetid AND ft.accountid = cf.accountid
+          WHERE ft.isdeleted = false
+      ),
+      all_fleets AS (
+          SELECT accountid, pfleetid, fleetid, name FROM parent_fleets
+          UNION
+          SELECT accountid, pfleetid, fleetid, name FROM child_fleets
+      )
+      SELECT DISTINCT r.roleid, r.rolename, r.roletype, r.isenabled, af.name as fleetname, af.fleetid
+      FROM all_fleets af
+      JOIN fleet_user_role fur ON af.accountid = fur.accountid AND af.fleetid = fur.fleetid
+      JOIN roles r ON fur.roleid = r.roleid AND r.accountid = fur.accountid AND r.isenabled = $1
+      WHERE fur.userid = $4
     `;
       let result = await this.pgPoolI.Query(query, [
         true,
@@ -2195,7 +2486,10 @@ export default class FmsAccountSvcDB {
       }
 
       if (!iscustompkg && !isdefaultpkg) {
-        throw new Error("Invalid package id");
+        throw {
+          errcode: "INVALID_PACKAGE_ID",
+          message: `Invalid package id: ${pkgid}`,
+        };
       }
 
       query = `
@@ -2206,13 +2500,16 @@ export default class FmsAccountSvcDB {
 
       // Check if user is already subscribed to the same package
       if (currentSubscription && currentSubscription.pkgid === pkgid) {
-        throw new Error("Account is already subscribed to this package");
+        throw {
+          errcode: "ACCOUNT_ALREADY_SUBSCRIBED_TO_THIS_PACKAGE",
+          message: `Account already subscribed to this package: ${pkgid}`,
+        };
       }
 
       if (currentSubscription) {
         let updatedCurrentSubscriptionInfo = {
           ...currentSubscription.subscriptioninfo,
-          enddate: currtime.toISOString(),
+          enddate: subscriptioninfo.startdate,
         };
 
         query = `
@@ -2232,11 +2529,6 @@ export default class FmsAccountSvcDB {
         ]);
       }
 
-      let newSubscriptionInfo = {
-        ...subscriptioninfo,
-        enddate: "9999-12-31T23:59:59.999Z",
-      };
-
       query = `
               INSERT INTO account_package_subscription (accountid, pkgid, subscriptioninfo, createdat, createdby) 
               VALUES ($1, $2, $3, $4, $5)
@@ -2249,12 +2541,15 @@ export default class FmsAccountSvcDB {
       result = await txclient.query(query, [
         accountid,
         pkgid,
-        newSubscriptionInfo,
+        subscriptioninfo,
         currtime,
         updatedby,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to update subscription");
+        throw {
+          errcode: "FAILED_TO_UPDATE_SUBSCRIPTION",
+          message: `Failed to update subscription: ${pkgid}`,
+        };
       }
 
       query = `
@@ -2263,12 +2558,15 @@ export default class FmsAccountSvcDB {
       result = await txclient.query(query, [
         accountid,
         pkgid,
-        newSubscriptionInfo,
+        subscriptioninfo,
         currtime,
         updatedby,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to create subscription history");
+        throw {
+          errcode: "FAILED_TO_CREATE_SUBSCRIPTION_HISTORY",
+          message: `Failed to create subscription history: ${pkgid}`,
+        };
       }
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -2279,7 +2577,7 @@ export default class FmsAccountSvcDB {
         accountid: accountid,
         oldpkgid: currentSubscription?.pkgid || null,
         newpkgid: pkgid,
-        subscriptioninfo: newSubscriptionInfo,
+        subscriptioninfo: subscriptioninfo,
         updatedby: updatedby,
         updatedat: currtime,
       };
@@ -2555,26 +2853,32 @@ export default class FmsAccountSvcDB {
         Math.round(creditsForAlreadySubscribed * 100) / 100;
 
       query = `
-        SELECT useablecredits FROM account_credits WHERE accountid = $1
+        SELECT credits FROM account_credits WHERE accountid = $1
       `;
       result = await this.pgPoolI.Query(query, [accountid]);
       if (result.rowCount !== 1) {
         throw new Error("Account credits not found");
       }
       const availableCredits =
-        Math.round(Number(result.rows[0].useablecredits) * 100) / 100;
+        Math.round(Number(result.rows[0].credits) * 100) / 100;
 
-      if (availableCredits < creditsForAlreadySubscribed) {
+      // Modified credit validation for existing subscriptions
+      const projectedCreditsAfterExisting =
+        availableCredits - creditsForAlreadySubscribed;
+      if (projectedCreditsAfterExisting < CREDIT_THRESHOLD) {
         for (let vinno of validVins) {
           vinResults.push({
             vinno: vinno,
             status: "error",
             statuscode: 2,
             reason: "insufficient_credits_for_existing",
-            message: "Insufficient credits for existing subscriptions",
+            message:
+              "Insufficient credits for existing subscriptions (exceeds negative credit limit)",
             details: {
               availablecredits: availableCredits,
               requiredcredits: creditsForAlreadySubscribed,
+              projectedcredits: projectedCreditsAfterExisting,
+              negativecreditthreshold: CREDIT_THRESHOLD,
               existingsubscribedcount: existingSubscribedCount,
               activesubscribedcount: activeSubscribedVins.length,
               availabledays: availableDays,
@@ -2586,7 +2890,8 @@ export default class FmsAccountSvcDB {
         return {
           status: "error",
           statuscode: 2,
-          message: "Insufficient credits for existing subscriptions",
+          message:
+            "Insufficient credits for existing subscriptions (exceeds negative credit limit)",
           vinresults: vinResults,
           summary: {
             totalvehicles: vinnos.length,
@@ -2619,18 +2924,23 @@ export default class FmsAccountSvcDB {
           availableDays * newVehicleCount * creditPerVehiclePerDay * 100
         ) / 100;
 
-      if (remainingCredits < creditsForNewVehicles) {
+      // Modified credit validation for new vehicles
+      const finalProjectedCredits = remainingCredits - creditsForNewVehicles;
+      if (finalProjectedCredits < NEGATIVE_CREDIT_THRESHOLD) {
         for (let vinno of connectedVehicles) {
           vinResults.push({
             vinno: vinno,
             status: "error",
             statuscode: 2,
             reason: "insufficient_credits_for_new_vehicles",
-            message: "Insufficient credits for new vehicle subscriptions",
+            message:
+              "Insufficient credits for new vehicle subscriptions (exceeds negative credit limit)",
             details: {
               availablecredits: availableCredits,
               remainingcredits: remainingCredits,
               requiredcredits: creditsForNewVehicles,
+              projectedcredits: finalProjectedCredits,
+              negativecreditthreshold: NEGATIVE_CREDIT_THRESHOLD,
               newvehiclecount: newVehicleCount,
               availabledays: availableDays,
               creditpervehicleperday: creditPerVehiclePerDay,
@@ -2641,7 +2951,8 @@ export default class FmsAccountSvcDB {
         return {
           status: "error",
           statuscode: 2,
-          message: "Insufficient credits for new vehicle subscriptions",
+          message:
+            "Insufficient credits for new vehicle subscriptions (exceeds negative credit limit)",
           vinresults: vinResults,
           summary: {
             totalvehicles: vinnos.length,
@@ -2720,6 +3031,7 @@ export default class FmsAccountSvcDB {
       throw error;
     }
   }
+
   async subscribeVehicle(accountid, vinnos, userid, intentResult) {
     let currtime = new Date();
     let [txclient, err] = await this.pgPoolI.StartTransaction();
@@ -2740,6 +3052,7 @@ export default class FmsAccountSvcDB {
       `;
       let result = await txclient.query(query, [accountid]);
       if (result.rowCount !== 1) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Account subscription not found",
@@ -2771,9 +3084,9 @@ export default class FmsAccountSvcDB {
             const startindex = index * 11 + 1;
             let startsat = currtime;
             let endsat = endOf5years;
-            // TODO: revert to endOfNextMonth
-            // let lockedtill = endOfNextMonth;
-            let lockedtill = oneminutesfromnow;
+            let lockedtill = endOfNextMonth;
+            // below is for testing
+            // let lockedtill = oneminutesfromnow;
             values.push(
               accountid,
               vinno,
@@ -2802,6 +3115,7 @@ export default class FmsAccountSvcDB {
         `;
         result = await txclient.query(query, values);
         if (result.rowCount !== vinnos.length) {
+          await this.pgPoolI.TxRollback(txclient);
           return {
             status: "error",
             message: "Failed to create vehicle subscriptions",
@@ -2846,6 +3160,7 @@ export default class FmsAccountSvcDB {
         `;
         result = await txclient.query(query, historyValues);
         if (result.rowCount !== vinnos.length) {
+          await this.pgPoolI.TxRollback(txclient);
           return {
             status: "error",
             message: "Failed to create vehicle subscription history records",
@@ -2860,6 +3175,7 @@ export default class FmsAccountSvcDB {
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Failed to commit transaction",
@@ -2982,6 +3298,7 @@ export default class FmsAccountSvcDB {
       }
 
       if (unsubscribableVins.length === 0) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "No vehicles can be unsubscribed",
@@ -3014,6 +3331,7 @@ export default class FmsAccountSvcDB {
       ]);
 
       if (result.rowCount !== unsubscribableVins.length) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Failed to update history records for some vehicles",
@@ -3032,6 +3350,7 @@ export default class FmsAccountSvcDB {
       result = await txclient.query(query, [accountid]);
 
       if (result.rowCount !== unsubscribableVins.length) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Failed to remove some vehicles from subscription table",
@@ -3064,6 +3383,7 @@ export default class FmsAccountSvcDB {
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Failed to commit transaction",
@@ -3151,6 +3471,7 @@ export default class FmsAccountSvcDB {
 
       // check if newpkgid is different from current pkgid
       if (newpkgid === currentpkgid) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           isvalid: false,
           msg: "New package id is the same as current package id",
@@ -3181,7 +3502,7 @@ export default class FmsAccountSvcDB {
       }
 
       if (!iscustompkg && !isdefaultpkg) {
-        throw new Error("Invalid package id");
+        throw new Error("INVALID_PACKAGE_ID");
       }
 
       // get number of vehicles currently subscribed
@@ -3203,7 +3524,7 @@ export default class FmsAccountSvcDB {
 
       result = await txclient.query(query, [newpkgid]);
       if (result.rowCount !== 1) {
-        throw new Error("New package not found");
+        throw new Error("NEW_PACKAGE_NOT_FOUND");
       }
 
       let newpkgcost = 0;
@@ -3232,13 +3553,13 @@ export default class FmsAccountSvcDB {
 
       // get account credits
       query = `
-            SELECT useablecredits FROM account_credits WHERE accountid = $1
+            SELECT credits FROM account_credits WHERE accountid = $1
           `;
       result = await txclient.query(query, [accountid]);
       if (result.rowCount !== 1) {
-        throw new Error("Account credits not found");
+        throw new Error("ACCOUNT_CREDITS_NOT_FOUND");
       }
-      const useablecredits = Number(result.rows[0].useablecredits);
+      const useablecredits = Number(result.rows[0].credits);
 
       const availableDays = Math.floor(
         useablecredits / (numvehicles * newpkgcost)
@@ -3477,21 +3798,42 @@ export default class FmsAccountSvcDB {
         allowedFleetIds.has(fleet.fleetid)
       );
 
-      return filteredFleets;
+      const fleetMap = new Map();
+
+      filteredFleets.forEach((fleet) => {
+        const fleetId = fleet.fleetid;
+        const pathSlashCount = (fleet.path.match(/\//g) || []).length;
+
+        if (!fleetMap.has(fleetId)) {
+          fleetMap.set(fleetId, fleet);
+        } else {
+          const existingFleet = fleetMap.get(fleetId);
+          const existingPathSlashCount = (existingFleet.path.match(/\//g) || [])
+            .length;
+
+          if (pathSlashCount === 1 && existingPathSlashCount !== 1) {
+            fleetMap.set(fleetId, fleet);
+          }
+        }
+      });
+
+      const uniqueFleets = Array.from(fleetMap.values());
+
+      return uniqueFleets;
     } catch (error) {
       console.error("Error in getUserAccountFleets:", error);
       throw new Error(`Failed to retrieve user account fleets`);
     }
   }
 
-  async getAllWebModulesInfo(accountid) {
+  async getAllAccountModules(accountid) {
     try {
       let query = `
-            select pm.moduleid, m.modulename, m.moduletype, m.modulecode, m.moduleinfo, m.isenabled, m.createdat, m.createdby, m.updatedat from account_package_subscription aps, package_module pm, module m where aps.pkgid=pm.pkgid and pm.moduleid=m.moduleid and aps.accountid=$1 ORDER BY m.createdat;
+            select pm.moduleid, m.modulename, m.moduletype, m.modulecode, m.moduleinfo, m.isenabled, m.priority, m.createdat, m.createdby, m.updatedat, m.updatedby from account_package_subscription aps, package_module pm, module m where aps.pkgid=pm.pkgid and pm.moduleid=m.moduleid and m.moduletype = 'web' and m.isenabled = true and aps.accountid=$1 ORDER BY m.priority asc;
         `;
       let result = await this.pgPoolI.Query(query, [accountid]);
       if (result.rowCount === 0) {
-        return null;
+        return [];
       }
       return result.rows;
     } catch (error) {
@@ -3626,7 +3968,6 @@ export default class FmsAccountSvcDB {
         // `SELECT COUNT(*) as count FROM trip WHERE accountid = $1 AND fleetid = $2`,
         // `SELECT COUNT(*) as count FROM user_dashboard WHERE accountid = $1`,
 
-        `SELECT COUNT(*) as count FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2`,
         `SELECT COUNT(*) as count FROM fleet_invite_pending WHERE accountid = $1 AND fleetid = $2`,
         `SELECT COUNT(*) as count FROM fleet_invite_done WHERE accountid = $1 AND fleetid = $2`,
         `SELECT COUNT(*) as count FROM fleet_vehicle_history WHERE accountid = $1 AND fleetid = $2`,
@@ -3852,6 +4193,7 @@ export default class FmsAccountSvcDB {
       `;
       let result = await txclient.query(query, [srcaccountid]);
       if (result.rowCount !== 1) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Source account not found or not enabled",
@@ -3867,6 +4209,7 @@ export default class FmsAccountSvcDB {
       `;
       result = await txclient.query(query, [dstaccountid]);
       if (result.rowCount !== 1) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Destination account not found or not enabled",
@@ -3882,6 +4225,7 @@ export default class FmsAccountSvcDB {
       `;
       result = await txclient.query(query, [dstaccountid]);
       if (result.rowCount !== 1) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Destination account root fleet not found",
@@ -4007,6 +4351,7 @@ export default class FmsAccountSvcDB {
         }
 
         if (validVins.length === 0) {
+          await this.pgPoolI.TxRollback(txclient);
           return {
             status: "error",
             message: "No vehicles can be tagged",
@@ -4296,6 +4641,7 @@ export default class FmsAccountSvcDB {
       `;
       let result = await txclient.query(query, [srcaccountid]);
       if (result.rowCount !== 1) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Source account not found or not enabled",
@@ -4311,6 +4657,7 @@ export default class FmsAccountSvcDB {
       `;
       result = await txclient.query(query, [dstaccountid]);
       if (result.rowCount !== 1) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Destination account not found or not enabled",
@@ -4326,6 +4673,7 @@ export default class FmsAccountSvcDB {
       `;
       result = await txclient.query(query, [dstaccountid]);
       if (result.rowCount !== 1) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Destination account root fleet not found",
@@ -4413,6 +4761,7 @@ export default class FmsAccountSvcDB {
       }
 
       if (activeTaggedVins.length === 0) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "No vehicles can be untagged",
@@ -4444,6 +4793,7 @@ export default class FmsAccountSvcDB {
       ]);
 
       if (result.rowCount !== activeTaggedVins.length) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           status: "error",
           message: "Failed to untag some vehicles",
@@ -4529,6 +4879,7 @@ export default class FmsAccountSvcDB {
         result = await txclient.query(query, [dstaccountid]);
 
         if (result.rowCount !== vehiclesToRemove.length) {
+          await this.pgPoolI.TxRollback(txclient);
           return {
             status: "error",
             message: "Failed to remove some vehicles from destination fleet",
@@ -4775,6 +5126,242 @@ export default class FmsAccountSvcDB {
     } catch (error) {
       this.logger.error("Error fetching latest vehicle data:", error);
       throw error;
+    }
+  }
+
+  async getAllWebModules() {
+    try {
+      let query = `
+        SELECT moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, isenabled, priority 
+        FROM module 
+        WHERE moduletype = 'web' AND isenabled = true 
+        ORDER BY priority
+      `;
+      let result = await this.pgPoolI.Query(query);
+      if (result.rowCount === 0) {
+        return null;
+      }
+      return result.rows;
+    } catch (error) {
+      throw new Error("Unable to retrieve web modules.");
+    }
+  }
+
+  async getAllModulePerms(modules) {
+    try {
+      let query = `
+        SELECT m.moduleid, m.modulename, mp.permid FROM module m JOIN module_perm mp ON m.moduleid = mp.moduleid
+        WHERE m.moduletype = 'web' AND m.isenabled = true AND mp.isenabled = true AND m.moduleid = ANY($1) ORDER BY m.priority
+      `;
+      let result = await this.pgPoolI.Query(query, [modules]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+
+      return result.rows;
+    } catch (error) {
+      throw new Error("Unable to retrieve web module permissions.");
+    }
+  }
+
+  // credits
+  async getAccountCredits(accountid) {
+    try {
+      let query = `
+            SELECT credits FROM account_credits WHERE accountid = $1
+        `;
+      let result = await this.pgPoolI.Query(query, [accountid]);
+      if (result.rowCount !== 1) {
+        throw new Error("Account credits not found");
+      }
+      return result.rows[0]?.credits || 0;
+    } catch (error) {
+      this.logger.error("Error in getAccountCreditsDB:", error);
+      throw new Error("Failed to get account credits");
+    }
+  }
+
+  async getAccountCreditsOverview(accountid, starttime, endtime) {
+    let query = `
+      SELECT 
+        DATE(targetdate) as targetdate, 
+        SUM(CASE WHEN deltacredits > 0 THEN deltacredits ELSE 0 END) as creditsadded,
+        SUM(CASE WHEN deltacredits < 0 THEN ABS(deltacredits) ELSE 0 END) as creditsconsumed,
+        MAX(totalvehicles) as totalvehicles,
+        MAX(subscribedvehicles) as subscribedvehicles,
+        MAX(connectedvehicles) as connectedvehicles
+      FROM account_credits_history
+      WHERE accountid = $1 AND DATE(targetdate) BETWEEN $2 AND $3 
+      GROUP BY DATE(targetdate)
+      ORDER BY targetdate ASC
+    `;
+
+    let result = await this.pgPoolI.Query(query, [
+      accountid,
+      new Date(starttime),
+      new Date(endtime),
+    ]);
+
+    if (result.rowCount === 0) {
+      return [];
+    }
+
+    for (let row of result.rows) {
+      row.targetdate = DateTime.fromJSDate(row.targetdate, {
+        zone: "utc",
+      }).toFormat("dd LLL yyyy");
+      row.creditsadded = Number(row.creditsadded) || 0;
+      row.creditsconsumed = Number(row.creditsconsumed) || 0;
+      row.totalvehicles = Number(row.totalvehicles) || 0;
+      row.subscribedvehicles = Number(row.subscribedvehicles) || 0;
+      row.connectedvehicles = Number(row.connectedvehicles) || 0;
+    }
+
+    return result.rows;
+  }
+
+  async getAccountCreditsHistory(accountid, starttime, endtime) {
+    let query = `
+            SELECT ach.targetdate, ach.updatedat, ach.deltacredits, ach.closingcredits, ach.pkginfo, ach.txninfo, 
+            ach.totalvehicles, ach.subscribedvehicles, ach.connectedvehicles, ach.comment, 
+            COALESCE(u.displayname, 'Unknown User') as updatedby 
+            FROM account_credits_history ach
+            LEFT JOIN users u ON ach.updatedby = u.userid
+            WHERE ach.accountid = $1 AND ach.targetdate BETWEEN $2 AND $3 
+            ORDER BY targetdate, updatedat DESC
+        `;
+
+    let result = await this.pgPoolI.Query(query, [
+      accountid,
+      new Date(starttime),
+      new Date(endtime),
+    ]);
+
+    if (result.rowCount === 0) {
+      return [];
+    }
+
+    for (let row of result.rows) {
+      row.targetdate = DateTime.fromJSDate(row.targetdate, {
+        zone: "utc",
+      })
+        .setZone("Asia/Kolkata")
+        .toFormat("dd LLL yyyy");
+
+      row.creditsadded = Number(row.deltacredits > 0 ? row.deltacredits : 0);
+      row.creditsconsumed = Number(
+        row.deltacredits < 0 ? -row.deltacredits : 0
+      );
+
+      row.openingbalance = Number(row.closingcredits - row.deltacredits);
+      row.closingbalance = Number(row.closingcredits) || 0;
+
+      delete row.deltacredits;
+    }
+
+    return result.rows;
+  }
+
+  async getAccountVehicleCreditsHistory(accountid, vinnos, starttime, endtime) {
+    let query = `
+      SELECT accv.targetdate, accv.vinno, accv.createdat, COALESCE(u.displayname, 'Unknown User') as createdby, ach.deltacredits 
+      FROM account_credits_consumption_vehdetail accv
+      LEFT JOIN users u ON accv.createdby = u.userid
+      LEFT JOIN account_credits_history ach ON accv.accountid = ach.accountid AND accv.targetdate = ach.targetdate
+      WHERE accv.accountid = $1 AND accv.vinno = ANY($2) AND accv.targetdate BETWEEN $3 AND $4
+      ORDER BY targetdate, createdat DESC
+    `;
+
+    let result = await this.pgPoolI.Query(query, [
+      accountid,
+      vinnos,
+      new Date(starttime),
+      new Date(endtime),
+    ]);
+
+    if (result.rowCount === 0) {
+      return [];
+    }
+
+    for (let row of result.rows) {
+      // Use DateTime to properly handle timezone conversion for PostgreSQL DATE type
+      row.targetdate = DateTime.fromJSDate(row.targetdate, {
+        zone: "utc",
+      })
+        .setZone("Asia/Kolkata")
+        .toFormat("dd LLL yyyy");
+
+      row.creditsadded = Number(row.deltacredits > 0 ? row.deltacredits : 0);
+      row.creditsconsumed = Number(
+        row.deltacredits < 0 ? -row.deltacredits : 0
+      );
+
+      delete row.deltacredits;
+    }
+
+    return {
+      accountid: accountid,
+      history: result.rows,
+    };
+  }
+
+  /**
+   *
+   * @param {*} accountid
+   * @param {*} credits - can be positive or negative
+   * @param {*} updatedby
+   * @returns
+   */
+  async updateAccountCredits(accountid, credits, updatedby) {
+    let currtime = new Date();
+
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
+
+    try {
+      let query = `
+                  UPDATE account_credits SET credits = credits + $1 WHERE accountid = $2 RETURNING credits
+              `;
+      let result = await txclient.query(query, [credits, accountid]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to increment account credits");
+      }
+      let closingcredits = result.rows[0].credits;
+
+      query = `
+                  INSERT INTO account_credits_history (accountid, targetdate, updatedat, deltacredits, closingcredits, pkginfo, txninfo, totalvehicles, subscribedvehicles, connectedvehicles, comment, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              `;
+      result = await txclient.query(query, [
+        accountid,
+        currtime,
+        currtime,
+        credits,
+        closingcredits,
+        {},
+        {},
+        0,
+        0,
+        0,
+        "Credits added",
+        updatedby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to create account credits history");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+      return closingcredits;
+    } catch (e) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
+      throw e;
     }
   }
 }

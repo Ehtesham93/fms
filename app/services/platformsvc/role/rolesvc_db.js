@@ -7,6 +7,16 @@ export default class RoleSvcDB {
   async createRole(role) {
     try {
       let currtime = new Date();
+      let checkQuery = `
+        SELECT roleid FROM roles WHERE accountid = $1 AND rolename = $2
+      `;
+      let checkResult = await this.pgPoolI.Query(checkQuery, [
+        role.accountid,
+        role.rolename,
+      ]);
+      if (checkResult.rowCount > 0) {
+        throw new Error("ROLE_NAME_ALREADY_EXISTS");
+      }
       let query = `
             INSERT INTO roles (accountid, roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         `;
@@ -26,6 +36,9 @@ export default class RoleSvcDB {
       }
       return true;
     } catch (error) {
+      if (error.message === "ROLE_NAME_ALREADY_EXISTS") {
+        throw new Error("ROLE_NAME_ALREADY_EXISTS");
+      }
       throw new Error("Failed to create role");
     }
   }

@@ -39,7 +39,7 @@ export function ApiResponseFabErr(req, res, faberrI) {
 export function APIResponseError(req, res, statuscode, errcode, errdata, msg) {
   return res
     .status(statuscode)
-    .send(apiresponse(apiresponseerror(errcode, errdata), null, msg));
+    .send(apiresponse(apiresponseerror(errcode, null), null, msg));
 }
 
 export function APIResponseBadRequest(req, res, errcode, errdata, msg) {
@@ -55,5 +55,5 @@ export function APIResponseForbidden(req, res, errcode, errdata, msg) {
 }
 
 export function APIResponseInternalErr(req, res, errcode, errdata, msg) {
-  return APIResponseError(req, res, 500, errcode, errdata, msg);
+  return APIResponseError(req, res, 500, "INTERNAL_SERVER_ERROR", null, msg);
 }

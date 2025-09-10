@@ -1,4 +1,9 @@
 import { DateTime } from "luxon";
+import {
+  formatEpochToDuration,
+  formatEpochToDateTime,
+  toFormattedString,
+} from "../../../utils/epochconverter.js";
 
 export default class TripsinsighthdlrImpl {
   constructor(tripsinsightssvcI, fmsAccountSvcI, logger) {
@@ -74,38 +79,6 @@ export default class TripsinsighthdlrImpl {
     }
   };
 
-  formatDuration = (ms) => {
-    if (!ms || ms < 0) return "";
-    const totalMins = Math.floor(ms / 60000);
-    const hrs = Math.floor(totalMins / 60);
-    const mins = totalMins % 60;
-    let str = "";
-    if (hrs > 0) str += `${hrs}hr `;
-    str += `${mins}min`;
-    return str.trim();
-  };
-
-  toFormattedString = (value) => {
-    const absValue = Math.abs(value);
-    const sign = value < 0 ? "-" : "";
-
-    const trimmedTo2Decimals = (num) => {
-      return parseFloat(num.toFixed(2)).toString();
-    };
-
-    if (absValue >= 1_000_000_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000_000_000)}T`;
-    } else if (absValue >= 1_000_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000_000)}B`;
-    } else if (absValue >= 1_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000)}M`;
-    } else if (absValue >= 1_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000)}K`;
-    } else {
-      return trimmedTo2Decimals(value);
-    }
-  };
-
   ProcessTripData = async (vinNumbers, starttime, endtime) => {
     try {
       const [tripData, regnodata] = await Promise.all([
@@ -137,24 +110,6 @@ export default class TripsinsighthdlrImpl {
       for (let i = 0; i < tripData.length; i += BATCH_SIZE) {
         batches.push(tripData.slice(i, i + BATCH_SIZE));
       }
-
-      // Helper for formatting time
-      const formatTime = (ms) => {
-        if (!ms) return "";
-        const d = new Date(ms);
-        return d
-          .toLocaleString("en-GB", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false,
-            timeZone: "Asia/Kolkata",
-          })
-          .replace(",", " |");
-      };
 
       const safeCoord = (val) =>
         typeof val === "number" && !isNaN(val)
@@ -191,7 +146,7 @@ export default class TripsinsighthdlrImpl {
               batchTotalEnergy += Math.abs(endkwh - startkwh);
             }
 
-            const duration = this.formatDuration(
+            const duration = formatEpochToDuration(
               (trip.movingtime || 0) + (trip.idletime || 0)
             );
             const socconsumed = (trip.startsoc || 0) - (trip.endsoc || 0);
@@ -202,8 +157,8 @@ export default class TripsinsighthdlrImpl {
               typeof trip.maxspeed === "number" ? trip.maxspeed : 0;
 
             batchVehicles[vin].trips.push({
-              starttime: formatTime(trip.starttime),
-              endtime: formatTime(trip.endtime),
+              starttime: formatEpochToDateTime(trip.starttime),
+              endtime: formatEpochToDateTime(trip.endtime),
               startlat: safeCoord(trip.startlat),
               endlat: safeCoord(trip.endlat),
               startlng: safeCoord(trip.startlng),
@@ -214,6 +169,8 @@ export default class TripsinsighthdlrImpl {
               duration,
               ecomode: `${ecomode}%`,
               boostmode: `${Math.round(boostmode * 100)}%`,
+              // Add original epoch timestamp for sorting
+              _startEpoch: trip.starttime,
             });
           });
 
@@ -249,14 +206,23 @@ export default class TripsinsighthdlrImpl {
         }
       }
 
+      for (const vin in vehicles) {
+        vehicles[vin].trips.sort((a, b) => {
+          // Use the original epoch timestamp for comparison
+          return b._startEpoch - a._startEpoch; // Reverse order (newest first)
+        });
+        // Remove the temporary _startEpoch field after sorting
+        vehicles[vin].trips.forEach(trip => {
+          delete trip._startEpoch;
+        });
+      }
+
       return {
-        totaltrips: this.toFormattedString(totaltrips),
-        totaldistancetravelled: `${this.toFormattedString(
+        totaltrips: toFormattedString(totaltrips),
+        totaldistancetravelled: `${toFormattedString(
           totaldistancetravelled
         )} km`,
-        totalenergyconsumed: `${this.toFormattedString(
-          totalenergyconsumed
-        )} kWh`,
+        totalenergyconsumed: `${toFormattedString(totalenergyconsumed)} kWh`,
         vehicles,
       };
     } catch (error) {
@@ -329,7 +295,7 @@ export default class TripsinsighthdlrImpl {
           ecomode: Math.round(ecomode * 100) / 100,
           maxspeed: Math.round(maxspeed * 100) / 100,
           distancekm: `${Math.round(distance * 100) / 100} km`,
-          durationformatted: this.formatTime(duration),
+          durationformatted: formatEpochToDuration(duration),
           socconsumedpercent: `${Math.round(socconsumed * 100) / 100}%`,
           calcrangekm: `${Math.round(calcrange * 100) / 100} km`,
           boostmodepercent: `${Math.round(boostmode * 100) / 100}%`,
@@ -414,7 +380,7 @@ export default class TripsinsighthdlrImpl {
           ecomode: Math.round(ecomode * 100) / 100,
           maxspeed: Math.round(maxspeed * 100) / 100,
           distancekm: `${Math.round(distance * 100) / 100} km`,
-          durationformatted: this.formatTime(duration),
+          durationformatted: formatEpochToDuration(duration),
           socconsumedpercent: `${Math.round(socconsumed * 100) / 100}%`,
           calcrangekm: `${Math.round(calcrange * 100) / 100} km`,
           boostmodepercent: `${Math.round(boostmode * 100) / 100}%`,
@@ -1418,7 +1384,7 @@ export default class TripsinsighthdlrImpl {
         details: `${Math.round(ecoModePercentage)}% eco mode usage`,
       });
 
-      const formattedIdleTime = this.formatDuration(
+      const formattedIdleTime = formatEpochToDuration(
         averageIdleTimePerTrip * 60 * 1000
       );
       drillDown.idle_time.dailydata.push({
@@ -1604,7 +1570,7 @@ export default class TripsinsighthdlrImpl {
 
     // 3. Idle Time Insight
     const isIdleTimeHigh = averageIdleTimePerTrip > IDLE_TIME_THRESHOLD;
-    const formattedIdleTime = this.formatDuration(
+    const formattedIdleTime = formatEpochToDuration(
       averageIdleTimePerTrip * 60 * 1000
     );
     insights.push({
@@ -1931,21 +1897,5 @@ export default class TripsinsighthdlrImpl {
     return DateTime.fromJSDate(date, { zone: "utc" })
       .setZone("Asia/Kolkata")
       .toFormat("dd LLL yyyy");
-  };
-
-  formatTime = (milliseconds) => {
-    if (!milliseconds || milliseconds <= 0) {
-      return "0 min";
-    }
-
-    const totalSeconds = Math.floor(milliseconds / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    } else {
-      return `${minutes} min`;
-    }
   };
 }

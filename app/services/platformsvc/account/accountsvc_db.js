@@ -7,7 +7,6 @@ import {
   getInviteEmailTemplate,
 } from "../../../utils/inviteUtil.js";
 const ADMIN_ROLEID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-const LITE_PACKAGE_ID = "6e23068e-181c-42d4-81b6-6a0eac1dd98e";
 
 const ACCOUNT_VEHICLE_SUBSCRIPTION_STATE = {
   PENDING: 0,
@@ -34,10 +33,30 @@ const VEHICLE_ACTION = {
   REMOVED: "REMOVED",
 };
 
+const ACCOUNT_CREATION_CREDITS = 1000;
+
 export default class AccountSvcDB {
   constructor(pgPoolI, logger) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
+  }
+
+  async getLitePackageId(txclient) {
+    try {
+      let query = `
+        SELECT pkgid FROM package 
+        WHERE LOWER(pkgname) = 'lite' 
+        AND pkgtype = 'standard' 
+        AND isenabled = true
+      `;
+      let result = await txclient.query(query);
+      if (result.rowCount !== 1) {
+        throw new Error("Lite package not found or multiple packages found");
+      }
+      return result.rows[0].pkgid;
+    } catch (error) {
+      throw new Error(`Failed to get Lite package ID: ${error.message}`);
+    }
   }
 
   async getUserName(userid) {
@@ -87,6 +106,7 @@ export default class AccountSvcDB {
         currtime,
         account.createdby,
       ]);
+
       if (result.rowCount !== 1) {
         throw new Error("Failed to create account");
       }
@@ -147,7 +167,7 @@ export default class AccountSvcDB {
         account.accountid,
         rootFleetAdminRoleId,
         rootFleetAdminRoleName,
-        "account",
+        account.accounttype === "platform" ? "platform" : "account",
         true,
         currtime,
         account.createdby,
@@ -175,21 +195,32 @@ export default class AccountSvcDB {
         throw new Error("Failed to add admin role perm");
       }
 
-      // add 0 credits to account
+      // add 1000 credits to account
       query = `
-                INSERT INTO account_credits (accountid, useablecredits, lockedcredits) VALUES ($1, $2, $3)
+                INSERT INTO account_credits (accountid, credits) VALUES ($1, $2) RETURNING credits
             `;
-      result = await txclient.query(query, [account.accountid, 0, 0]);
+      result = await txclient.query(query, [
+        account.accountid,
+        ACCOUNT_CREATION_CREDITS,
+      ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add credits to account");
       }
 
+      const qcredits = result.rows[0].credits;
+
       query = `
-                INSERT INTO account_credits_history (accountid, updatedat, useablecredits, lockedcredits, comment, updatedby) VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO account_credits_history (accountid, targetdate, updatedat, deltacredits, closingcredits, pkginfo, txninfo, totalvehicles, subscribedvehicles, connectedvehicles, comment, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             `;
       result = await txclient.query(query, [
         account.accountid,
         currtime,
+        currtime,
+        ACCOUNT_CREATION_CREDITS,
+        qcredits,
+        {},
+        {},
+        0,
         0,
         0,
         "Account Created",
@@ -201,19 +232,21 @@ export default class AccountSvcDB {
 
       // Create subscription for lite package
       const endDate = new Date();
-      endDate.setFullYear(endDate.getFullYear() + 10); // setting enddate to 10 years from now
+      endDate.setFullYear(endDate.getFullYear() + 5);
 
       const liteSubscriptionInfo = {
         startdate: currtime.toISOString(),
         enddate: endDate.toISOString(),
       };
 
+      const litePackageId = await this.getLitePackageId(txclient);
+
       query = `
                 INSERT INTO account_package_subscription (accountid, pkgid, subscriptioninfo, createdat, createdby) VALUES ($1, $2, $3, $4, $5)
             `;
       result = await txclient.query(query, [
         account.accountid,
-        LITE_PACKAGE_ID,
+        litePackageId,
         liteSubscriptionInfo,
         currtime,
         account.createdby,
@@ -228,7 +261,7 @@ export default class AccountSvcDB {
             `;
       result = await txclient.query(query, [
         account.accountid,
-        LITE_PACKAGE_ID,
+        litePackageId,
         liteSubscriptionInfo,
         currtime,
         account.createdby,
@@ -356,10 +389,23 @@ export default class AccountSvcDB {
         );
       }
 
+      const timestamp = Date.now();
+      const deletedaccountName = `Deleted_Account_${timestamp}`;
+
       query = `
-        UPDATE account SET isdeleted = true, updatedat = $1, updatedby = $2 WHERE accountid = $3
+        UPDATE account SET 
+          isdeleted = true, 
+          accountname = $1,
+          updatedat = $2, 
+          updatedby = $3 
+        WHERE accountid = $4
       `;
-      result = await txclient.query(query, [currtime, deletedby, accountid]);
+      result = await txclient.query(query, [
+        deletedaccountName,
+        currtime,
+        deletedby,
+        accountid,
+      ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete account");
       }
@@ -382,6 +428,25 @@ export default class AccountSvcDB {
       }
       throw e;
     }
+  }
+
+  async getAccountVehicleCount(accountid) {
+    let query = `
+      SELECT COUNT(*) as vehicle_count FROM fleet_vehicle WHERE accountid = $1
+    `;
+    let result = await this.pgPoolI.Query(query, [accountid]);
+    return parseInt(result.rows[0].vehicle_count);
+  }
+
+  async getAccountInfo(accountid) {
+    let query = `
+        SELECT accountid, accountname, isdeleted FROM account WHERE accountid = $1 AND isdeleted = false
+      `;
+    let result = await this.pgPoolI.Query(query, [accountid]);
+    if (result.rowCount !== 1) {
+      return null;
+    }
+    return result.rows[0];
   }
 
   async triggerEmailInviteToRootFleet(
@@ -425,10 +490,10 @@ export default class AccountSvcDB {
         throw new Error("Email already invited to fleet with same role");
       }
 
+      // Check for existing pending invites for this email and role combinations
       query = `
-                    SELECT fip.inviteid, fip.invitestatus, fip.info, fie.expiresat FROM fleet_invite_email fie 
-                    JOIN fleet_invite_pending fip ON fie.accountid = fip.accountid AND fie.fleetid = fip.fleetid AND fie.inviteid = fip.inviteid
-                    WHERE fie.accountid = $1 AND fie.fleetid = $2 AND fie.email = $3 AND fip.invitetype = $4 and (fip.invitestatus = $5 or fip.invitestatus = $6)
+                    SELECT inviteid, invitestatus, roleid, expiresat FROM fleet_invite_pending 
+                    WHERE accountid = $1 AND fleetid = $2 AND contact = $3 AND invitetype = $4 AND invitestatus = $5 AND roleid = ANY($6)
                 `;
       result = await txclient.query(query, [
         accountid,
@@ -436,14 +501,14 @@ export default class AccountSvcDB {
         email,
         FLEET_INVITE_TYPE.EMAIL,
         FLEET_INVITE_STATUS.PENDING,
-        FLEET_INVITE_STATUS.PENDING,
+        roleids,
       ]);
 
       if (result?.rows?.length > 0) {
         let inviteToUpdate = null;
 
         for (const row of result.rows) {
-          // mark the invite as expired
+          // mark the invite as expired if it's expired
           if (new Date(row.expiresat) < currtime) {
             this.logger.info(
               `accountsvc_db.triggerEmailInviteToRootFleet: markInviteAsExpired: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${row.inviteid}`
@@ -457,19 +522,8 @@ export default class AccountSvcDB {
               txclient
             );
           } else {
-            // check if invite is for same role
-            // if it is, update the expiry and trigger email again
-            // if not, send fresh invite
-            if (inviteToUpdate) {
-              // we only need to update one invite
-              continue;
-            }
-            let updateExistingInvite = shouldUpdateExistingInvite(
-              row.info.roleids,
-              roleids
-            );
-
-            if (updateExistingInvite) {
+            // if we find a matching role, we can update that invite
+            if (roleids.includes(row.roleid) && !inviteToUpdate) {
               inviteToUpdate = row;
             }
           }
@@ -478,13 +532,13 @@ export default class AccountSvcDB {
         if (inviteToUpdate) {
           // update the expiry and trigger email again and exit
           this.logger.info(
-            `accountsvc_db.triggerEmailInviteToRootFleet: updateInviteExpiry: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteToUpdate.inviteid}, info: ${inviteToUpdate.info}, currtime: ${currtime}`
+            `accountsvc_db.triggerEmailInviteToRootFleet: updateInviteExpiry: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteToUpdate.inviteid}, roleid: ${inviteToUpdate.roleid}, currtime: ${currtime}`
           );
           let res = await updateInviteExpiryAndSendEmail(
             accountid,
             fleetid,
             inviteToUpdate.inviteid,
-            inviteToUpdate.info,
+            { email: email, roleid: inviteToUpdate.roleid },
             currtime,
             headerReferer,
             email,
@@ -510,47 +564,30 @@ export default class AccountSvcDB {
       );
 
       let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
-      query = `
-                    INSERT INTO fleet_invite_email (accountid, fleetid, inviteid, email, expiresat) VALUES ($1, $2, $3, $4, $5)
-                `;
-      result = await txclient.query(query, [
-        accountid,
-        fleetid,
-        inviteid,
-        email,
-        expiresat,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create invite email");
-      }
 
-      query = `
-                    INSERT INTO fleet_invite_pending (accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby) 
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                `;
-      let invitemeta = {
-        accountid: accountid,
-        fleetid: fleetid,
-        inviteid: inviteid,
-        email: email,
-        expiresat: expiresat,
-        roleids: roleids,
-        invitedby: invitedby,
-      };
-      result = await txclient.query(query, [
-        accountid,
-        fleetid,
-        inviteid,
-        invitemeta,
-        FLEET_INVITE_TYPE.EMAIL,
-        FLEET_INVITE_STATUS.PENDING,
-        currtime,
-        invitedby,
-        currtime,
-        invitedby,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create invite email");
+      // Insert invites for each role (since new schema stores one role per row)
+      for (const roleid of roleids) {
+        query = `
+                      INSERT INTO fleet_invite_pending (inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby) 
+                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                  `;
+        result = await txclient.query(query, [
+          inviteid,
+          accountid,
+          fleetid,
+          email,
+          roleid,
+          FLEET_INVITE_TYPE.EMAIL,
+          FLEET_INVITE_STATUS.PENDING,
+          expiresat,
+          currtime,
+          invitedby,
+          currtime,
+          invitedby,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create invite pending record");
+        }
       }
 
       query = `
@@ -730,38 +767,30 @@ export default class AccountSvcDB {
       }
 
       // Add record to fleet_invite_done table since we directly added the user
-      let invitemeta = {
-        accountid: accountid,
-        fleetid: fleetid,
-        inviteid: inviteid,
-        mobile: mobile,
-        roleids: roleids,
-        invitedby: invitedby,
-        userid: existingUser,
-      };
-
-      query = `
-        INSERT INTO fleet_invite_done (
-          accountid, fleetid, inviteid, info, invitetype, 
-          invitestatus, isexternal, createdat, createdby, 
-          updatedat, updatedby
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      `;
-      result = await txclient.query(query, [
-        accountid,
-        fleetid,
-        inviteid,
-        invitemeta,
-        FLEET_INVITE_TYPE.MOBILE,
-        FLEET_INVITE_STATUS.ACCEPTED,
-        false,
-        currtime,
-        invitedby,
-        currtime,
-        invitedby,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create invite done record");
+      for (const roleid of roleids) {
+        query = `
+          INSERT INTO fleet_invite_done (
+            inviteid, accountid, fleetid, contact, roleid, invitetype, 
+            invitestatus, createdat, createdby, updatedat, updatedby, inviteduserid
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        `;
+        result = await txclient.query(query, [
+          inviteid,
+          accountid,
+          fleetid,
+          mobile,
+          roleid,
+          FLEET_INVITE_TYPE.MOBILE,
+          FLEET_INVITE_STATUS.ACCEPTED,
+          currtime,
+          invitedby,
+          currtime,
+          invitedby,
+          existingUser,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create invite done record");
+        }
       }
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -794,40 +823,25 @@ export default class AccountSvcDB {
     try {
       // check if inviteid is valid
       let query = `
-                    SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+                    SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
                 `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
-        throw new Error("Invalid invite id");
+        throw new Error("INVALID_INVITE_ID");
       }
 
       let invite = result.rows[0];
 
       if (invite.invitestatus !== FLEET_INVITE_STATUS.PENDING) {
-        throw new Error("Invite is not in sent state");
+        throw new Error("INVITE_IS_NOT_IN_SENT_STATE");
       }
 
       // TODO: temporary condition
       if (invite.invitetype !== FLEET_INVITE_TYPE.EMAIL) {
-        throw new Error("Invite is not an email invite");
+        throw new Error("INVITE_IS_NOT_AN_EMAIL_INVITE");
       }
 
-      query = `
-                    SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-                `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Invite email not found");
-      }
-
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(invite.expiresat) < currtime) {
         this.logger.info(
           `accountsvc_db.resendInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${inviteid}`
         );
@@ -839,19 +853,20 @@ export default class AccountSvcDB {
           FLEET_INVITE_STATUS.EXPIRED,
           txclient
         );
-        throw new Error("Cannot resend an expired invite");
+        throw new Error("CANNOT_RESEND_AN_EXPIRED_INVITE");
       }
 
       let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+      // Update expiry in fleet_invite_pending
       query = `
-                    UPDATE fleet_invite_email SET expiresat = $1 WHERE accountid = $2 AND fleetid = $3 AND inviteid = $4 AND email = $5
+                    UPDATE fleet_invite_pending SET expiresat = $1, updatedat = $2, updatedby = $3 WHERE inviteid = $4
                 `;
       result = await txclient.query(query, [
         expiresat,
-        invite.accountid,
-        invite.fleetid,
+        currtime,
+        invitedby,
         inviteid,
-        inviteemail,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update invite expiry");
@@ -884,7 +899,7 @@ export default class AccountSvcDB {
         accountname,
         fleetname,
         headerReferer,
-        inviteemail
+        invite.contact
       );
 
       query = `
@@ -904,7 +919,7 @@ export default class AccountSvcDB {
         inviteid: inviteid,
         accountid: invite.accountid,
         fleetid: invite.fleetid,
-        email: inviteemail,
+        email: invite.contact,
         expiresat: expiresat,
       };
     } catch (e) {
@@ -1142,8 +1157,6 @@ export default class AccountSvcDB {
   }
 
   async addAdminToAccRootFleet(accountid, contact, updatedby) {
-    let currtime = new Date();
-
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
@@ -1174,28 +1187,38 @@ export default class AccountSvcDB {
       const userid = result.rows[0].userid;
 
       query = `
-                SELECT fleetid FROM account_fleet WHERE accountid = $1 AND isroot = true
-            `;
+        SELECT userid FROM user_fleet WHERE userid = $1 AND accountid = $2
+      `;
+      result = await txclient.query(query, [userid, accountid]);
+      if (result.rowCount > 0) {
+        throw {
+          errcode: "USER_ALREADY_IN_ACCOUNT",
+          message: "User is already part of this account",
+        };
+      }
+
+      query = `
+        SELECT fleetid FROM account_fleet WHERE accountid = $1 AND isroot = true
+      `;
       result = await txclient.query(query, [accountid]);
       if (result.rowCount !== 1) {
         throw new Error("Account root fleet not found");
       }
 
       const fleetid = result.rows[0].fleetid;
-
       const roleid = ADMIN_ROLEID;
 
       query = `
-                INSERT INTO user_fleet (userid, accountid, fleetid) VALUES ($1, $2, $3)
-            `;
+        INSERT INTO user_fleet (userid, accountid, fleetid) VALUES ($1, $2, $3)
+      `;
       result = await txclient.query(query, [userid, accountid, fleetid]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add user to account");
       }
 
       query = `
-                INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
-            `;
+        INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
+      `;
       result = await txclient.query(query, [
         accountid,
         fleetid,
@@ -1376,85 +1399,12 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAccountCredits(accountid) {
-    try {
-      let query = `
-            SELECT useablecredits, lockedcredits FROM account_credits WHERE accountid = $1
-        `;
-      let result = await this.pgPoolI.Query(query, [accountid]);
-      if (result.rowCount !== 1) {
-        throw new Error("Account credits not found");
-      }
-      return result.rows[0];
-    } catch (error) {
-      throw new Error("Failed to get account credits");
-    }
-  }
-
-  /**
-   *
-   * @param {*} accountid
-   * @param {*} credits - can be positive or negative
-   * @param {*} updatedby
-   * @returns
-   */
-  async updateAccountCredits(accountid, credits, updatedby) {
-    let currtime = new Date();
-
-    let [txclient, err] = await this.pgPoolI.StartTransaction();
-    if (err) {
-      throw err;
-    }
-
-    try {
-      let query = `
-                UPDATE account_credits SET useablecredits = useablecredits + $1 WHERE accountid = $2 RETURNING useablecredits, lockedcredits
-            `;
-      let result = await txclient.query(query, [credits, accountid]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to increment account credits");
-      }
-      let updateduseablecredits = result.rows[0].useablecredits;
-      let updatedlockedcredits = result.rows[0].lockedcredits;
-
-      query = `
-                INSERT INTO account_credits_history (accountid, updatedat, useablecredits, lockedcredits, comment, updatedby) VALUES ($1, $2, $3, $4, $5, $6)
-            `;
-      result = await txclient.query(query, [
-        accountid,
-        currtime,
-        updateduseablecredits,
-        updatedlockedcredits,
-        "Credits added",
-        updatedby,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create account credits history");
-      }
-
-      let commiterr = await this.pgPoolI.TxCommit(txclient);
-      if (commiterr) {
-        throw commiterr;
-      }
-      return {
-        useablecredits: updateduseablecredits,
-        lockedcredits: updatedlockedcredits,
-      };
-    } catch (e) {
-      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
-      if (rollbackerr) {
-        throw rollbackerr;
-      }
-      throw e;
-    }
-  }
-
-  async getAccountCreditsHistory(accountid) {
+  async isVehicleInAccount(accountid, vinno) {
     let query = `
-            SELECT useablecredits, lockedcredits, comment, updatedat, updatedby FROM account_credits_history WHERE accountid = $1
-        `;
-    let result = await this.pgPoolI.Query(query, [accountid]);
-    return result.rows;
+      SELECT vinno FROM fleet_vehicle WHERE accountid = $1 AND vinno = $2
+    `;
+    let result = await this.pgPoolI.Query(query, [accountid, vinno]);
+    return result.rowCount !== 0;
   }
 
   // TODO: whether subscribed or not info
@@ -1462,12 +1412,14 @@ export default class AccountSvcDB {
     try {
       let query = `
             SELECT fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, v.vehiclevariant, v.vehiclemodel, v.modelcode, v.vehicleinfo, 
-            fv.assignedat, fv.assignedby, fv.updatedat, fv.updatedby, avs.startsat as subscriptionstartsat, avs.endsat as subscriptionendsat, avs.subscriptioninfo, 
+            fv.assignedat, COALESCE(uab.displayname, 'Unknown User') as assignedby, fv.updatedat, COALESCE(uub.displayname, 'Unknown User') as updatedby, avs.startsat as subscriptionstartsat, avs.endsat as subscriptionendsat, avs.subscriptioninfo, 
             avs.state as subscriptionstate, avs.createdat as subscriptioncreatedat, avs.createdby as subscriptioncreatedby, 
             avs.updatedat as subscriptionupdatedat, avs.updatedby as subscriptionupdatedby
             FROM fleet_vehicle fv 
             JOIN vehicle v ON fv.vinno = v.vinno
             LEFT JOIN account_vehicle_subscription avs ON fv.accountid = avs.accountid AND fv.vinno = avs.vinno
+            LEFT JOIN users uab ON fv.assignedby = uab.userid
+            LEFT JOIN users uub ON fv.updatedby = uub.userid
             WHERE fv.accountid = $1
         `;
       let result = await this.pgPoolI.Query(query, [accountid]);
@@ -1538,13 +1490,13 @@ export default class AccountSvcDB {
 
       // get account credits
       query = `
-                SELECT useablecredits FROM account_credits WHERE accountid = $1
+                SELECT credits FROM account_credits WHERE accountid = $1
             `;
       result = await txclient.query(query, [accountid]);
       if (result.rowCount !== 1) {
         throw new Error("Account credits not found");
       }
-      const useablecredits = result.rows[0].useablecredits;
+      const useablecredits = result.rows[0].credits;
 
       if (useablecredits < creditsrequired) {
         throw new Error("Insufficient credits");
@@ -1638,50 +1590,6 @@ export default class AccountSvcDB {
         throw new Error("Vehicle subscription is not enabled");
       }
 
-      // get active subscription info
-      query = `
-                SELECT pkgid, subscriptioninfo FROM account_package_subscription WHERE accountid = $1
-            `;
-      result = await txclient.query(query, [accountid]);
-      if (result.rowCount !== 1) {
-        throw new Error("Account subscription not found");
-      }
-      const activepkgid = result.rows[0].pkgid;
-      const activepkginfo = result.rows[0].subscriptioninfo;
-
-      // check if credits are enough to have subscription for all vehicles till end of the month
-      query = `
-                SELECT sum(m.creditspervehicleday) as pkgcost FROM package p
-                JOIN package_module pm ON p.pkgid = pm.pkgid
-                JOIN module m ON pm.moduleid = m.moduleid
-                WHERE p.pkgid = $1 AND m.isenabled = true AND p.isenabled = true
-            `;
-      result = await txclient.query(query, [activepkgid]);
-      if (result.rowCount !== 1) {
-        throw new Error("Package not found");
-      }
-      const pkgcost = result.rows[0].pkgcost;
-
-      let remainingdays =
-        new Date(
-          new Date().getFullYear(),
-          new Date().getMonth() + 1,
-          0
-        ).getDate() - new Date().getDate();
-      let creditsrequired = remainingdays * pkgcost;
-
-      // get account credits
-      query = `
-                SELECT useablecredits FROM account_credits WHERE accountid = $1
-            `;
-      result = await txclient.query(query, [accountid]);
-      if (result.rowCount !== 1) {
-        throw new Error("Account credits not found");
-      }
-      const useablecredits = result.rows[0].useablecredits;
-
-      const creditstolock = Math.min(creditsrequired, useablecredits);
-
       query = `
                 UPDATE account_vehicle_subscription SET state = $1, updatedat = $2, updatedby = $3 WHERE accountid = $4 AND vinno = $5
                 RETURNING startsat, endsat, subscriptioninfo, state, createdat, createdby
@@ -1726,42 +1634,11 @@ export default class AccountSvcDB {
         );
       }
 
-      // update account credits
-      query = `
-                UPDATE account_credits SET useablecredits = useablecredits - $1, lockedcredits = lockedcredits + $2 WHERE accountid = $3
-                RETURNING useablecredits, lockedcredits
-            `;
-      result = await txclient.query(query, [
-        creditstolock,
-        creditstolock,
-        accountid,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to update account credits");
-      }
-      const quseablecredits = result.rows[0].useablecredits;
-      const qlockedcredits = result.rows[0].lockedcredits;
-
-      query = `
-                INSERT INTO account_credits_history (accountid, updatedat, useablecredits, lockedcredits, comment, updatedby) VALUES ($1, $2, $3, $4, $5, $6)
-            `;
-      result = await txclient.query(query, [
-        accountid,
-        currtime,
-        quseablecredits,
-        qlockedcredits,
-        "Unsubscribed vehicle: " + vinno,
-        updatedby,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create account credits history");
-      }
-
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
       }
-      return { useablecredits: quseablecredits, lockedcredits: qlockedcredits };
+      return true;
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
       if (rollbackerr) {
@@ -1787,6 +1664,7 @@ export default class AccountSvcDB {
 
       // check if newpkgid is different from current pkgid
       if (newpkgid === currentpkgid) {
+        await this.pgPoolI.TxRollback(txclient);
         return {
           isvalid: false,
           msg: "New package id is the same as current package id",
@@ -1817,7 +1695,7 @@ export default class AccountSvcDB {
       }
 
       if (!iscustompkg && !isdefaultpkg) {
-        throw new Error("Invalid package id");
+        throw new Error("INVALID_PACKAGE_ID");
       }
 
       // get number of vehicles currently subscribed
@@ -1839,7 +1717,7 @@ export default class AccountSvcDB {
 
       result = await txclient.query(query, [newpkgid]);
       if (result.rowCount !== 1) {
-        throw new Error("New package not found");
+        throw new Error("PACKAGE_NOT_FOUND");
       }
 
       let newpkgcost = 0;
@@ -1868,13 +1746,13 @@ export default class AccountSvcDB {
 
       // get account credits
       query = `
-            SELECT useablecredits FROM account_credits WHERE accountid = $1
+            SELECT credits FROM account_credits WHERE accountid = $1
           `;
       result = await txclient.query(query, [accountid]);
       if (result.rowCount !== 1) {
-        throw new Error("Account credits not found");
+        throw new Error("ACCOUNT_CREDITS_NOT_FOUND");
       }
-      const useablecredits = Number(result.rows[0].useablecredits);
+      const useablecredits = Number(result.rows[0].credits);
 
       const availableDays = Math.floor(
         useablecredits / (numvehicles * newpkgcost)
@@ -2087,13 +1965,19 @@ export default class AccountSvcDB {
 
         // check if newpkgid is different from current pkgid
         if (newpkgid === currentpkgid) {
-          throw new Error("New package id is the same as current package id");
+          throw {
+            errcode: "SAME_PACKAGE_ID",
+            message: `New package id is the same as current package id: ${newpkgid}`,
+          };
         }
       } else if (result.rowCount === 0) {
         // No existing subscription - this will be a fresh subscription
         hasExistingSubscription = false;
       } else {
-        throw new Error("Multiple subscriptions found for account");
+        throw {
+          errcode: "MULTIPLE_SUBSCRIPTIONS_FOUND",
+          message: `Multiple subscriptions found for account: ${accountid}`,
+        };
       }
 
       // check if pkgid is valid custom package
@@ -2120,7 +2004,10 @@ export default class AccountSvcDB {
       }
 
       if (!iscustompkg && !isdefaultpkg) {
-        throw new Error("Invalid package id");
+        throw {
+          errcode: "INVALID_PACKAGE_ID",
+          message: `Invalid package id: ${newpkgid}`,
+        };
       }
 
       // get number of vehicles currently subscribed
@@ -2143,7 +2030,10 @@ export default class AccountSvcDB {
             `;
       result = await txclient.query(query, [newpkgid]);
       if (result.rowCount !== 1) {
-        throw new Error("Package not found");
+        throw {
+          errcode: "PACKAGE_NOT_FOUND",
+          message: `Package not found: ${newpkgid}`,
+        };
       }
       const newpkgcost = result.rows[0].pkgcost;
 
@@ -2158,20 +2048,47 @@ export default class AccountSvcDB {
 
       // get account credits
       query = `
-                SELECT useablecredits FROM account_credits WHERE accountid = $1
+                SELECT credits FROM account_credits WHERE accountid = $1
             `;
       result = await txclient.query(query, [accountid]);
       if (result.rowCount !== 1) {
-        throw new Error("Account credits not found");
+        throw {
+          errcode: "NO_ACCOUNT_CREDITS",
+          message: `No account credits found: ${accountid}`,
+        };
       }
-      const useablecredits = result.rows[0].useablecredits;
+      const useablecredits = result.rows[0].credits;
 
       if (useablecredits < creditsrequired) {
-        throw new Error("Insufficient credits");
+        throw {
+          errcode: "INSUFFICIENT_CREDITS",
+          message: `Insufficient credits: ${useablecredits} < ${creditsrequired}`,
+        };
       }
 
       // create or update subscription based on whether one exists
       if (hasExistingSubscription) {
+        let updatedCurrentSubscriptionInfo = {
+          ...currentpkginfo,
+          enddate: subscriptioninfo.startdate,
+        };
+
+        query = `
+                UPDATE account_package_subscription_history 
+                SET subscriptioninfo = $1
+                WHERE accountid = $2 AND pkgid = $3 
+                AND createdat = (
+                    SELECT MAX(createdat) 
+                    FROM account_package_subscription_history 
+                    WHERE accountid = $2 AND pkgid = $3
+                )
+            `;
+        result = await txclient.query(query, [
+          updatedCurrentSubscriptionInfo,
+          accountid,
+          currentpkgid,
+        ]);
+
         // update existing subscription
         query = `
                   UPDATE account_package_subscription SET pkgid = $1, subscriptioninfo = $2, createdat = $3, createdby = $4 WHERE accountid = $5
@@ -2184,7 +2101,10 @@ export default class AccountSvcDB {
           accountid,
         ]);
         if (result.rowCount !== 1) {
-          throw new Error("Failed to update subscription");
+          throw {
+            errcode: "FAILED_TO_UPDATE_SUBSCRIPTION",
+            message: `Failed to update subscription: ${newpkgid}`,
+          };
         }
       } else {
         // create new subscription
@@ -2199,7 +2119,10 @@ export default class AccountSvcDB {
           updatedby,
         ]);
         if (result.rowCount !== 1) {
-          throw new Error("Failed to create subscription");
+          throw {
+            errcode: "FAILED_TO_CREATE_SUBSCRIPTION",
+            message: `Failed to create subscription: ${newpkgid}`,
+          };
         }
       }
 
@@ -2215,7 +2138,10 @@ export default class AccountSvcDB {
         updatedby,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to create subscription history");
+        throw {
+          errcode: "FAILED_TO_CREATE_SUBSCRIPTION_HISTORY",
+          message: `Failed to create subscription history: ${newpkgid}`,
+        };
       }
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -2238,12 +2164,15 @@ export default class AccountSvcDB {
             SELECT apsh.pkgid, p.pkgname, apsh.subscriptioninfo, apsh.createdat, u.displayname as createdby FROM account_package_subscription_history apsh
             JOIN package p ON apsh.pkgid = p.pkgid
             JOIN users u ON apsh.createdby = u.userid
-            WHERE apsh.accountid = $1
+            WHERE apsh.accountid = $1 ORDER BY apsh.createdat DESC
         `;
       let result = await this.pgPoolI.Query(query, [accountid]);
       return result.rows;
     } catch (error) {
-      throw new Error("Unable to retrieve subscription history");
+      throw {
+        errcode: "FAILED_TO_RETRIEVE_SUBSCRIPTION_HISTORY",
+        message: `Unable to retrieve subscription history: ${accountid}`,
+      };
     }
   }
 
@@ -2353,31 +2282,41 @@ export default class AccountSvcDB {
         throw new Error("Vehicle not found");
       }
 
-      // check if vehicle belongs to this account
       query = `
-            SELECT accountid, fleetid FROM fleet_vehicle WHERE vinno = $1
+            SELECT accountid, fleetid, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby 
+            FROM fleet_vehicle WHERE vinno = $1
         `;
       result = await txclient.query(query, [vinno]);
       if (result.rowCount === 0) {
         throw new Error("Vehicle not found in fleet");
       }
 
-      if (result.rows[0].accountid !== accountid) {
+      const vehicleData = result.rows[0];
+      if (vehicleData.accountid !== accountid) {
         throw new Error("Vehicle does not belong to this account");
       }
 
-      // update fleet_vehicle_history
       query = `
-            UPDATE fleet_vehicle_history SET updatedat = $1, updatedby = $2, isowner = false, action = $3 WHERE vinno = $4 and accountid = $5
+            INSERT INTO fleet_vehicle_history (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby, action) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         `;
       result = await txclient.query(query, [
+        vehicleData.accountid,
+        vehicleData.fleetid,
+        vinno,
+        vehicleData.isowner,
+        vehicleData.accvininfo,
+        vehicleData.assignedat,
+        vehicleData.assignedby,
         currtime,
         removedby,
         VEHICLE_ACTION.REMOVED,
-        vinno,
-        accountid,
       ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to create vehicle history record");
+      }
 
+      // Delete from fleet_vehicle
       query = `
             DELETE FROM fleet_vehicle WHERE vinno = $1 and accountid = $2
         `;
@@ -2416,6 +2355,250 @@ export default class AccountSvcDB {
       return result.rows;
     } catch (error) {
       throw new Error("Failed to fetch assignable vehicles");
+    }
+  }
+
+  async getVehicleFleetInfo(vinno) {
+    try {
+      let query = `SELECT accountid, fleetid FROM fleet_vehicle WHERE vinno = $1`;
+      let result = await this.pgPoolI.Query(query, [vinno]);
+      return result.rowCount > 0 ? result.rows[0] : null;
+    } catch (error) {
+      throw new Error("Failed to get vehicle fleet info");
+    }
+  }
+
+  async listPendingAccounts() {
+    try {
+      let query = `
+        SELECT 
+          rpa.accountid, 
+          rpa.accountname, 
+          rpa.accounttype, 
+          rpa.accountinfo, 
+          rpa.mobile, 
+          rpa.isenabled, 
+          rpa.isdeleted, 
+          rpa.original_input,
+          rpa.error_status,
+          rpa.status, 
+          rpa.reason, 
+          rpa.review_data, 
+          rpa.createdat, 
+          u1.displayname as createdby, 
+          rpa.updatedat, 
+          u2.displayname as updatedby
+        FROM reviewpendingaccount rpa
+        JOIN users u1 ON rpa.createdby = u1.userid
+        JOIN users u2 ON rpa.updatedby = u2.userid
+        ORDER BY rpa.createdat DESC
+      `;
+      let result = await this.pgPoolI.Query(query);
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to list pending accounts: ${error.message}`);
+    }
+  }
+
+  async listDoneAccounts() {
+    try {
+      let query = `
+        SELECT 
+          rda.accountid, 
+          rda.accountname, 
+          rda.accounttype, 
+          rda.accountinfo, 
+          rda.mobile, 
+          rda.isenabled, 
+          rda.isdeleted, 
+          rda.original_input,
+          rda.original_status as status, 
+          rda.resolution_reason as reason, 
+          jsonb_set(
+            jsonb_set(
+              rda.review_data, 
+              '{createdby}', 
+              to_jsonb(u4.displayname)
+            ),
+            '{updatedby}',
+            to_jsonb(u5.displayname)
+          ) as review_data,
+          rda.reviewed_at, 
+          u1.displayname as reviewed_by, 
+          rda.createdat, 
+          u2.displayname as createdby, 
+          rda.updatedat, 
+          u3.displayname as updatedby
+        FROM reviewdoneaccount rda
+        JOIN users u1 ON rda.reviewed_by = u1.userid
+        JOIN users u2 ON rda.createdby = u2.userid
+        JOIN users u3 ON rda.updatedby = u3.userid
+        LEFT JOIN users u4 ON (rda.review_data->>'createdby')::uuid = u4.userid
+        LEFT JOIN users u5 ON (rda.review_data->>'updatedby')::uuid = u5.userid
+        ORDER BY rda.reviewed_at DESC
+      `;
+      let result = await this.pgPoolI.Query(query);
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to list done accounts: ${error.message}`);
+    }
+  }
+
+  async addReviewDoneAccount(accountData) {
+    try {
+      const currtime = new Date();
+
+      const query = `
+        INSERT INTO reviewdoneaccount (
+          accountid,
+          accountname,
+          accounttype,
+          accountinfo,
+          mobile,
+          isenabled,
+          isdeleted,
+          original_input,
+          original_status,
+          resolution_reason,
+          review_data,
+          reviewed_at,
+          reviewed_by,
+          createdat,
+          createdby,
+          updatedat,
+          updatedby
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+        )
+      `;
+
+      const values = [
+        accountData.accountid,
+        accountData.accountname,
+        accountData.accounttype,
+        accountData.accountinfo || {},
+        accountData.mobile || "0000000000",
+        accountData.isenabled,
+        accountData.isdeleted || false,
+        accountData.original_input || {},
+        accountData.original_status || "APPROVED",
+        accountData.resolution_reason || "Account created successfully",
+        accountData.review_data || {},
+        currtime, // reviewed_at
+        accountData.reviewed_by,
+        currtime, // createdat
+        accountData.createdby,
+        currtime, // updatedat
+        accountData.updatedby,
+      ];
+
+      const result = await this.pgPoolI.Query(query, values);
+
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to insert review done account");
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`addReviewDoneAccount error: ${error}`);
+      throw new Error("Unable to add review done account");
+    }
+  }
+
+  async addReviewPendingAccount(accountData) {
+    try {
+      const currtime = new Date();
+
+      const query = `
+        INSERT INTO reviewpendingaccount (
+          accountid,
+          accountname,
+          accounttype,
+          accountinfo,
+          mobile,
+          isenabled,
+          isdeleted,
+          original_input,
+          error_status,
+          status,
+          reason,
+          review_data,
+          createdat,
+          createdby,
+          updatedat,
+          updatedby
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+        )
+      `;
+
+      const values = [
+        accountData.accountid,
+        accountData.accountname,
+        accountData.accounttype,
+        accountData.accountinfo,
+        accountData.mobile,
+        accountData.isenabled,
+        accountData.isdeleted,
+        accountData.original_input,
+        accountData.error_status,
+        accountData.status,
+        accountData.reason,
+        accountData.review_data,
+        currtime,
+        accountData.createdby,
+        currtime,
+        accountData.updatedby,
+      ];
+
+      const result = await this.pgPoolI.Query(query, values);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in addReviewPendingAccount:", error);
+      throw error;
+    }
+  }
+
+  async getPendingAccountReviewById(accountid) {
+    try {
+      const query = `SELECT * FROM reviewpendingaccount WHERE accountid = $1`;
+      const result = await this.pgPoolI.Query(query, [accountid]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in getPendingAccountReviewById:", error);
+      throw error;
+    }
+  }
+
+  async deletePendingAccountReviewById(accountid) {
+    try {
+      const query = `DELETE FROM reviewpendingaccount WHERE accountid = $1`;
+      const result = await this.pgPoolI.Query(query, [accountid]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in deletePendingAccountReviewById:", error);
+      throw error;
+    }
+  }
+
+  async updateReviewPendingAccount(accountid, updateFields, updatedby) {
+    try {
+      const currtime = new Date();
+      updateFields.updatedat = currtime;
+      updateFields.updatedby = updatedby;
+
+      const setClause = Object.keys(updateFields)
+        .map((key, index) => `${key} = $${index + 1}`)
+        .join(", ");
+
+      const values = [...Object.values(updateFields), accountid];
+      const query = `UPDATE reviewpendingaccount SET ${setClause} WHERE accountid = $${values.length}`;
+
+      const result = await this.pgPoolI.Query(query, values);
+      return result.rowCount > 0; // Return boolean for success/failure
+    } catch (error) {
+      this.logger.error("Error in updateReviewPendingAccount:", error);
+      throw error;
     }
   }
 }

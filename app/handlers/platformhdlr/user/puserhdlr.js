@@ -1,58 +1,137 @@
+import crypto from "crypto";
+import { UAParser } from "ua-parser-js";
 import z from "zod";
+import { UUID_PATTERN } from "../../../utils/constant.js";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
 import {
   APIResponseBadRequest,
+  APIResponseError,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import PUserHdlrImpl from "./puserhdlr_impl.js";
+
+const RATE_LIMIT_PER_HOUR = 3;
 export default class PUserHdlr {
-  constructor(pUserSvcI, userSvcI, fmsAccountSvcI, authSvcI, logger) {
+  constructor(
+    pUserSvcI,
+    userSvcI,
+    accountSvcI,
+    fmsAccountSvcI,
+    authSvcI,
+    platformSvcI,
+    accountHdlr,
+    inMemCacheI,
+    logger
+  ) {
     this.pUserSvcI = pUserSvcI;
     this.userSvcI = userSvcI;
+    this.accountSvcI = accountSvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.authSvcI = authSvcI;
+    this.platformSvcI = platformSvcI;
     this.logger = logger;
     this.pUserHdlrImpl = new PUserHdlrImpl(
       pUserSvcI,
       userSvcI,
+      accountSvcI,
       fmsAccountSvcI,
       authSvcI,
+      platformSvcI,
+      accountHdlr,
       logger
     );
+    this.inMemCacheI = inMemCacheI;
   }
 
+  getDeviceFingerprint = (req) => {
+    const ip =
+      req.headers["x-forwarded-for"] ||
+      req.headers["x-real-ip"] ||
+      req.connection.remoteAddress ||
+      req.socket.remoteAddress ||
+      (req.connection.socket ? req.connection.socket.remoteAddress : null);
+
+    const userAgent = req.headers["user-agent"] || "";
+    const referrer = req.headers["referer"] || "";
+    const parser = new UAParser(userAgent);
+    const ua = parser.getResult();
+    const useragentstr = `${ip}-${JSON.stringify(ua)}-${referrer}`;
+    const deviceFingerprint = crypto
+      .createHash("sha256")
+      .update(useragentstr)
+      .digest("hex");
+
+    return deviceFingerprint;
+  };
+
+  getPlatformInviteFingerprint = (req, contact, roleids) => {
+    const deviceFingerprint = this.getDeviceFingerprint(req);
+    const platformAccountId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+    const sortedRoleIds = roleids.sort().join(",");
+    const inviteSpecificData = `${deviceFingerprint}-${platformAccountId}-${contact}-${sortedRoleIds}`;
+    const inviteFingerprint = crypto
+      .createHash("sha256")
+      .update(inviteSpecificData)
+      .digest("hex");
+
+    return inviteFingerprint;
+  };
+
   RegisterRoutes(router) {
-    // router.post("/", this.CreateUser); // TODO: deprecated
-    // router.post("/:userid", this.UpdateUser);
-    // platform/user/
     router.get("/list", this.ListUsers);
     router.post("/invite", this.InvitePlatformUser);
     router.get("/invites", this.ListPlatformInvites);
     router.post("/invite/resend", this.ResendPlatformInvite);
     router.post("/invite/cancel", this.CancelPlatformInvite);
-    router.get("/:userid", this.GetUser);
-    router.post("/:userid/enable", this.EnableUser);
-    router.post("/:userid/disable", this.DisableUser);
-    router.get("/:userid/accounts", this.ListUserAccounts);
-    router.get("/:userid/roles", this.ListUserRoles);
-    router.post("/:userid/role", this.AddUserPlatformRole);
-    router.delete("/:userid/role/:roleid", this.RemoveUserPlatformRole);
+    router.get(`/:userid(${UUID_PATTERN})`, this.GetUser);
+    router.post(`/:userid(${UUID_PATTERN})/enable`, this.EnableUser);
+    router.post(`/:userid(${UUID_PATTERN})/disable`, this.DisableUser);
+    router.get(`/:userid(${UUID_PATTERN})/accounts`, this.ListUserAccounts);
+    router.get(
+      `/:userid(${UUID_PATTERN})/assignableroles`,
+      this.ListAssignableUserRoles
+    );
+    router.post(`/:userid(${UUID_PATTERN})/role`, this.AddUserPlatformRole);
+    router.delete(
+      `/:userid(${UUID_PATTERN})/role/:roleid`,
+      this.RemoveUserPlatformRole
+    );
 
     router.post("/createadmin", this.CreateSuperAdmin);
     router.post("/createuser", this.CreateUserByPlatformAdmin);
-
     router.post("/account/adduser", this.AddUserToAccount);
     router.delete(
       "/account/:accountid/user/:contact",
       this.RemoveUserFromAccount
     );
-    router.delete("/:userid", this.DeleteUser);
+    router.delete(`/:userid(${UUID_PATTERN})`, this.DeleteUser);
 
-    router.put("/:userid/resetuserpassword", this.ResetUserPassword);
+    router.put(
+      `/:userid(${UUID_PATTERN})/resetuserpassword`,
+      this.ResetUserPassword
+    );
+    router.get("/getmyperms", this.GetMyConsolePermissions);
+    router.get("/metadata-options", this.GetMetadataOptions);
+    router.post("/onboarduseraccount", this.OnboardUserAccount);
+    router.post("/compositeonboardapi", this.CompositeOnboardAPI);
+
+    router.get("/listpending", this.ListPendingUsers);
+    router.get("/listdone", this.ListDoneUsers);
   }
 
   CreateUser = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create user."
+      );
+    }
     try {
       let schema = z.object({
         createdby: z
@@ -78,7 +157,7 @@ export default class PUserHdlr {
           .max(128, {
             message: "Display Name must be at most 128 characters long",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Display Name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -103,6 +182,7 @@ export default class PUserHdlr {
 
       APIResponseOK(req, res, result, "User created successfully");
     } catch (e) {
+      this.logger.error("CreateUser error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -143,6 +223,23 @@ export default class PUserHdlr {
         roleids: req.body.roleids || [],
       });
 
+      const inviteFingerprint = this.getPlatformInviteFingerprint(
+        req,
+        contact,
+        roleids
+      );
+      const rateLimitKey = `platform_invite_rate_limit:${inviteFingerprint}`;
+
+      let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
+
+      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+        const error = new Error(
+          "Too many platform invites sent to this contact with these roles. Please try after an hour."
+        );
+        error.errcode = "RATE_LIMIT_EXCEEDED";
+        throw error;
+      }
+
       let headerReferer = req.headers.origin;
 
       let result;
@@ -156,20 +253,21 @@ export default class PUserHdlr {
       } else {
         throw new Error("Not a valid email address");
       }
-      // } else {
-      //   result = await this.pUserHdlrImpl.SmsInvitePlatformUserLogic(
-      //     contact,
-      //     roleids,
-      //     invitedby,
-      //     headerReferer
-      //   );
-      // }
-
+      this.inMemCacheI.set(rateLimitKey, currentCount + 1);
       APIResponseOK(req, res, result, "User invited successfully");
     } catch (e) {
-      this.logger.error(`puserhdlr.InvitePlatformUser: error: ${e?.stack}`);
+      this.logger.error("InvitePlatformUser error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "RATE_LIMIT_EXCEEDED") {
+        APIResponseError(
+          req,
+          res,
+          429,
+          "RATE_LIMIT_EXCEEDED",
+          null,
+          "Too many platform invites sent to this contact with these roles. Please try after an hour."
+        );
       } else {
         APIResponseInternalErr(
           req,
@@ -197,7 +295,7 @@ export default class PUserHdlr {
       let result = await this.pUserHdlrImpl.ListPlatformInvitesLogic(userid);
       APIResponseOK(req, res, result, "Platform invites fetched successfully");
     } catch (e) {
-      this.logger.error(`puserhdlr.ListPlatformInvites: error: ${e?.stack}`);
+      this.logger.error("ListPlatformInvites error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -230,7 +328,7 @@ export default class PUserHdlr {
       );
       APIResponseOK(req, res, result, "Platform invite cancelled successfully");
     } catch (e) {
-      this.logger.error(`puserhdlr.CancelPlatformInvite: error: ${e?.stack}`);
+      this.logger.error("CancelPlatformInvite error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -259,17 +357,45 @@ export default class PUserHdlr {
         inviteid: req.body.inviteid,
         userid: req.userid,
       });
+
+      const deviceFingerprint = this.getDeviceFingerprint(req);
+      const resendFingerprint = crypto
+        .createHash("sha256")
+        .update(`${deviceFingerprint}-${inviteid}`)
+        .digest("hex");
+      const rateLimitKey = `platform_invite_resend_rate_limit:${resendFingerprint}`;
+
+      let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
+
+      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+        const error = new Error(
+          "Too many platform invites sent to this contact with these roles. Please try after an hour."
+        );
+        error.errcode = "RATE_LIMIT_EXCEEDED";
+        throw error;
+      }
+
       let headerReferer = req.headers.origin;
       let result = await this.pUserHdlrImpl.ResendPlatformInviteLogic(
         inviteid,
         userid,
         headerReferer
       );
+      this.inMemCacheI.set(rateLimitKey, currentCount + 1);
       APIResponseOK(req, res, result, "Platform invite resent successfully");
     } catch (e) {
-      this.logger.error(`puserhdlr.ResendPlatformInvite: error: ${e?.stack}`);
+      this.logger.error("ResendPlatformInvite error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "RATE_LIMIT_EXCEEDED") {
+        APIResponseError(
+          req,
+          res,
+          429,
+          "RATE_LIMIT_EXCEEDED",
+          null,
+          "Too many platform invites sent to this contact with these roles. Please try after an hour."
+        );
       } else {
         APIResponseInternalErr(
           req,
@@ -284,6 +410,20 @@ export default class PUserHdlr {
 
   ListUsers = async (req, res, next) => {
     try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.user.admin",
+          "consolemgmt.user.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list users."
+        );
+      }
       const schema = z.object({
         roletype: z
           .enum(["platform", "account"], { message: "Invalid Role Type" })
@@ -310,6 +450,7 @@ export default class PUserHdlr {
 
       APIResponseOK(req, res, result, "Users fetched successfully");
     } catch (e) {
+      this.logger.error("ListUsers error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -325,6 +466,20 @@ export default class PUserHdlr {
   };
 
   GetUser = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.user.admin",
+        "consolemgmt.user.view",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get user."
+      );
+    }
     try {
       let schema = z.object({
         userid: z
@@ -337,6 +492,7 @@ export default class PUserHdlr {
       let result = await this.pUserHdlrImpl.GetUserLogic(userid);
       APIResponseOK(req, res, result, "User fetched successfully");
     } catch (e) {
+      this.logger.error("GetUser error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -351,23 +507,34 @@ export default class PUserHdlr {
     }
   };
 
-  ListUserRoles = async (req, res, next) => {
+  ListAssignableUserRoles = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.user.admin",
+        "consolemgmt.user.view",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to list user roles."
+      );
+    }
     try {
       let schema = z.object({
         userid: z
           .string({ message: "Invalid User ID format" })
           .uuid({ message: "Invalid User ID format" }),
-        roletype: z.enum(["platform"], { message: "Invalid Role Type format" }),
       });
 
-      let { userid, roletype } = validateAllInputs(schema, {
+      let { userid } = validateAllInputs(schema, {
         userid: req.params.userid,
-        roletype: req.query.roletype,
       });
 
-      let result = await this.pUserHdlrImpl.ListUnassignedUserRolesLogic(
-        userid,
-        roletype
+      let result = await this.pUserHdlrImpl.ListAssignableUserRolesLogic(
+        userid
       );
 
       APIResponseOK(
@@ -377,6 +544,7 @@ export default class PUserHdlr {
         "Unassigned user roles fetched successfully"
       );
     } catch (e) {
+      this.logger.error("ListAssignableUserRoles error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -392,6 +560,15 @@ export default class PUserHdlr {
   };
 
   EnableUser = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to enable user."
+      );
+    }
     try {
       const schema = z.object({
         updatedby: z
@@ -409,6 +586,7 @@ export default class PUserHdlr {
       let result = await this.pUserHdlrImpl.EnableUserLogic(userid, updatedby);
       APIResponseOK(req, res, result, "User enabled successfully");
     } catch (e) {
+      this.logger.error("EnableUser error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -424,6 +602,15 @@ export default class PUserHdlr {
   };
 
   DisableUser = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to disable user."
+      );
+    }
     try {
       const schema = z.object({
         updatedby: z
@@ -441,6 +628,7 @@ export default class PUserHdlr {
       let result = await this.pUserHdlrImpl.DisableUserLogic(userid, updatedby);
       APIResponseOK(req, res, result, "User disabled successfully");
     } catch (e) {
+      this.logger.error("DisableUser error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -456,6 +644,20 @@ export default class PUserHdlr {
   };
 
   ListUserAccounts = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.user.admin",
+        "consolemgmt.user.view",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to list user accounts."
+      );
+    }
     try {
       let schema = z.object({
         userid: z
@@ -470,6 +672,7 @@ export default class PUserHdlr {
       let result = await this.pUserHdlrImpl.ListUserAccountsLogic(userid);
       APIResponseOK(req, res, result, "User accounts fetched successfully");
     } catch (e) {
+      this.logger.error("ListUserAccounts error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -485,6 +688,15 @@ export default class PUserHdlr {
   };
 
   AddUserPlatformRole = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to add user platform role."
+      );
+    }
     try {
       const updatedby = req.userid;
 
@@ -522,6 +734,7 @@ export default class PUserHdlr {
 
       APIResponseOK(req, res, result, "User role added successfully");
     } catch (e) {
+      this.logger.error("AddUserPlatformRole error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -537,6 +750,15 @@ export default class PUserHdlr {
   };
 
   RemoveUserPlatformRole = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to remove user platform role."
+      );
+    }
     try {
       let schema = z.object({
         updatedby: z
@@ -549,8 +771,7 @@ export default class PUserHdlr {
 
         roleid: z
           .string({ message: "Invalid Role ID format" })
-          .nonempty({ message: "Role ID cannot be empty" })
-          .max(128, { message: "Role ID must not exceed 128 characters" }),
+          .uuid({ message: "Role ID must be a valid UUID" }),
       });
 
       let { updatedby, userid, roleid } = validateAllInputs(schema, {
@@ -567,8 +788,12 @@ export default class PUserHdlr {
 
       APIResponseOK(req, res, result, "User role removed successfully");
     } catch (e) {
+      this.logger.error("RemoveUserPlatformRole error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "CANNOT_REMOVE_SUPER_ADMIN_ROLE") {
+        APIResponseForbidden(req, res, e.errcode, null, e.message);
+        return;
       } else {
         APIResponseInternalErr(
           req,
@@ -582,9 +807,16 @@ export default class PUserHdlr {
   };
 
   CreateSuperAdmin = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create super admin."
+      );
+    }
     try {
-      const seededUserId = req.userid || this.seededUserId;
-
       let schema = z.object({
         email: z
           .string({ message: "Invalid Email format" })
@@ -599,13 +831,14 @@ export default class PUserHdlr {
       let { email, password } = validateAllInputs(schema, req.body);
 
       let result = await this.pUserHdlrImpl.CreateSuperAdminLogic(
-        seededUserId,
+        req.userid,
         email,
         password
       );
 
       APIResponseOK(req, res, result, "Super Admin created successfully");
     } catch (e) {
+      this.logger.error("CreateSuperAdmin error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -621,6 +854,15 @@ export default class PUserHdlr {
   };
 
   CreateUserByPlatformAdmin = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create user."
+      );
+    }
     try {
       let baseSchema = z.object({
         forceuseridtypeverified: z.boolean({
@@ -631,7 +873,7 @@ export default class PUserHdlr {
           .string({ message: "Invalid Display Name format" })
           .nonempty({ message: "Display Name cannot be empty" })
           .max(128, { message: "Display Name must be at most 128 characters" })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Display Name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -690,6 +932,7 @@ export default class PUserHdlr {
 
       APIResponseOK(req, res, result, "User created successfully");
     } catch (e) {
+      this.logger.error("CreateUserByPlatformAdmin error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -705,6 +948,15 @@ export default class PUserHdlr {
   };
 
   AddUserToAccount = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to add user to account."
+      );
+    }
     try {
       const addedby = req.userid;
       const contact = req.body.contact;
@@ -716,6 +968,7 @@ export default class PUserHdlr {
       );
       APIResponseOK(req, res, result, "User added to account successfully");
     } catch (e) {
+      this.logger.error("AddUserToAccount error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -727,6 +980,15 @@ export default class PUserHdlr {
   };
 
   RemoveUserFromAccount = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to remove user from account."
+      );
+    }
     try {
       let schema = z.object({
         removedby: z
@@ -737,7 +999,8 @@ export default class PUserHdlr {
           .nonempty({ message: "Contact cannot be empty" })
           .refine(
             (val) =>
-              /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val) || /^[6-9]\d{9}$/.test(val),
+              /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val) ||
+              /^[6-9]\d{9}$/.test(val),
             {
               message:
                 "Invalid contact format. Please provide a valid email or mobile number.",
@@ -763,6 +1026,7 @@ export default class PUserHdlr {
 
       APIResponseOK(req, res, result, "User removed from account successfully");
     } catch (e) {
+      this.logger.error("RemoveUserFromAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -778,6 +1042,15 @@ export default class PUserHdlr {
   };
 
   DeleteUser = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to delete user."
+      );
+    }
     try {
       let schema = z.object({
         userid: z
@@ -798,6 +1071,7 @@ export default class PUserHdlr {
 
       APIResponseOK(req, res, result, "User deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteUser error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else if (
@@ -820,6 +1094,15 @@ export default class PUserHdlr {
   };
 
   ResetUserPassword = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to reset user password."
+      );
+    }
     try {
       let schema = z.object({
         resetby: z
@@ -842,6 +1125,7 @@ export default class PUserHdlr {
 
       APIResponseOK(req, res, result, "User password reset successfully");
     } catch (e) {
+      this.logger.error("ResetUserPassword error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -851,6 +1135,383 @@ export default class PUserHdlr {
           "RESET_USER_PASSWORD_ERR",
           e.toString(),
           "Reset user password failed"
+        );
+      }
+    }
+  };
+
+  GetMyConsolePermissions = async (req, res, next) => {
+    try {
+      const userid = req.userid;
+      const result = await this.pUserHdlrImpl.GetMyConsolePermissionsLogic(
+        userid
+      );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Console permissions fetched successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetMyConsolePermissions error: ", error);
+      if (error.errcode === "CONSOLE_ACCESS_DENIED") {
+        APIResponseForbidden(
+          req,
+          res,
+          "CONSOLE_ACCESS_DENIED",
+          null,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_CONSOLE_PERMISSIONS_ERR",
+          error.toString(),
+          "Get console permissions failed"
+        );
+      }
+    }
+  };
+
+  GetMetadataOptions = async (req, res, next) => {
+    try {
+      let result = await this.pUserHdlrImpl.GetMetadataOptionsLogic();
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Vehicle metadata options fetched successfully"
+      );
+    } catch (e) {
+      this.logger.error("GetMetadataOptions error: ", e);
+      return APIResponseInternalErr(
+        req,
+        res,
+        "GET_VEHICLE_METADATA_OPTIONS_ERR",
+        e.toString(),
+        "Get vehicle metadata options failed"
+      );
+    }
+  };
+
+  OnboardUserAccount = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.user.admin",
+          "consolemgmt.account.admin",
+          "consolemgmt.vehicle.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to onboard user account."
+        );
+      }
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        corporatetype: z
+          .string({ message: "Corporate type must be a string" })
+          .optional()
+          .nullable(),
+        customeraddress: z
+          .string({ message: "Customer address must be a string" })
+          .nonempty({ message: "Customer address cannot be empty" }),
+        customeraddresscity: z
+          .string({ message: "Customer address city must be a string" })
+          .nonempty({ message: "Customer address city cannot be empty" }),
+        customeraddresscountry: z
+          .string({ message: "Customer address country must be a string" })
+          .nonempty({ message: "Customer address country cannot be empty" }),
+        customeraddresspincode: z
+          .string({ message: "Customer address pincode must be a string" })
+          .nonempty({ message: "Customer address pincode cannot be empty" }),
+        customercontactemail: z
+          .string({ message: "Customer contact email must be a string" })
+          .nonempty({ message: "Customer contact email cannot be empty" })
+          .email({ message: "Invalid email format" }),
+        customercontactmobile: z
+          .string({ message: "Customer contact mobile must be a string" })
+          .nonempty({ message: "Customer contact mobile cannot be empty" })
+          .min(10, { message: "Mobile number must be 10 digits" })
+          .max(10, { message: "Mobile number must be 10 digits" })
+          .refine((val) => /^[6-9]\d{9}$/.test(val), {
+            message:
+              "Invalid mobile number format. Must be 10 digits starting with 6-9.",
+          }),
+        customerdateofbirth: z
+          .string({ message: "Customer date of birth must be a string" })
+          .optional()
+          .nullable(),
+        customergender: z
+          .string({ message: "Customer gender must be a string" })
+          .nonempty({ message: "Customer gender cannot be empty" }),
+        customername: z
+          .string({ message: "Customer name must be a string" })
+          .nonempty({ message: "Customer name cannot be empty" }),
+        customertype: z
+          .string({ message: "Customer type must be a string" })
+          .nonempty({ message: "Customer type cannot be empty" }),
+        licenseplate: z
+          .string({ message: "License plate must be a string" })
+          .nonempty({ message: "License plate cannot be empty" }),
+        vin: z
+          .string({ message: "VIN must be a string" })
+          .nonempty({ message: "VIN cannot be empty" }),
+        nemo_user_mobile: z
+          .string({ message: "Nemo user mobile must be a string" })
+          .nonempty({ message: "Nemo user mobile cannot be empty" })
+          .min(10, { message: "Mobile number must be 10 digits" })
+          .max(10, { message: "Mobile number must be 10 digits" })
+          .refine((val) => /^[6-9]\d{9}$/.test(val), {
+            message:
+              "Invalid nemo user mobile format. Must be 10 digits starting with 6-9.",
+          }),
+      });
+      const {
+        userid,
+        corporatetype,
+        customeraddress,
+        customeraddresscity,
+        customeraddresscountry,
+        customeraddresspincode,
+        customercontactemail,
+        customercontactmobile,
+        customerdateofbirth,
+        customergender,
+        customername,
+        customertype,
+        licenseplate,
+        vin,
+        nemo_user_mobile,
+      } = validateAllInputs(schema, {
+        userid: req.userid,
+        corporatetype: req.body.corporatetype,
+        customeraddress: req.body.customeraddress,
+        customeraddresscity: req.body.customeraddresscity,
+        customeraddresscountry: req.body.customeraddresscountry,
+        customeraddresspincode: req.body.customeraddresspincode,
+        customercontactemail: req.body.customercontactemail,
+        customercontactmobile: req.body.customercontactmobile,
+        customerdateofbirth: req.body.customerdateofbirth,
+        customergender: req.body.customergender,
+        customername: req.body.customername,
+        customertype: req.body.customertype,
+        licenseplate: req.body.licenseplate,
+        vin: req.body.vin,
+        nemo_user_mobile: req.body.nemo_user_mobile,
+      });
+      const result = await this.pUserHdlrImpl.OnboardUserAccountLogic(
+        userid,
+        corporatetype,
+        customeraddress,
+        customeraddresscity,
+        customeraddresscountry,
+        customeraddresspincode,
+        customercontactemail,
+        customercontactmobile,
+        customerdateofbirth,
+        customergender,
+        customername,
+        customertype,
+        licenseplate,
+        vin,
+        nemo_user_mobile
+      );
+      APIResponseOK(req, res, result, "User onboarded successfully");
+    } catch (error) {
+      this.logger.error("OnboardUserAccount error: ", error);
+      if (error.errcode === "CONSOLE_ACCESS_DENIED") {
+        APIResponseForbidden(
+          req,
+          res,
+          "ONBOARD_USER_ACCOUNT_ACCESS_DENIED",
+          null,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "ONBOARD_USER_ACCOUNT_ERR",
+          error.toString(),
+          "Onboard user account failed"
+        );
+      }
+    }
+  };
+
+  ListPendingUsers = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.user.admin",
+          "consolemgmt.user.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list pending users."
+        );
+      }
+      let result = await this.pUserHdlrImpl.ListPendingUsersLogic();
+      APIResponseOK(req, res, result, "Pending users listed successfully");
+    } catch (e) {
+      this.logger.error("ListPendingUsers error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "LIST_PENDING_USERS_ERR",
+          e.toString(),
+          "List pending users failed"
+        );
+      }
+    }
+  };
+
+  ListDoneUsers = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.user.admin",
+          "consolemgmt.user.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list done users."
+        );
+      }
+      let result = await this.pUserHdlrImpl.ListDoneUsersLogic();
+      APIResponseOK(req, res, result, "Done users listed successfully");
+    } catch (e) {
+      this.logger.error("ListDoneUsers error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "LIST_DONE_USERS_ERR",
+          e.toString(),
+          "List done users failed"
+        );
+      }
+    }
+  };
+
+  // Composite Onboard API
+  CompositeOnboardAPI = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.user.admin",
+          "consolemgmt.account.admin",
+          "consolemgmt.vehicle.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to onboard user."
+        );
+      }
+
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        taskid: z
+          .string({ message: "Invalid Task ID format" })
+          .uuid({ message: "Invalid Task ID format" }),
+        tasktype: z
+          .string({ message: "Task type must be a string" })
+          .nonempty({ message: "Task type cannot be empty" }),
+        updatedfields: z
+          .union([
+            // Schema for accountreview
+            z.object({
+              accountname: z
+                .string({ message: "Account name must be a string" })
+                .nonempty({ message: "Account name cannot be empty" }),
+            }),
+            // Schema for userreview
+            z.object({
+              displayname: z.string().optional(),
+              mobile: z.string().optional(),
+              email: z.string().optional(),
+              address: z.string().optional(),
+              city: z.string().optional(),
+              country: z.string().optional(),
+              pincode: z.string().optional(),
+              dateofbirth: z.string().optional(),
+              gender: z.string().optional(),
+              vehiclemobile: z.string().optional(),
+            }),
+          ])
+          .refine(
+            (val) => {
+              // Ensure at least one field is provided
+              return Object.keys(val).length > 0;
+            },
+            {
+              message: "At least one field must be provided in updatedfields",
+            }
+          ),
+      });
+
+      const { userid, taskid, tasktype, updatedfields } = validateAllInputs(
+        schema,
+        {
+          userid: req.userid,
+          taskid: req.body.taskid,
+          tasktype: req.body.tasktype,
+          updatedfields: req.body.updatedfields,
+        }
+      );
+
+      const result = await this.pUserHdlrImpl.CompositeOnboardAPILogic({
+        userid,
+        taskid,
+        tasktype,
+        updatedfields,
+      });
+
+      APIResponseOK(req, res, result, "User onboarded successfully");
+    } catch (error) {
+      this.logger.error("CompositeOnboardAPI error: ", error);
+      if (error.errcode === "CONSOLE_ACCESS_DENIED") {
+        APIResponseForbidden(
+          req,
+          res,
+          "ONBOARD_USER_ACCOUNT_ACCESS_DENIED",
+          null,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "ONBOARD_USER_ACCOUNT_ERR",
+          error.toString(),
+          "Onboard user account failed"
         );
       }
     }

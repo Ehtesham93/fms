@@ -1,19 +1,27 @@
+import crypto from "crypto";
+import promiserouter from "express-promise-router";
+import z from "zod";
+import PermissionSvc from "../../../services/permsvc/permsvc.js";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
 import {
+  APIResponseBadRequest,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
-  APIResponseBadRequest,
   APIResponseUnauthorized,
 } from "../../../utils/responseutil.js";
+import { AuthenticateAccountTokenFromCookie } from "../../../utils/tokenutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import ChargeinsightshdlrImpl from "./chargeinsightshdlr_impl.js";
-import z from "zod";
-import promiserouter from "express-promise-router";
-import { AuthenticateAccountTokenFromCookie } from "../../../utils/tokenutil.js";
-import RedisSvc from "../../../utils/redissvc.js";
-import config from "../../../config/config.js";
-import crypto from "crypto";
 export default class Chargeinsightshdlr {
-  constructor(chargeinsightssvcI, fmsAccountSvcI, tripsinsightssvcI, logger) {
+  constructor(
+    chargeinsightssvcI,
+    fmsAccountSvcI,
+    tripsinsightssvcI,
+    userSvcI,
+    logger,
+    redisSvc
+  ) {
     this.chargeinsightssvcI = chargeinsightssvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.logger = logger;
@@ -23,6 +31,8 @@ export default class Chargeinsightshdlr {
       tripsinsightssvcI,
       logger
     );
+    this.permissionSvc = new PermissionSvc(fmsAccountSvcI, userSvcI, logger);
+    this.redisSvc = redisSvc;
   }
 
   // TODO: add permission check for each route
@@ -38,6 +48,7 @@ export default class Chargeinsightshdlr {
     );
     accountTokenGroup.post(
       "/fleet/:fleetid/chargeinsights",
+      this.ValidateFleetAccess,
       this.GetChargeInsightsByFleet
     );
     accountTokenGroup.get(
@@ -46,6 +57,7 @@ export default class Chargeinsightshdlr {
     );
     accountTokenGroup.get(
       "/fleet/:fleetid/chargedistribution",
+      this.ValidateFleetAccess,
       this.GetChargeDistributionByFleet
     );
 
@@ -55,10 +67,12 @@ export default class Chargeinsightshdlr {
     );
     accountTokenGroup.get(
       "/fleet/:fleetid/fleetchargeinsights",
+      this.ValidateFleetAccess,
       this.GetFleetChargeInsights
     );
     accountTokenGroup.get(
       "/fleet/:fleetid/chargeinsightsoverview",
+      this.ValidateFleetAccess,
       this.GetFleetChargeInsightsOverview
     );
   }
@@ -94,14 +108,95 @@ export default class Chargeinsightshdlr {
 
       next();
     } catch (error) {
-      this.logger.error("User account access verification failed", error);
+      this.logger.error("VerifyUserAccountAccess error: ", error);
       APIResponseInternalErr(
         req,
         res,
-        error,
+        error.errcode || "USER_DOES_NOT_HAVE_ACCESS",
+        {},
         "Failed to verify user account access"
       );
     }
+  };
+
+  ValidateFleetAccess = async (req, res, next) => {
+    try {
+      const { accountid } = req;
+      const { fleetid } = req.params;
+
+      if (!fleetid) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "MISSING_FLEET_ID",
+          null,
+          "Fleet ID is required"
+        );
+        return;
+      }
+
+      const fleetIdRegex =
+        /^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/;
+      if (!fleetIdRegex.test(fleetid)) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_FLEET_ID_FORMAT",
+          null,
+          "Fleet ID must be a valid UUID format"
+        );
+        return;
+      }
+
+      const fleetInfo = await this.fmsAccountSvcI.GetFleetInfo(
+        accountid,
+        fleetid
+      );
+
+      if (!fleetInfo) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "FLEET_NOT_FOUND",
+          null,
+          "Fleet not found or does not belong to this account"
+        );
+        return;
+      }
+
+      req.fleetInfo = fleetInfo;
+
+      next();
+    } catch (error) {
+      this.logger.error("ValidateFleetAccess error: ", error);
+      APIResponseInternalErr(
+        req,
+        res,
+        "FLEET_VALIDATION_ERROR",
+        {},
+        "Failed to validate fleet access"
+      );
+    }
+  };
+
+  ValidateEpochTime = (timeStr, fieldName) => {
+    if (!/^\d+$/.test(timeStr)) {
+      throw {
+        errcode: "INPUT_ERROR",
+        message: `${fieldName} must be a valid epoch time (integer)`,
+      };
+    }
+
+    const epochTime = parseInt(timeStr, 10);
+
+    if (epochTime < 1000000000000 || epochTime > 9999999999999) {
+      throw {
+        errcode: "INPUT_ERROR",
+        message: `${fieldName} must be a valid epoch time`,
+      };
+    }
+
+    return epochTime;
   };
 
   GetChargeInsightsByVehicle = async (req, res, next) => {
@@ -113,9 +208,23 @@ export default class Chargeinsightshdlr {
         vinno: z
           .string({ message: "Invalid VIN No format" })
           .nonempty({ message: "Invalid VIN format" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
           .max(128, { message: "Vin NO must be at most 128 characters long" }),
-        starttime: z.number({ message: "Start Time must be a number" }),
-        endtime: z.number({ message: "End Time must be a number" }),
+        starttime: z
+          .number({ message: "Start Time must be a number" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, {
+            message: "Start Time is invalid",
+          }),
+        endtime: z
+          .number({ message: "End Time must be a number" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, {
+            message: "End Time is invalid",
+          }),
       });
 
       let { accountid, vinno, starttime, endtime } = validateAllInputs(schema, {
@@ -124,6 +233,32 @@ export default class Chargeinsightshdlr {
         starttime: req.body.starttime,
         endtime: req.body.endtime,
       });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        req.accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["chargeinsights.reports.view"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get vehicle charge reports."
+        );
+      }
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
 
       let result =
         await this.chargeinsightssvcHdlrImpl.GetChargeInsightsByVehicleLogic(
@@ -142,6 +277,7 @@ export default class Chargeinsightshdlr {
         "Vehicle charge insights listed successfully"
       );
     } catch (error) {
+      this.logger.error("GetChargeInsightsByVehicle error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -150,11 +286,24 @@ export default class Chargeinsightshdlr {
           error.errdata,
           error.message
         );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
         APIResponseInternalErr(
           req,
           res,
-          error,
+          error.errcode || "FAILED_TO_GET_VEHICLE_CHARGE_INSIGHTS",
+          {},
           "Failed to get vehicle charge insights"
         );
       }
@@ -170,8 +319,18 @@ export default class Chargeinsightshdlr {
         fleetid: z
           .string({ message: "Invalid Fleet ID format" })
           .uuid({ message: "Invalid Fleet ID format" }),
-        starttime: z.number({ message: "Start Time must be a number" }),
-        endtime: z.number({ message: "End Time must be a number" }),
+        starttime: z
+          .number({ message: "Start Time must be a number" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, {
+            message: "Start Time is invalid",
+          }),
+        endtime: z
+          .number({ message: "End Time must be a number" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, {
+            message: "End Time is invalid",
+          }),
       });
 
       let recursive = req.query.recursive
@@ -188,7 +347,59 @@ export default class Chargeinsightshdlr {
         }
       );
 
-      let result =
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        req.accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["chargeinsights.reports.view"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get fleet charge reports."
+        );
+      }
+
+      let result;
+      const hash = crypto
+        .createHash("sha256")
+        .update(JSON.stringify(req.body))
+        .digest("hex");
+      const url = req.protocol + "://" + req.get("host") + req.originalUrl;
+      const fullUrl = `${url}.${hash}`;
+      const redisKey = crypto
+        .createHash("sha256")
+        .update(JSON.stringify(fullUrl))
+        .digest("hex");
+      const redisSvc = this.redisSvc;
+      try {
+        const [cachedData, redisError] = await redisSvc.get(redisKey);
+        if (redisError) {
+          this.logger.error("Redis error:", redisError);
+        } else if (cachedData !== null) {
+          result = JSON.parse(cachedData);
+          APIResponseOK(req, res, result, "SUCCESS");
+          return;
+        }
+      } catch (redisErr) {
+        this.logger.error("Redis connection error:", redisErr);
+      }
+
+      result =
         await this.chargeinsightssvcHdlrImpl.GetChargeInsightsByFleetLogic(
           accountid,
           fleetid,
@@ -200,6 +411,22 @@ export default class Chargeinsightshdlr {
       if (result instanceof Error) {
         result = [];
       }
+      if (result && Object.keys(result).length > 0) {
+        try {
+          const [setResult, setError] = await redisSvc.set(
+            redisKey,
+            JSON.stringify(result),
+            1800
+          );
+          if (setError) {
+            this.logger.error("Failed to cache data:", setError);
+          } else {
+            console.log("Data cached successfully");
+          }
+        } catch (cacheErr) {
+          this.logger.error("Failed to cache data:", cacheErr);
+        }
+      }
 
       APIResponseOK(
         req,
@@ -208,6 +435,7 @@ export default class Chargeinsightshdlr {
         "Fleet charge insights listed successfully"
       );
     } catch (error) {
+      this.logger.error("GetChargeInsightsByFleet error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -216,11 +444,24 @@ export default class Chargeinsightshdlr {
           error.errdata,
           error.message
         );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
         APIResponseInternalErr(
           req,
           res,
-          error,
+          error.errcode || "FAILED_TO_GET_FLEET_CHARGE_INSIGHTS",
+          {},
           "Failed to get fleet charge insights"
         );
       }
@@ -238,6 +479,10 @@ export default class Chargeinsightshdlr {
         vinno: z
           .string({ message: "Invalid VIN number format" })
           .nonempty({ message: "VIN number is required" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
           .max(128, { message: "VIN number must be at most 128 characters" }),
       });
 
@@ -250,6 +495,7 @@ export default class Chargeinsightshdlr {
           req,
           res,
           "MISSING_PARAMETERS",
+          {},
           "timestamp is required"
         );
         return;
@@ -260,23 +506,66 @@ export default class Chargeinsightshdlr {
           req,
           res,
           "INVALID_TIMESTAMP",
+          {},
           "timestamp must be a valid integer"
         );
         return;
+      }
+
+      const timestampepoch = this.ValidateEpochTime(timestamp, "timestamp");
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        req.accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["chargeinsights.analytics.view"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get vehicle charge analytics."
+        );
       }
 
       let distribution =
         await this.chargeinsightssvcHdlrImpl.GetChargeDistributionByVehicleLogic(
           accountid,
           vinno,
-          timestamp
+          timestampepoch
         );
       APIResponseOK(req, res, distribution);
-    } catch (err) {
-      if (err.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, err.errcode, err.errdata, err.message);
+    } catch (error) {
+      this.logger.error("GetChargeDistributionByVehicle error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
-        APIResponseInternalErr(req, res, err);
+        APIResponseInternalErr(
+          req,
+          res,
+          "FAILED_TO_GET_CHARGE_DISTRIBUTION_BY_VEHICLE",
+          {},
+          "Failed to get charge distribution by vehicle"
+        );
       }
     }
   };
@@ -307,6 +596,7 @@ export default class Chargeinsightshdlr {
           req,
           res,
           "MISSING_PARAMETERS",
+          {},
           "timestamp is required"
         );
         return;
@@ -317,24 +607,67 @@ export default class Chargeinsightshdlr {
           req,
           res,
           "INVALID_TIMESTAMP",
+          {},
           "timestamp must be a valid integer"
         );
         return;
+      }
+
+      const timestampepoch = this.ValidateEpochTime(timestamp, "timestamp");
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        req.accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["chargeinsights.analytics.view"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get fleet charge analytics."
+        );
       }
 
       let distribution =
         await this.chargeinsightssvcHdlrImpl.GetChargeDistributionByFleetLogic(
           accountid,
           fleetid,
-          timestamp,
+          timestampepoch,
           recursive
         );
       APIResponseOK(req, res, distribution);
-    } catch (err) {
-      if (err.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, err.errcode, err.errdata, err.message);
+    } catch (error) {
+      this.logger.error("GetChargeDistributionByFleet error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
-        APIResponseInternalErr(req, res, err);
+        APIResponseInternalErr(
+          req,
+          res,
+          "FAILED_TO_GET_CHARGE_DISTRIBUTION_BY_FLEET",
+          {},
+          "Failed to get charge distribution by fleet"
+        );
       }
     }
   };
@@ -349,6 +682,10 @@ export default class Chargeinsightshdlr {
           z
             .string({ message: "Invalid VIN NO format" })
             .nonempty({ message: "VIN NO is required" })
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+              message:
+                "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+            })
             .max(128, {
               message: "VIN NO must be at most 128 characters long",
             }),
@@ -357,14 +694,28 @@ export default class Chargeinsightshdlr {
               z
                 .string({ message: "Invalid VIN NO format" })
                 .nonempty({ message: "VIN NO is required" })
+                .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                  message:
+                    "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+                })
                 .max(128, {
                   message: "VIN NO must be at most 128 characters long",
                 })
             )
             .nonempty({ message: "At least one VIN NO must be provided" }),
         ]),
-        starttime: z.number({ message: "Start Time is invalid" }),
-        endtime: z.number({ message: "End Time is invalid" }),
+        starttime: z
+          .number({ message: "Start Time must be a number" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, {
+            message: "Start Time is invalid",
+          }),
+        endtime: z
+          .number({ message: "End Time must be a number" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, {
+            message: "End Time is invalid",
+          }),
       });
 
       const { accountid, vinnumbers, starttime, endtime } = validateAllInputs(
@@ -382,9 +733,25 @@ export default class Chargeinsightshdlr {
           req,
           res,
           "INVALID_TIME_RANGE",
+          {},
           "starttime must be less than endtime"
         );
         return;
+      }
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        req.accountid
+      );
+
+      if (!CheckUserPerms(userPerms, ["chargeinsights.overview.view"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get charge insights."
+        );
       }
 
       const hash = crypto
@@ -397,7 +764,7 @@ export default class Chargeinsightshdlr {
         .createHash("sha256")
         .update(JSON.stringify(fullUrl))
         .digest("hex");
-      const redisSvc = new RedisSvc(config.redis, this.logger);
+      const redisSvc = this.redisSvc;
       let result;
 
       try {
@@ -444,6 +811,7 @@ export default class Chargeinsightshdlr {
 
       APIResponseOK(req, res, result, "SUCCESS");
     } catch (error) {
+      this.logger.error("GetVehicleChargeInsights error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
@@ -452,8 +820,26 @@ export default class Chargeinsightshdlr {
           error.errdata,
           error.message
         );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
-        APIResponseInternalErr(req, res, error, "Failed to get vehicle trips");
+        APIResponseInternalErr(
+          req,
+          res,
+          error.errcode || "FAILED_TO_GET_VEHICLE_CHARGE_INSIGHTS",
+          {},
+          "Failed to get vehicle trips"
+        );
       }
     }
   };
@@ -486,19 +872,40 @@ export default class Chargeinsightshdlr {
         }
       );
 
-      if (starttime >= endtime) {
+      const startepoch = this.ValidateEpochTime(starttime, "starttime");
+      const endepoch = this.ValidateEpochTime(endtime, "endtime");
+
+      if (startepoch >= endepoch) {
         APIResponseBadRequest(
           req,
           res,
           "INVALID_TIME_RANGE",
+          {},
           "starttime must be less than endtime"
         );
         return;
       }
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        req.accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["chargeinsights.overview.view"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get charge insights."
+        );
+      }
+
       let result;
       const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
       const redisKey = `${fullUrl}.${starttime}.${endtime}`;
-      const redisSvc = new RedisSvc(config.redis, this.logger);
+      const redisSvc = this.redisSvc;
       try {
         const [cachedData, redisError] = await redisSvc.get(redisKey);
         if (redisError) {
@@ -515,8 +922,8 @@ export default class Chargeinsightshdlr {
       result = await this.chargeinsightssvcHdlrImpl.GetFleetChargeInsightsLogic(
         accountid,
         fleetid,
-        starttime,
-        endtime,
+        startepoch,
+        endepoch,
         recursive
       );
 
@@ -541,11 +948,36 @@ export default class Chargeinsightshdlr {
       }
 
       APIResponseOK(req, res, result, "SUCCESS");
-    } catch (err) {
-      if (err.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, err.errcode, err.errdata, err.message);
+    } catch (error) {
+      this.logger.error("GetFleetChargeInsights error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
-        APIResponseInternalErr(req, res, err);
+        APIResponseInternalErr(
+          req,
+          res,
+          "FAILED_TO_GET_FLEET_CHARGE_INSIGHTS",
+          {},
+          "Failed to get fleet charge insights"
+        );
       }
     }
   };
@@ -558,8 +990,7 @@ export default class Chargeinsightshdlr {
           .uuid({ message: "Invalid Account ID format" }),
         fleetid: z
           .string({ message: "Invalid Fleet ID format" })
-          .uuid({ message: "Invalid Fleet ID format" })
-          .optional(),
+          .uuid({ message: "Invalid Fleet ID format" }),
         starttime: z.string({ message: "Start Time is invalid" }),
         endtime: z.string({ message: "End Time is invalid" }),
       });
@@ -578,36 +1009,118 @@ export default class Chargeinsightshdlr {
         }
       );
 
-      if (starttime >= endtime) {
+      const startepoch = this.ValidateEpochTime(starttime, "starttime");
+      const endepoch = this.ValidateEpochTime(endtime, "endtime");
+
+      if (startepoch >= endepoch) {
         APIResponseBadRequest(
           req,
           res,
           "INVALID_TIME_RANGE",
+          {},
           "starttime must be less than endtime"
         );
         return;
       }
 
-      const analytics =
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        req.accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["chargeinsights.overview.view"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get fleet charge insights overview."
+        );
+      }
+
+      let result;
+      const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
+      const redisKey = `${fullUrl}.${starttime}.${endtime}`;
+      const redisSvc = this.redisSvc;
+      try {
+        const [cachedData, redisError] = await redisSvc.get(redisKey);
+        if (redisError) {
+          this.logger.error("Redis error:", redisError);
+        } else if (cachedData !== null) {
+          result = JSON.parse(cachedData);
+          APIResponseOK(req, res, result, "SUCCESS");
+          return;
+        }
+      } catch (redisErr) {
+        this.logger.error("Redis connection error:", redisErr);
+      }
+
+      result =
         await this.chargeinsightssvcHdlrImpl.GetFleetChargeInsightsOverviewLogic(
           accountid,
           fleetid,
-          starttime,
-          endtime,
+          startepoch,
+          endepoch,
           recursive
         );
+
+      if (result instanceof Error) {
+        result = [];
+      }
+      if (result && Object.keys(result).length > 0) {
+        try {
+          const [setResult, setError] = await redisSvc.set(
+            redisKey,
+            JSON.stringify(result),
+            1800
+          );
+          if (setError) {
+            this.logger.error("Failed to cache data:", setError);
+          } else {
+            console.log("Data cached successfully");
+          }
+        } catch (cacheErr) {
+          this.logger.error("Failed to cache data:", cacheErr);
+        }
+      }
 
       APIResponseOK(
         req,
         res,
-        analytics,
+        result,
         "charge insights overview retrieved successfully"
       );
-    } catch (err) {
-      if (err.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, err.errcode, err.errdata, err.message);
+    } catch (error) {
+      this.logger.error("GetFleetChargeInsightsOverview error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
       } else {
-        APIResponseInternalErr(req, res, err);
+        APIResponseInternalErr(
+          req,
+          res,
+          "FAILED_TO_GET_FLEET_CHARGE_INSIGHTS_OVERVIEW",
+          {},
+          "Failed to get fleet charge insights overview"
+        );
       }
     }
   };

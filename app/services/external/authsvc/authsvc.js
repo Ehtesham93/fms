@@ -7,8 +7,8 @@ export default class AuthSvc {
     this.authSvcClient = new AuthSvcClient(config, logger);
   }
 
-  CreateConsumer(userid, createdby) {
-    return this.authSvcClient.createConsumer(userid, createdby);
+  CreateConsumer(userid) {
+    return this.authSvcClient.createConsumer(userid);
   }
 
   GetUserToken(userid, validity) {

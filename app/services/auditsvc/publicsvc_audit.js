@@ -23,16 +23,21 @@ export default class PublicApiAuditSvc {
         auditData.endpoint
       );
 
+      const maxAuditIdQuery = `SELECT COALESCE(MAX(auditid), 0) as max_auditid FROM public_api_audit_log`;
+      const maxAuditIdResult = await this.pgPoolI.Query(maxAuditIdQuery);
+      const auditid = parseInt(maxAuditIdResult.rows[0].max_auditid) + 1;
+
       const query = `
         INSERT INTO public_api_audit_log (
-          endpoint, method, statuscode, issuccess, requestkey, requestvalue,
+          auditid, endpoint, method, statuscode, issuccess, requestkey, requestvalue,
           requestbody, responsebody, errorcode, ipaddress, 
           useragent, referer, requestid, processingtimems, captchavalidated
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING auditid
       `;
 
       const values = [
+        auditid,
         auditData.endpoint,
         auditData.method,
         auditData.statusCode,

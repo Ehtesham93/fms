@@ -1,14 +1,22 @@
 import FmsAccountSvcDB from "./fmsaccountsvc_db.js";
 
 export default class FmsAccountSvc {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
-    this.fmsAccountSvcDB = new FmsAccountSvcDB(pgPoolI, logger);
+    this.fmsAccountSvcDB = new FmsAccountSvcDB(pgPoolI, logger, config);
   }
 
   async ListInvitesOfAccount(accountid) {
     return await this.fmsAccountSvcDB.listInvitesOfAccount(accountid);
+  }
+
+  async ListInvitesOfFleet(accountid, fleetid, recursive = false) {
+    return await this.fmsAccountSvcDB.listInvitesOfFleet(
+      accountid,
+      fleetid,
+      recursive
+    );
   }
 
   async CancelEmailInvite(accountid, inviteid, cancelledby) {
@@ -39,8 +47,8 @@ export default class FmsAccountSvc {
     );
   }
 
-  async ValidateInvite(inviteid) {
-    return await this.fmsAccountSvcDB.validateInvite(inviteid);
+  async ValidateInvite(inviteid, userid) {
+    return await this.fmsAccountSvcDB.validateInvite(inviteid, userid);
   }
 
   async DeleteUserRecords(userid, accountid, fleetid, inviteid) {
@@ -61,8 +69,8 @@ export default class FmsAccountSvc {
     );
   }
 
-  async GetAllWebModulesInfo(accountid) {
-    return await this.fmsAccountSvcDB.getAllWebModulesInfo(accountid);
+  async GetAllAccountModules(accountid) {
+    return await this.fmsAccountSvcDB.getAllAccountModules(accountid);
   }
 
   async GetUserAccountFleets(accountid, userid) {
@@ -101,6 +109,22 @@ export default class FmsAccountSvc {
     );
   }
 
+  async GetChildFleets(accountid, fleetid, isrecursive = false) {
+    return await this.fmsAccountSvcDB.getChildFleets(
+      accountid,
+      fleetid,
+      isrecursive
+    );
+  }
+
+  async GetFleetCount(accountid) {
+    return await this.fmsAccountSvcDB.getFleetCount(accountid);
+  }
+
+  async GetFleetDepthFromRoot(accountid, fleetid) {
+    return await this.fmsAccountSvcDB.getFleetDepthFromRoot(accountid, fleetid);
+  }
+
   // role management
   async CreateRole(role) {
     return await this.fmsAccountSvcDB.createRole(role);
@@ -127,8 +151,8 @@ export default class FmsAccountSvc {
     return await this.fmsAccountSvcDB.getAllPlatformModulePerms();
   }
 
-  async GetRolePerms(accountid, roleid) {
-    return await this.fmsAccountSvcDB.getRolePermsForAcc(accountid, roleid);
+  async GetRolePermsForAccount(accountid, roleid) {
+    return await this.fmsAccountSvcDB.getRolePermsForAccount(accountid, roleid);
   }
 
   async UpdateRolePerms(
@@ -148,11 +172,17 @@ export default class FmsAccountSvc {
   }
 
   // vehicle management
-  async GetVehicles(accountid, fleetid, recursive = false) {
+  async GetVehicles(
+    accountid,
+    fleetid,
+    recursive = false,
+    isforcedfilter = false
+  ) {
     return await this.fmsAccountSvcDB.getVehicles(
       accountid,
       fleetid,
-      recursive
+      recursive,
+      isforcedfilter
     );
   }
 
@@ -189,8 +219,12 @@ export default class FmsAccountSvc {
   }
 
   // user management
-  async ListUsers(accountid, fleetid) {
-    return await this.fmsAccountSvcDB.getFleetUsers(accountid, fleetid);
+  async ListUsers(accountid, fleetid, recursive = false) {
+    return await this.fmsAccountSvcDB.getFleetUsers(
+      accountid,
+      fleetid,
+      recursive
+    );
   }
 
   async GetAssignableRoles(accountid, fleetid, userid, assignedby) {
@@ -444,5 +478,50 @@ export default class FmsAccountSvc {
 
   async getLatestCanDataForVins(vinNumbers) {
     return await this.fmsAccountSvcDB.getLatestCanDataForVins(vinNumbers);
+  }
+
+  async GetAllWebModules() {
+    return await this.fmsAccountSvcDB.getAllWebModules();
+  }
+
+  async GetAllModulePerms(modules) {
+    return await this.fmsAccountSvcDB.getAllModulePerms(modules);
+  }
+
+  async GetAccountCredits(accountid) {
+    return await this.fmsAccountSvcDB.getAccountCredits(accountid);
+  }
+
+  async GetAccountCreditsOverview(accountid, starttime, endtime) {
+    return await this.fmsAccountSvcDB.getAccountCreditsOverview(
+      accountid,
+      starttime,
+      endtime
+    );
+  }
+
+  async GetAccountCreditsHistory(accountid, starttime, endtime) {
+    return await this.fmsAccountSvcDB.getAccountCreditsHistory(
+      accountid,
+      starttime,
+      endtime
+    );
+  }
+
+  async GetAccountVehicleCreditsHistory(accountid, vinnos, starttime, endtime) {
+    return await this.fmsAccountSvcDB.getAccountVehicleCreditsHistory(
+      accountid,
+      vinnos,
+      starttime,
+      endtime
+    );
+  }
+
+  async UpdateAccountCredits(accountid, credits, updatedby) {
+    return await this.fmsAccountSvcDB.updateAccountCredits(
+      accountid,
+      credits,
+      updatedby
+    );
   }
 }

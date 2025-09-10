@@ -3,10 +3,11 @@ import axios from "axios"; //used for request and verify otp
 import config from "../../config/config.js"; //used for request and verify otp
 
 export default class UserSvc {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, config, logger) {
     this.pgPoolI = pgPoolI;
+    this.config = config;
     this.logger = logger;
-    this.userSvcDB = new UserSvcDB(pgPoolI, logger);
+    this.userSvcDB = new UserSvcDB(pgPoolI, config, logger);
   }
 
   async IsValidUser(userid) {
@@ -18,8 +19,13 @@ export default class UserSvc {
     return await this.userSvcDB.getUserName(userid);
   }
 
-  async CreateSuperAdmin(userid, email, password) {
-    return await this.userSvcDB.createSuperAdmin(userid, email, password);
+  async CreateSuperAdmin(createdby, userid, email, password) {
+    return await this.userSvcDB.createSuperAdmin(
+      createdby,
+      userid,
+      email,
+      password
+    );
   }
 
   async GetUserIdByEmail(email) {
@@ -49,7 +55,7 @@ export default class UserSvc {
 
   async IsPlatformUser(userid) {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    let roles = await this.userSvcDB.getUserRoles(accountid, fleetid, userid);
+    let roles = await this.userSvcDB.getPlatformUserRoles(accountid, userid);
     return roles && roles.length > 0;
   }
 
@@ -112,8 +118,14 @@ export default class UserSvc {
     return await this.userSvcDB.rejectInvite(inviteid, userid);
   }
 
-  async AddUserToAccount(addedby, contact, accountid) {
-    return await this.userSvcDB.addUserToAccount(addedby, contact, accountid);
+  async AddUserToAccount(addedby, contact, accountid, fleetid, roleids) {
+    return await this.userSvcDB.addUserToAccount(
+      addedby,
+      contact,
+      accountid,
+      fleetid,
+      roleids
+    );
   }
 
   async RemoveUserFromAccount(removedby, contact, accountid) {
@@ -178,8 +190,25 @@ export default class UserSvc {
         headers: otpVerifyHeaders,
       });
     } catch (err) {
-      // If the service returns a non-200, axios throws
-      throw new Error("OTP verification failed (service error)");
+      try {
+        const errorResponse = err.response?.data;
+
+        if (errorResponse?.data?.errcode && errorResponse?.data?.errmsg) {
+          const { errcode, errmsg } = errorResponse.data;
+          throw new Error(`${errcode}: ${errmsg}`);
+        } else if (errorResponse?.errcode && errorResponse?.errmsg) {
+          const { errcode, errmsg } = errorResponse;
+          throw new Error(`${errcode}: ${errmsg}`);
+        } else {
+          throw new Error(
+            "OTP verification failed: " + (err.message || "Unknown error")
+          );
+        }
+      } catch (parseError) {
+        throw new Error(
+          "OTP verification failed: " + (err.message || "Unknown error")
+        );
+      }
     }
 
     if (
@@ -187,14 +216,10 @@ export default class UserSvc {
       verifyRes.data.err !== null ||
       verifyRes.data.msg !== "OTP verified successfully"
     ) {
-      throw new Error("Invalid OTP");
+      throw new Error("INVALID_OTP");
     }
     return verifyRes;
   }
-
-  // async VerifyMobileOtp(userid, otp) {
-  //   return await this.userSvcDB.verifyMobileOtp(userid, otp);
-  // }
 
   async SetUserDefaults(userid, accountid, recursive, lat, lng, mapzoom) {
     return await this.userSvcDB.setUserDefaults(
@@ -253,6 +278,51 @@ export default class UserSvc {
   }
 
   async VerifyAndAddMobile(userid, otp, mobile) {
+    const otpVerifyUrl = `${config.mobileotpsvc.rooturl}${config.mobileotpsvc.verifyotppath}`;
+    const otpVerifyHeaders = {
+      "Content-Type": "application/json",
+    };
+    const otpVerifyBody = {
+      mobilenumber: mobile,
+      otp: otp,
+    };
+
+    let verifyRes;
+    try {
+      verifyRes = await axios.post(otpVerifyUrl, otpVerifyBody, {
+        headers: otpVerifyHeaders,
+      });
+    } catch (err) {
+      try {
+        const errorResponse = err.response?.data;
+
+        if (errorResponse?.data?.errcode && errorResponse?.data?.errmsg) {
+          const { errcode, errmsg } = errorResponse.data;
+          throw new Error(`${errcode}: ${errmsg}`);
+        } else if (errorResponse?.errcode && errorResponse?.errmsg) {
+          const { errcode, errmsg } = errorResponse;
+          throw new Error(`${errcode}: ${errmsg}`);
+        } else {
+          throw new Error(
+            "OTP verification failed: " + (err.message || "Unknown error")
+          );
+        }
+      } catch (parseError) {
+        throw new Error(
+          "OTP verification failed: " + (err.message || "Unknown error")
+        );
+      }
+    }
+
+    if (
+      !verifyRes.data ||
+      verifyRes.data.err !== null ||
+      verifyRes.data.msg !== "OTP verified successfully"
+    ) {
+      const error = new Error("INVALID_OTP");
+      error.errcode = "INVALID_OTP";
+      throw error;
+    }
     return await this.userSvcDB.verifyAndAddMobile(userid, otp, mobile);
   }
 
@@ -315,5 +385,57 @@ export default class UserSvc {
 
   async UpdatePasswordWithExpiry(userid, newPassword) {
     return await this.userSvcDB.updatePasswordWithExpiry(userid, newPassword);
+  }
+
+  async CheckUserLoginSecurity(userid) {
+    return await this.userSvcDB.checkUserLoginSecurity(userid);
+  }
+
+  async UpdateLoginSuccess(userid) {
+    return await this.userSvcDB.updateLoginSuccess(userid);
+  }
+
+  async UpdateLoginFailure(userid) {
+    return await this.userSvcDB.updateLoginFailure(userid);
+  }
+
+  async IsUserLocked(userid) {
+    return await this.userSvcDB.isUserLocked(userid);
+  }
+
+  async UnlockUser(userid) {
+    return await this.userSvcDB.unlockUser(userid);
+  }
+
+  async LogLoginAttempt(
+    userid,
+    ssotype,
+    loginattempt,
+    failurereason = null,
+    ipaddress = null,
+    useragent = null,
+    devicefingerprint = null
+  ) {
+    return await this.userSvcDB.logLoginAttempt(
+      userid,
+      ssotype,
+      loginattempt,
+      failurereason,
+      ipaddress,
+      useragent,
+      devicefingerprint
+    );
+  }
+
+  async GetUserLoginAuditHistory(userid, limit = 50) {
+    return await this.userSvcDB.getUserLoginAuditHistory(userid, limit);
+  }
+
+  async GetFailedLoginsBySSO(ssotype, hoursBack = 24) {
+    return await this.userSvcDB.getFailedLoginsBySSO(ssotype, hoursBack);
+  }
+
+  async UpdateUser(userid, updateFields, updatedby) {
+    return await this.userSvcDB.updateUser(userid, updateFields, updatedby);
   }
 }

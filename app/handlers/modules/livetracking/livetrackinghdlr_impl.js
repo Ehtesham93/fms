@@ -18,6 +18,14 @@ export default class LivetrackinghdlrImpl {
   };
 
   GetVehicleInfoLogic = async (accountid, vinno) => {
+    const vehicleExists = await this.livetrackingsvcI.checkVehicleExists(
+      accountid,
+      vinno
+    );
+    if (!vehicleExists) {
+      throw new Error("VEHICLE_DOES_NOT_EXIST_IN_ACCOUNT");
+    }
+
     let result = await this.livetrackingsvcI.getVehicleInfo(accountid, vinno);
     if (!result) {
       this.logger.error("Failed to get vehicle info");

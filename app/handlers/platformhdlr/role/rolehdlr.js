@@ -1,11 +1,14 @@
 import z from "zod";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
 import {
   APIResponseBadRequest,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import RoleHdlrImpl from "./rolehdlr_impl.js";
+import { UUID_PATTERN } from "../../../utils/constant.js";
 
 export default class RoleHdlr {
   constructor(roleSvcI, logger) {
@@ -16,26 +19,34 @@ export default class RoleHdlr {
 
   RegisterRoutes(router) {
     router.post("/", this.CreateRole);
-    router.put("/:roleid", this.UpdateRole);
+    router.put(`/:roleid(${UUID_PATTERN})`, this.UpdateRole);
     router.get("/list", this.ListRoles);
-    router.get("/:roleid", this.GetRole);
-    router.put("/:roleid/perms", this.UpdateRolePerms);
-    router.delete("/:roleid", this.DeleteRole);
+    router.get(`/:roleid(${UUID_PATTERN})`, this.GetRoleInfo);
+    router.put(`/:roleid(${UUID_PATTERN})/perms`, this.UpdateRolePerms);
+    router.delete(`/:roleid(${UUID_PATTERN})`, this.DeleteRole);
   }
 
   CreateRole = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.role.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create role."
+      );
+    }
     try {
       const createdby = req.userid;
       const schema = z.object({
         rolename: z
           .string({ message: "Invalid Role Name format" })
           .nonempty({ message: "Role Name is required" })
-          .max(128, {
-            message: "Role Name must be at most 128 characters long",
-          })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Role Name can only contain letters, numbers, spaces, hyphens, and underscores",
+          }).max(128, {
+            message: "Role Name must be at most 128 characters long",
           }),
 
         roletype: z.literal("platform", {
@@ -62,8 +73,18 @@ export default class RoleHdlr {
 
       APIResponseOK(req, res, result, "Role created successfully");
     } catch (e) {
+      this.logger.error("CreateRole error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.message === "ROLE_NAME_ALREADY_EXISTS") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "ROLE_NAME_ALREADY_EXISTS",
+          null,
+          "Role name already exists"
+        );
+        return;
       } else {
         APIResponseInternalErr(
           req,
@@ -77,6 +98,15 @@ export default class RoleHdlr {
   };
 
   UpdateRole = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.role.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to update role."
+      );
+    }
     try {
       const updatedby = req.userid;
       const roleid = req.params.roleid;
@@ -86,12 +116,11 @@ export default class RoleHdlr {
           .uuid({ message: "User ID must be a valid UUID" }),
         roleid: z
           .string({ message: "Invalid Role ID format" })
-          .nonempty({ message: "Role ID cannot be empty" })
-          .max(128, { message: "Role ID must not exceed 128 characters" }),
+          .uuid({ message: "Role ID must be a valid UUID" }),
         rolename: z
           .string({ message: "Invalid Role Name format" })
           .max(128, { message: "Role Name must be at most 128 characters" })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Role Name can only contain letters, numbers, spaces, hyphens, and underscores",
           })
@@ -141,6 +170,7 @@ export default class RoleHdlr {
       );
       APIResponseOK(req, res, result, "Role updated successfully");
     } catch (e) {
+      this.logger.error("UpdateRole error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -156,10 +186,25 @@ export default class RoleHdlr {
   };
 
   ListRoles = async (req, res, next) => {
+    // if (
+    //   !CheckUserPerms(req.userperms, [
+    //     "consolemgmt.role.view",
+    //     "consolemgmt.role.admin",
+    //   ])
+    // ) {
+    //   return APIResponseForbidden(
+    //     req,
+    //     res,
+    //     "INSUFFICIENT_PERMISSIONS",
+    //     null,
+    //     "You don't have permission to list roles."
+    //   );
+    // }
     try {
       let result = await this.roleHdlrImpl.ListRolesLogic();
       APIResponseOK(req, res, result, "Roles fetched successfully");
     } catch (e) {
+      this.logger.error("ListRoles error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -170,7 +215,21 @@ export default class RoleHdlr {
     }
   };
 
-  GetRole = async (req, res, next) => {
+  GetRoleInfo = async (req, res, next) => {
+    if (
+      !CheckUserPerms(req.userperms, [
+        "consolemgmt.role.view",
+        "consolemgmt.role.admin",
+      ])
+    ) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get role."
+      );
+    }
     try {
       const schema = z.object({
         roleid: z
@@ -182,9 +241,10 @@ export default class RoleHdlr {
         roleid: req.params.roleid,
       });
 
-      const result = await this.roleHdlrImpl.GetRoleLogic(roleid);
+      const result = await this.roleHdlrImpl.GetRoleInfoLogic(roleid);
       APIResponseOK(req, res, result, "Role fetched successfully");
     } catch (e) {
+      this.logger.error("GetRoleInfo error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -200,6 +260,15 @@ export default class RoleHdlr {
   };
 
   UpdateRolePerms = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.role.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to update role permissions."
+      );
+    }
     try {
       const updatedby = req.userid;
       const schema = z.object({
@@ -208,31 +277,24 @@ export default class RoleHdlr {
           .uuid({ message: "User ID must be a valid UUID" }),
         roleid: z
           .string({ message: "Invalid Role ID format" })
-          .nonempty({ message: "Role ID cannot be empty" })
-          .max(128, { message: "Role ID must not exceed 128 characters" }),
-        updatedperms: z
-          .array(
-            z.object({
-              moduleid: z
-                .string({ message: "Invalid Module ID format" })
-                .uuid({ message: "Module ID must be a valid UUID" }),
-              selectedpermids: z
-                .array(
-                  z
-                    .string()
-                    .min(1, { message: "Permission ID cannot be empty" })
-                )
-                .optional(),
-              deselectedpermids: z
-                .array(
-                  z
-                    .string()
-                    .min(1, { message: "Permission ID cannot be empty" })
-                )
-                .optional(),
-            })
-          )
-          
+          .uuid({ message: "Role ID must be a valid UUID" }),
+        updatedperms: z.array(
+          z.object({
+            moduleid: z
+              .string({ message: "Invalid Module ID format" })
+              .uuid({ message: "Module ID must be a valid UUID" }),
+            selectedpermids: z
+              .array(
+                z.string().min(1, { message: "Permission ID cannot be empty" })
+              )
+              .optional(),
+            deselectedpermids: z
+              .array(
+                z.string().min(1, { message: "Permission ID cannot be empty" })
+              )
+              .optional(),
+          })
+        ),
       });
 
       let { updatedperms } = validateAllInputs(schema, {
@@ -248,8 +310,12 @@ export default class RoleHdlr {
       );
       APIResponseOK(req, res, result, "Role permissions updated successfully");
     } catch (e) {
+      this.logger.error("UpdateRolePerms error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "CANNOT_UPDATE_SUPER_ADMIN_ROLE") {
+        APIResponseForbidden(req, res, e.errcode, null, e.message);
+        return;
       } else {
         APIResponseInternalErr(
           req,
@@ -263,6 +329,15 @@ export default class RoleHdlr {
   };
 
   DeleteRole = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.role.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to delete role."
+      );
+    }
     try {
       const schema = z.object({
         roleid: z
@@ -283,6 +358,7 @@ export default class RoleHdlr {
 
       APIResponseOK(req, res, result, "Role deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteRole error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else if (

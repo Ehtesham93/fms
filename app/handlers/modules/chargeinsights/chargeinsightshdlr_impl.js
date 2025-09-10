@@ -1,3 +1,9 @@
+import {
+  formatEpochToDuration,
+  formatEpochToDateTime,
+  toFormattedString,
+} from "../../../utils/epochconverter.js";
+
 export default class ChargeinsightshdlrImpl {
   constructor(chargeinsightssvcI, fmsAccountSvcI, tripsinsightssvcI, logger) {
     this.chargeinsightssvcI = chargeinsightssvcI;
@@ -82,7 +88,7 @@ export default class ChargeinsightshdlrImpl {
           chargingtype: chargingtype,
           chargingrate: Math.round(chargingrate * 100) / 100,
           socgainedpercent: `${Math.round(socgained * 100) / 100}%`,
-          chargingdurationformatted: this.formatTime(chargingduration),
+          chargingdurationformatted: formatEpochToDuration(chargingduration),
           avgpowerformatted: `${Math.round(avgpower * 100) / 100} kWh`,
           tempchangeformatted: `${tempchange > 0 ? "+" : ""}${
             Math.round(tempchange * 100) / 100
@@ -189,7 +195,7 @@ export default class ChargeinsightshdlrImpl {
           chargingtype: chargingtype,
           chargingrate: Math.round(chargingrate * 100) / 100,
           socgainedpercent: `${Math.round(socgained * 100) / 100}%`,
-          chargingdurationformatted: this.formatTime(chargingduration),
+          chargingdurationformatted: formatEpochToDuration(chargingduration),
           avgpowerformatted: `${Math.round(avgpower * 100) / 100} kWh`,
           tempchangeformatted: `${tempchange > 0 ? "+" : ""}${
             Math.round(tempchange * 100) / 100
@@ -404,22 +410,6 @@ export default class ChargeinsightshdlrImpl {
     return 85;
   };
 
-  formatTime = (milliseconds) => {
-    if (!milliseconds || milliseconds <= 0) {
-      return "0min";
-    }
-
-    const totalSeconds = Math.floor(milliseconds / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-    if (hours > 0) {
-      return `${hours}hr ${minutes}min`;
-    } else {
-      return `${minutes}min`;
-    }
-  };
-
   GetVehicleChargeInsightsLogic = async (
     accountid,
     vinno,
@@ -504,66 +494,11 @@ export default class ChargeinsightshdlrImpl {
     }
   };
 
-  formatTime = (epochMillis) => {
-    if (!epochMillis) return "";
-    const date = new Date(epochMillis);
-    return date
-      .toLocaleString("en-IN", {
-        timeZone: "Asia/Kolkata",
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      })
-      .replace(" at ", " ")
-      .replace(",", " |");
-  };
-
-  formatDuration = (ms) => {
-    if (!ms || ms < 0) return "";
-    const totalMins = Math.floor(ms / 60000);
-    const totalhrs = Math.floor(totalMins / 60);
-    const days = Math.floor(totalhrs / 24);
-    const hrs = totalhrs % 24;
-    const mins = totalMins % 60;
-    let str = "";
-    if (days > 0) str += `${days}d `;
-    if (hrs > 0) str += `${hrs}hr `;
-    if (mins > 0) str += `${mins}min`;
-    return str.trim();
-  };
-
   safeToFixed = (val, limit = 6) => {
     return typeof val === "number" && !isNaN(val)
       ? parseFloat(val.toFixed(limit))
       : 0;
   };
-
-  toFormattedString = (value) => {
-    const absValue = Math.abs(value);
-    const sign = value < 0 ? "-" : "";
-
-    const trimmedTo2Decimals = (num) => {
-      return parseFloat(num.toFixed(2)).toString();
-    };
-
-    if (absValue >= 1_000_000_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000_000_000)}T`;
-    } else if (absValue >= 1_000_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000_000)}B`;
-    } else if (absValue >= 1_000_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000_000)}M`;
-    } else if (absValue >= 1_000) {
-      return `${sign}${trimmedTo2Decimals(value / 1_000)}K`;
-    } else {
-      return trimmedTo2Decimals(value);
-    }
-  };
-
-  
 
   ProcessChargeData = async (accountid, vinNumbers, starttime, endtime) => {
     try {
@@ -574,7 +509,7 @@ export default class ChargeinsightshdlrImpl {
           starttime,
           endtime
         ),
-        this.fmsAccountSvcI.GetRegno(vinNumbers)
+        this.fmsAccountSvcI.GetRegno(vinNumbers),
       ]);
       if (!chargeData || chargeData.length === 0) {
         return {
@@ -618,7 +553,7 @@ export default class ChargeinsightshdlrImpl {
             const endEpoch = charge.endtime;
             const durationMs =
               endEpoch && startEpoch ? endEpoch - startEpoch : 0;
-            const durationStr = this.formatDuration(durationMs);
+            const durationStr = formatEpochToDuration(durationMs);
 
             // Parse startdata/enddata if needed
             let startdata = charge.startdata;
@@ -639,19 +574,17 @@ export default class ChargeinsightshdlrImpl {
             // Calculate unitgained
             const startkwh =
               startdata && typeof startdata.kwh === "number"
-                ? Math.abs(startdata.kwh)
+                ? startdata.kwh
                 : 0;
             const endkwh =
-              enddata && typeof enddata.kwh === "number"
-                ? Math.abs(enddata.kwh)
-                : 0;
+              enddata && typeof enddata.kwh === "number" ? enddata.kwh : 0;
             const unitgained = this.safeToFixed(Math.abs(endkwh - startkwh), 2);
 
             if (unitgained > 10) return;
             // Build session object
             const session = {
-              starttime: this.formatTime(startEpoch),
-              endtime: this.formatTime(endEpoch),
+              starttime: formatEpochToDateTime(startEpoch),
+              endtime: formatEpochToDateTime(endEpoch),
               startlat: this.safeToFixed(charge.startlat),
               endlat: this.safeToFixed(charge.endlat),
               startlng: this.safeToFixed(charge.startlng),
@@ -661,6 +594,8 @@ export default class ChargeinsightshdlrImpl {
               duration: durationStr,
               unitgained: `${this.safeToFixed(unitgained, 2)} kWh`,
               isfastcharging: isfastcharging,
+              // Add original epoch timestamp for sorting
+              _startEpoch: startEpoch,
             };
 
             // Add to vehicles object
@@ -707,10 +642,21 @@ export default class ChargeinsightshdlrImpl {
         }
       }
 
+      for (const vin in vehicles) {
+        vehicles[vin].sessions.sort((a, b) => {
+          // Use the original epoch timestamp for comparison
+          return b._startEpoch - a._startEpoch; // Reverse order (newest first)
+        });
+        // Remove the temporary _startEpoch field after sorting
+        vehicles[vin].sessions.forEach((session) => {
+          delete session._startEpoch;
+        });
+      }
+
       return {
-        totalchargingsessions: this.toFormattedString(totalChargingSessions),
-        totalchargingduration: this.formatDuration(totalChargingDuration),
-        totalenergygained: `${this.toFormattedString(totalEnergyGained)} kWh`,
+        totalchargingsessions: toFormattedString(totalChargingSessions),
+        totalchargingduration: formatEpochToDuration(totalChargingDuration),
+        totalenergygained: `${toFormattedString(totalEnergyGained)} kWh`,
         vehicles,
       };
     } catch (error) {
@@ -732,70 +678,75 @@ export default class ChargeinsightshdlrImpl {
 
   preprocessTripData = (tripData) => {
     const tripIndex = {};
-    
+
     // Group trips by VIN and create time-based index
-    tripData.forEach(trip => {
+    tripData.forEach((trip) => {
       if (!tripIndex[trip.vin]) {
         tripIndex[trip.vin] = [];
       }
       tripIndex[trip.vin].push({
         starttime: trip.starttime,
-        endtime: trip.endtime
+        endtime: trip.endtime,
       });
     });
-    
+
     // Sort trips by start time for each VIN for faster lookup
-    Object.keys(tripIndex).forEach(vin => {
+    Object.keys(tripIndex).forEach((vin) => {
       tripIndex[vin].sort((a, b) => a.starttime - b.starttime);
     });
-    
+
     return tripIndex;
   };
 
-
-
   // Optimized method to find trips in time window
-findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
-  const tripsForVin = tripIndex[vin] || [];
-  
-  // Binary search for faster lookup
-  let left = 0;
-  let right = tripsForVin.length - 1;
-  let foundTrips = [];
-  
-  while (left <= right) {
-    const mid = Math.floor((left + right) / 2);
-    const trip = tripsForVin[mid];
-    
-    // Check if trip overlaps with time window
-    if (trip.starttime < endTime && trip.endtime > startTime) {
-      foundTrips.push(trip);
-      
-      // Check adjacent trips for more matches
-      let i = mid - 1;
-      while (i >= 0 && tripsForVin[i].starttime < endTime && tripsForVin[i].endtime > startTime) {
-        foundTrips.unshift(tripsForVin[i]);
-        i--;
-      }
-      
-      i = mid + 1;
-      while (i < tripsForVin.length && tripsForVin[i].starttime < endTime && tripsForVin[i].endtime > startTime) {
-        foundTrips.push(tripsForVin[i]);
-        i++;
-      }
-      break;
-    }
-    
-    if (trip.endtime <= startTime) {
-      left = mid + 1;
-    } else {
-      right = mid - 1;
-    }
-  }
-  
-  return foundTrips;
-};
+  findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
+    const tripsForVin = tripIndex[vin] || [];
 
+    // Binary search for faster lookup
+    let left = 0;
+    let right = tripsForVin.length - 1;
+    let foundTrips = [];
+
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const trip = tripsForVin[mid];
+
+      // Check if trip overlaps with time window
+      if (trip.starttime < endTime && trip.endtime > startTime) {
+        foundTrips.push(trip);
+
+        // Check adjacent trips for more matches
+        let i = mid - 1;
+        while (
+          i >= 0 &&
+          tripsForVin[i].starttime < endTime &&
+          tripsForVin[i].endtime > startTime
+        ) {
+          foundTrips.unshift(tripsForVin[i]);
+          i--;
+        }
+
+        i = mid + 1;
+        while (
+          i < tripsForVin.length &&
+          tripsForVin[i].starttime < endTime &&
+          tripsForVin[i].endtime > startTime
+        ) {
+          foundTrips.push(tripsForVin[i]);
+          i++;
+        }
+        break;
+      }
+
+      if (trip.endtime <= startTime) {
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+
+    return foundTrips;
+  };
 
   processChargeDataForDate = (sessions, tripIndex) => {
     // 1. No recommended charge as per recommendation - charging for >30mins post 100% completion
@@ -810,7 +761,7 @@ findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
     let peakhourschargesessions = 0;
     // 6. idleconnection: Connected duration >> energy draw duration
     let idleconnection = 0;
-  
+
     for (const session of sessions) {
       // 1. chargebehaviorviolation: >30min post 100% SoC
       if (session.endsoc === 100) {
@@ -834,15 +785,15 @@ findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
       if (session.endsoc >= 98) {
         const sessionEndTime = session.endtime;
         const sixHoursLater = sessionEndTime + 12 * 60 * 60 * 1000; // 6 hours in milliseconds
-  
+
         // Find trips for this VIN in the 6-hour window after session ends
         // Use optimized trip lookup
-      const tripsForVin = this.findTripsInWindow(
-        tripIndex, 
-        session.vin, 
-        sessionEndTime, 
-        sixHoursLater
-      );
+        const tripsForVin = this.findTripsInWindow(
+          tripIndex,
+          session.vin,
+          sessionEndTime,
+          sixHoursLater
+        );
         // If no trips found in the 6-hour window, count as inactive after full charge
         if (tripsForVin.length === 0) {
           inactiveafterfullcharge++;
@@ -877,7 +828,7 @@ findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
         idleconnection++;
       }
     }
-  
+
     return {
       countLongPost100,
       countIntermittent,
@@ -885,21 +836,21 @@ findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
       inactiveafterfullcharge,
       peakhourschargesessions,
       idleconnection,
-      totalSessions: sessions.length
+      totalSessions: sessions.length,
     };
   };
 
   groupSessionsByDate = async (chargeData) => {
     const sessionsByDate = {};
-    
+
     // Process sessions in parallel batches
     const BATCH_SIZE = 1000; // Process 1000 sessions at a time
     const batches = [];
-    
+
     for (let i = 0; i < chargeData.length; i += BATCH_SIZE) {
       batches.push(chargeData.slice(i, i + BATCH_SIZE));
     }
-    
+
     const batchPromises = batches.map(async (batch) => {
       const batchResult = {};
       for (const session of batch) {
@@ -909,9 +860,9 @@ findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
       }
       return batchResult;
     });
-    
+
     const batchResults = await Promise.all(batchPromises);
-    
+
     // Merge all batch results
     for (const batchResult of batchResults) {
       for (const [dateKey, sessions] of Object.entries(batchResult)) {
@@ -919,10 +870,9 @@ findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
         sessionsByDate[dateKey].push(...sessions);
       }
     }
-    
+
     return sessionsByDate;
   };
-  
 
   GetFleetChargeInsightsOverviewLogic = async (
     accountid,
@@ -965,11 +915,7 @@ findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
           starttime,
           endtime
         ),
-        this.tripsinsightssvcI.GetTripsByFleet(
-          vinNumbers,
-          starttime,
-          endtime
-        )
+        this.tripsinsightssvcI.GetTripsByFleet(vinNumbers, starttime, endtime),
       ]);
 
       const tripIndex = this.preprocessTripData(tripData);
@@ -1079,7 +1025,7 @@ findTripsInWindow = (tripIndex, vin, startTime, endTime) => {
           inactiveafterfullcharge,
           peakhourschargesessions,
           idleconnection,
-          totalSessions
+          totalSessions,
         } = processed;
 
         // For summary

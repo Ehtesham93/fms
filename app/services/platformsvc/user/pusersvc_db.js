@@ -110,10 +110,10 @@ export default class PUserSvcDB {
         throw new Error("Email already invited to fleet with same role");
       }
 
+      // Check for existing pending invites for this email and role combinations
       query = `
-                    SELECT fip.inviteid, fip.invitestatus, fip.info, fie.expiresat FROM fleet_invite_email fie 
-                    JOIN fleet_invite_pending fip ON fie.accountid = fip.accountid AND fie.fleetid = fip.fleetid AND fie.inviteid = fip.inviteid
-                    WHERE fie.accountid = $1 AND fie.fleetid = $2 AND fie.email = $3 AND fip.invitetype = $4 and (fip.invitestatus = $5 or fip.invitestatus = $6)
+                    SELECT inviteid, invitestatus, roleid, expiresat FROM fleet_invite_pending 
+                    WHERE accountid = $1 AND fleetid = $2 AND contact = $3 AND invitetype = $4 AND invitestatus = $5 AND roleid = ANY($6)
                 `;
       result = await txclient.query(query, [
         accountid,
@@ -121,14 +121,14 @@ export default class PUserSvcDB {
         email,
         FLEET_INVITE_TYPE.EMAIL,
         FLEET_INVITE_STATUS.PENDING,
-        FLEET_INVITE_STATUS.PENDING,
+        roleids,
       ]);
 
       if (result?.rows?.length > 0) {
         let inviteToUpdate = null;
 
         for (const row of result.rows) {
-          // mark the invite as expired
+          // mark the invite as expired if it's expired
           if (new Date(row.expiresat) < currtime) {
             this.logger.info(
               `pusersvc_db.triggerEmailInviteToRootFleet: markInviteAsExpired: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${row.inviteid}`
@@ -142,19 +142,8 @@ export default class PUserSvcDB {
               txclient
             );
           } else {
-            // check if invite is for same role
-            // if it is, update the expiry and trigger email again
-            // if not, send fresh invite
-            if (inviteToUpdate) {
-              // we only need to update one invite
-              continue;
-            }
-            let updateExistingInvite = shouldUpdateExistingInvite(
-              row.info.roleids,
-              roleids
-            );
-
-            if (updateExistingInvite) {
+            // if we find a matching role, we can update that invite
+            if (roleids.includes(row.roleid) && !inviteToUpdate) {
               inviteToUpdate = row;
             }
           }
@@ -163,13 +152,13 @@ export default class PUserSvcDB {
         if (inviteToUpdate) {
           // update the expiry and trigger email again and exit
           this.logger.info(
-            `pusersvc_db.triggerEmailInviteToRootFleet: updateInviteExpiry: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteToUpdate.inviteid}, info: ${inviteToUpdate.info}, currtime: ${currtime}`
+            `pusersvc_db.triggerEmailInviteToRootFleet: updateInviteExpiry: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteToUpdate.inviteid}, roleid: ${inviteToUpdate.roleid}, currtime: ${currtime}`
           );
           let res = await updateInviteExpiryAndSendEmail(
             accountid,
             fleetid,
             inviteToUpdate.inviteid,
-            inviteToUpdate.info,
+            { email: email, roleid: inviteToUpdate.roleid },
             currtime,
             headerReferer,
             email,
@@ -193,47 +182,30 @@ export default class PUserSvcDB {
       );
 
       let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
-      query = `
-                    INSERT INTO fleet_invite_email (accountid, fleetid, inviteid, email, expiresat) VALUES ($1, $2, $3, $4, $5)
-                `;
-      result = await txclient.query(query, [
-        accountid,
-        fleetid,
-        inviteid,
-        email,
-        expiresat,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create invite email");
-      }
 
-      query = `
-                    INSERT INTO fleet_invite_pending (accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby) 
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                `;
-      let invitemeta = {
-        accountid: accountid,
-        fleetid: fleetid,
-        inviteid: inviteid,
-        email: email,
-        expiresat: expiresat,
-        roleids: roleids,
-        invitedby: invitedby,
-      };
-      result = await txclient.query(query, [
-        accountid,
-        fleetid,
-        inviteid,
-        invitemeta,
-        FLEET_INVITE_TYPE.EMAIL,
-        FLEET_INVITE_STATUS.PENDING,
-        currtime,
-        invitedby,
-        currtime,
-        invitedby,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to create invite email");
+      // Insert invites for each role (since new schema stores one role per row)
+      for (const roleid of roleids) {
+        query = `
+                      INSERT INTO fleet_invite_pending (inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby) 
+                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                  `;
+        result = await txclient.query(query, [
+          inviteid,
+          accountid,
+          fleetid,
+          email,
+          roleid,
+          FLEET_INVITE_TYPE.EMAIL,
+          FLEET_INVITE_STATUS.PENDING,
+          expiresat,
+          currtime,
+          invitedby,
+          currtime,
+          invitedby,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create invite pending record");
+        }
       }
 
       query = `
@@ -304,7 +276,7 @@ export default class PUserSvcDB {
     try {
       // check if inviteid is valid
       let query = `
-                SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
             `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
@@ -322,22 +294,7 @@ export default class PUserSvcDB {
         throw new Error("Invite is not an email invite");
       }
 
-      query = `
-                SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-            `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        throw new Error("Invite email not found");
-      }
-
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(invite.expiresat) < currtime) {
         this.logger.info(
           `pusersvc_db.resendInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${inviteid}`
         );
@@ -353,15 +310,16 @@ export default class PUserSvcDB {
       }
 
       let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+      // Update expiry in fleet_invite_pending
       query = `
-                UPDATE fleet_invite_email SET expiresat = $1 WHERE accountid = $2 AND fleetid = $3 AND inviteid = $4 AND email = $5
+                UPDATE fleet_invite_pending SET expiresat = $1, updatedat = $2, updatedby = $3 WHERE inviteid = $4
             `;
       result = await txclient.query(query, [
         expiresat,
-        invite.accountid,
-        invite.fleetid,
+        currtime,
+        invitedby,
         inviteid,
-        inviteemail,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update invite expiry");
@@ -394,7 +352,7 @@ export default class PUserSvcDB {
         accountname,
         fleetname,
         headerReferer,
-        inviteemail
+        invite.contact
       );
 
       query = `
@@ -414,7 +372,7 @@ export default class PUserSvcDB {
         inviteid: inviteid,
         accountid: invite.accountid,
         fleetid: invite.fleetid,
-        email: inviteemail,
+        email: invite.contact,
         expiresat: expiresat,
       };
     } catch (e) {
@@ -502,11 +460,16 @@ export default class PUserSvcDB {
   }
 
   async removeUserRole(accountid, fleetid, userid, roleid) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
+
     try {
       let query = `
-            DELETE FROM fleet_user_role WHERE userid = $1 AND accountid = $2 AND fleetid = $3 AND roleid = $4
-        `;
-      let result = await this.pgPoolI.Query(query, [
+        DELETE FROM fleet_user_role WHERE userid = $1 AND accountid = $2 AND fleetid = $3 AND roleid = $4
+      `;
+      let result = await txclient.query(query, [
         userid,
         accountid,
         fleetid,
@@ -515,8 +478,36 @@ export default class PUserSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to remove user role");
       }
+
+      query = `
+        SELECT COUNT(*) as count FROM fleet_user_role 
+        WHERE userid = $1 AND accountid = $2 AND fleetid = $3
+      `;
+      result = await txclient.query(query, [userid, accountid, fleetid]);
+
+      const remainingRoles = parseInt(result.rows[0].count);
+
+      if (remainingRoles === 0) {
+        query = `
+          DELETE FROM user_fleet WHERE userid = $1 AND accountid = $2 AND fleetid = $3
+        `;
+        result = await txclient.query(query, [userid, accountid, fleetid]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to remove user from fleet");
+        }
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+
       return true;
     } catch (error) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
       throw new Error("Failed to remove user role");
     }
   }
@@ -606,6 +597,22 @@ export default class PUserSvcDB {
     }
   }
 
+  async getRootFleetId(accountid) {
+    try {
+      let query = `
+        SELECT fleetid FROM account_fleet 
+        WHERE accountid = $1 AND isroot = true
+      `;
+      let result = await this.pgPoolI.Query(query, [accountid]);
+      if (result.rowCount !== 1) {
+        return null;
+      }
+      return result.rows[0].fleetid;
+    } catch (error) {
+      throw new Error(`Failed to retrieve root fleet ID`);
+    }
+  }
+
   async checkSuperAdminRole(userid) {
     try {
       const platformAccountId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
@@ -626,6 +633,104 @@ export default class PUserSvcDB {
     } catch (error) {
       this.logger.error("Error checking super admin role", error);
       return false;
+    }
+  }
+
+  async listPendingUsers() {
+    try {
+      let query = `
+        SELECT 
+          rpu.userid, 
+          rpu.displayname, 
+          rpu.usertype, 
+          rpu.mobile,
+          rpu.email,
+          rpu.address,
+          rpu.city,
+          rpu.country,
+          rpu.pincode,
+          rpu.dateofbirth,
+          rpu.gender,
+          rpu.vehiclemobile,
+          rpu.userinfo, 
+          rpu.isenabled, 
+          rpu.isdeleted, 
+          rpu.isemailverified, 
+          rpu.ismobileverified, 
+          rpu.acceptedterms, 
+          rpu.original_input,
+          rpu.error_status,
+          rpu.status, 
+          rpu.reason, 
+          rpu.review_data, 
+          rpu.createdat, 
+          u1.displayname as createdby, 
+          rpu.updatedat, 
+          u2.displayname as updatedby
+        FROM reviewpendinguser rpu
+        JOIN users u1 ON rpu.createdby = u1.userid
+        JOIN users u2 ON rpu.updatedby = u2.userid
+        ORDER BY rpu.createdat DESC
+      `;
+      let result = await this.pgPoolI.Query(query);
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to list pending users: ${error.message}`);
+    }
+  }
+
+  async listDoneUsers() {
+    try {
+      let query = `
+        SELECT 
+          rdu.userid, 
+          rdu.displayname, 
+          rdu.usertype, 
+          rdu.mobile,
+          rdu.email,
+          rdu.address,
+          rdu.city,
+          rdu.country,
+          rdu.pincode,
+          rdu.dateofbirth,
+          rdu.gender,
+          rdu.vehiclemobile,
+          rdu.userinfo, 
+          rdu.isenabled, 
+          rdu.isdeleted, 
+          rdu.isemailverified, 
+          rdu.ismobileverified, 
+          rdu.acceptedterms, 
+          rdu.original_input,
+          rdu.original_status as status, 
+          rdu.resolution_reason as reason, 
+          jsonb_set(  
+          jsonb_set(
+            rdu.review_data, 
+            '{createdby}', 
+            to_jsonb(u4.displayname)
+          ),
+          '{updatedby}',
+          to_jsonb(u5.displayname)
+        ) as review_data,
+          rdu.reviewed_at, 
+          u1.displayname as reviewed_by, 
+          rdu.createdat, 
+          u2.displayname as createdby, 
+          rdu.updatedat, 
+          u3.displayname as updatedby
+        FROM reviewdoneuser rdu
+        JOIN users u1 ON rdu.reviewed_by = u1.userid
+        JOIN users u2 ON rdu.createdby = u2.userid
+        JOIN users u3 ON rdu.updatedby = u3.userid
+        LEFT JOIN users u4 ON (rdu.review_data->>'createdby')::uuid = u4.userid
+        LEFT JOIN users u5 ON (rdu.review_data->>'updatedby')::uuid = u5.userid
+        ORDER BY rdu.reviewed_at DESC
+      `;
+      let result = await this.pgPoolI.Query(query);
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to list done users: ${error.message}`);
     }
   }
 
@@ -802,5 +907,341 @@ export default class PUserSvcDB {
 
   async hashPassword(password) {
     return Sha256hash(password);
+  }
+
+  async getMetadataOptions() {
+    try {
+      // Execute all queries in parallel using Promise.all
+      const [cityResult, dealerResult, colourResult, fueltypeResult, tgu_modelResult, tgu_sw_versionResult] =
+        await Promise.all([
+          this.pgPoolI.Query("SELECT cityname FROM city"),
+          this.pgPoolI.Query("SELECT dealername FROM dealer"),
+          this.pgPoolI.Query("SELECT colorname from color"),
+          this.pgPoolI.Query("SELECT fueltypename FROM fueltype"),
+          this.pgPoolI.Query("SELECT tgu_model FROM tgu_model"),
+          this.pgPoolI.Query("SELECT tgu_sw_version FROM tgu_sw_version"),
+        ]);
+
+      return {
+        city: cityResult.rows.map((row) => row.cityname),
+        dealer: dealerResult.rows.map((row) => row.dealername),
+        colour: colourResult.rows.map((row) => row.colorname),
+        fueltype: fueltypeResult.rows.map((row) => row.fueltypename),
+        tgu_model: tgu_modelResult.rows.map((row) => row.tgu_model),
+        tgu_sw_version: tgu_sw_versionResult.rows.map((row) => row.tgu_sw_version),
+        gender: ["Male", "Female", "Other"],
+      };
+    } catch (error) {
+      throw new Error("Failed to get vehicle metadata options");
+    }
+  }
+
+  async addReviewDoneUser(userData) {
+    try {
+      const currtime = new Date();
+
+      const query = `
+        INSERT INTO reviewdoneuser (
+          userid,
+          displayname,
+          usertype,
+          mobile,
+          email,
+          address,
+          city,
+          country,
+          pincode,
+          dateofbirth,
+          gender,
+          vehiclemobile,
+          userinfo,
+          isenabled,
+          isdeleted,
+          isemailverified,
+          ismobileverified,
+          acceptedterms,
+          original_input,
+          original_status,
+          resolution_reason,
+          review_data,
+          reviewed_at,
+          reviewed_by,
+          createdat,
+          createdby,
+          updatedat,
+          updatedby
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
+        )
+      `;
+
+      const values = [
+        userData.userid,
+        userData.displayname,
+        userData.usertype || null,
+        userData.mobile,
+        userData.email,
+        userData.address,
+        userData.city,
+        userData.country,
+        userData.pincode,
+        userData.dateofbirth,
+        userData.gender,
+        userData.vehiclemobile,
+        userData.userinfo || {},
+        userData.isenabled,
+        userData.isdeleted,
+        userData.isemailverified,
+        userData.ismobileverified,
+        userData.acceptedterms || {},
+        userData.original_input,
+        userData.original_status || "APPROVED",
+        userData.resolution_reason || "User created successfully",
+        userData.review_data || {},
+        currtime, // reviewed_at
+        userData.reviewed_by,
+        currtime, // createdat
+        userData.createdby,
+        currtime, // updatedat
+        userData.updatedby,
+      ];
+
+      const result = await this.pgPoolI.Query(query, values);
+
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to insert review done user");
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`addReviewDoneUser error: ${error}`);
+      throw new Error("Unable to add review done user");
+    }
+  }
+
+  async addReviewPendingUser(userData) {
+    const currtime = new Date();
+    const query = `
+      INSERT INTO reviewpendinguser (
+        userid,
+        displayname,
+        usertype,
+        mobile,
+        email,
+        address,
+        city,
+        country,
+        pincode,
+        dateofbirth,
+        gender,
+        vehiclemobile,
+        userinfo,
+        isenabled,
+        isdeleted,
+        isemailverified,
+        ismobileverified,
+        acceptedterms,
+        original_input,
+        error_status,
+        status,
+        reason,
+        review_data,
+        createdat,
+        createdby,
+        updatedat,
+        updatedby
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+    `;
+    const values = [
+      userData.userid,
+      userData.displayname,
+      userData.usertype,
+      userData.mobile,
+      userData.email,
+      userData.address,
+      userData.city,
+      userData.country,
+      userData.pincode,
+      userData.dateofbirth,
+      userData.gender,
+      userData.vehiclemobile,
+      userData.userinfo,
+      userData.isenabled,
+      userData.isdeleted,
+      userData.isemailverified,
+      userData.ismobileverified,
+      userData.acceptedterms,
+      userData.original_input,
+      userData.error_status,
+      userData.status,
+      userData.reason,
+      userData.review_data,
+      currtime,
+      userData.createdby,
+      currtime,
+      userData.updatedby,
+    ];
+    const result = await this.pgPoolI.Query(query, values);
+    return result.rowCount === 1;
+  }
+  catch(error) {
+    this.logger.error(`addReviewPendingUser error: ${error}`);
+    throw new Error("Unable to add review pending user");
+  }
+
+  async addUserInfo(userid, userinfo, createdby) {
+    try {
+      const currtime = new Date();
+
+      const query = `
+        INSERT INTO user_info (
+          userid,
+          address,
+          addresscity,
+          addresscountry,
+          addresspincode,
+          dateofbirth,
+          gender,
+          createdat,
+          createdby,
+          updatedat,
+          updatedby
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+        )
+      `;
+
+      const values = [
+        userid,
+        userinfo.address,
+        userinfo.addresscity,
+        userinfo.addresscountry,
+        userinfo.addresspincode,
+        userinfo.dateofbirth,
+        userinfo.gender,
+        currtime,
+        createdby,
+        currtime,
+        createdby,
+      ];
+
+      const result = await this.pgPoolI.Query(query, values);
+
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to insert user info");
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error("Error in addUserInfo:", error);
+      throw error;
+    }
+  }
+
+  async getUserInfo(userid) {
+    try {
+      const query = `SELECT * FROM user_info WHERE userid = $1`;
+      const result = await this.pgPoolI.Query(query, [userid]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in getUserInfo:", error);
+      throw error;
+    }
+  }
+  async updateUserInfo(userid, userinfo, updatedby) {
+    try {
+      const currtime = new Date();
+
+      const fields = Object.keys(userinfo);
+      if (fields.length === 0) {
+        return null; // No fields to update
+      }
+
+      const setClause = fields
+        .map((field, index) => `${field} = $${index + 1}`)
+        .join(", ");
+      const finalSetClause = `${setClause}, updatedat = $${
+        fields.length + 1
+      }, updatedby = $${fields.length + 2}`;
+      const values = [
+        ...fields.map((field) => userinfo[field]),
+        currtime,
+        updatedby,
+        userid,
+      ];
+      const query = `UPDATE user_info SET ${finalSetClause} WHERE userid = $${
+        fields.length + 3
+      }`;
+      const result = await this.pgPoolI.Query(query, values);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in updateUserInfo:", error);
+      throw error;
+    }
+  }
+
+  async getPendingUserReviewById(userid) {
+    try {
+      const query = `SELECT * FROM reviewpendinguser WHERE userid = $1`;
+      const result = await this.pgPoolI.Query(query, [userid]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in getPendingUserReviewById:", error);
+      throw error;
+    }
+  }
+
+  async updateReviewPendingUser(userid, updateFields, updatedby) {
+    try {
+      const currtime = new Date();
+      updateFields.updatedat = currtime;
+      updateFields.updatedby = updatedby;
+
+      const setClause = Object.keys(updateFields)
+        .map((key, index) => `${key} = $${index + 1}`)
+        .join(", ");
+
+      const values = [...Object.values(updateFields), userid];
+      const query = `UPDATE reviewpendinguser SET ${setClause} WHERE userid = $${values.length}`;
+
+      const result = await this.pgPoolI.Query(query, values);
+      return result.rowCount > 0; // Return boolean for success/failure
+    } catch (error) {
+      this.logger.error("Error in updateReviewPendingUser:", error);
+      throw error;
+    }
+  }
+
+  async deletePendingUserReviewById(userid) {
+    try {
+      const query = `DELETE FROM reviewpendinguser WHERE userid = $1`;
+      const result = await this.pgPoolI.Query(query, [userid]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in deletePendingUserReviewById:", error);
+      throw error;
+    }
+  }
+  async checkIsUserAddedToAccount(userid, accountid) {
+    try {
+      const query = `SELECT * FROM user_fleet WHERE userid = $1 AND accountid = $2`;
+      const result = await this.pgPoolI.Query(query, [userid, accountid]);
+      // ✅ FIX: Return boolean
+      return result.rows.length > 0;
+    } catch (error) {
+      this.logger.error("Error in checkIsUserAddedToAccount:", error);
+      throw error;
+    }
+  }
+
+  async checkIsVehicleAddedToAccount(vinno) {
+    try {
+      const query = `SELECT accountid, fleetid FROM fleet_vehicle WHERE vinno = $1`;
+      const result = await this.pgPoolI.Query(query, [vinno]);
+      return result.rows.length > 0;
+    } catch (error) {
+      this.logger.error("Error in checkIsVehicleAddedToAccount:", error);
+      throw error;
+    }
   }
 }

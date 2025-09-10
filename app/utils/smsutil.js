@@ -1,6 +1,5 @@
-import axios from 'axios';
+import axios from "axios";
 import config from "../config/config.js"; //used for request and verify otp
-
 
 // const INFOBIP_API_URL = 'https://pkjxl.api.infobip.com/sms/1/text/single';
 // const INFOBIP_AUTH_TOKEN = '4249dafe5661706783b2b2793e1c086e-e4ec9854-611c-49e1-814d-8aefff8671fe';
@@ -32,31 +31,58 @@ import config from "../config/config.js"; //used for request and verify otp
 
 // TODO: uncomment this after testing is done for mobile otp verification through fms-otp-svc
 export const SendSms = async (mobile, message) => {
-    try {
-        const requestotpUrl = `${config.mobileotpsvc.rooturl}${config.mobileotpsvc.requestotppath}`;
-        const requestotpHeaders = {
-          "Content-Type": "application/json"
-        };
-        const requestotpBody = {
-          mobilenumber: mobile,
-          info: {message: message}
-        };
+  try {
+    const requestotpUrl = `${config.mobileotpsvc.rooturl}${config.mobileotpsvc.requestotppath}`;
+    const requestotpHeaders = {
+      "Content-Type": "application/json",
+    };
+    const requestotpBody = {
+      mobilenumber: mobile,
+      info: { message: message },
+    };
 
-        let requestotpres;
-        try {
-          requestotpres = await axios.post(requestotpUrl, requestotpBody, { headers: requestotpHeaders });
-        } catch (err) {
-          throw new Error("OTP request failed");
-        }
-        if (
-          !requestotpres.data ||
-          requestotpres.data.err !== null ||
-          requestotpres.data.msg !== "OTP request sent successfully"
-        ) {
-          throw new Error("OTP request failed");
-        }
-        return requestotpres.data;
-    } catch (error) {
-        throw new Error(`Failed to send SMS: ${error.message}`);
+    let requestotpres;
+    try {
+      requestotpres = await axios.post(requestotpUrl, requestotpBody, {
+        headers: requestotpHeaders,
+      });
+    } catch (err) {
+      const errorResponse = err.response?.data;
+      if (errorResponse?.err?.errcode && errorResponse?.msg) {
+        const { errcode } = errorResponse.err;
+        const { msg } = errorResponse;
+        const error = new Error(msg);
+        error.errcode = errcode;
+        throw error;
+      } else if (errorResponse?.data?.errcode && errorResponse?.data?.errmsg) {
+        const { errcode, errmsg } = errorResponse.data;
+        const error = new Error(errmsg);
+        error.errcode = errcode;
+        throw error;
+      } else if (errorResponse?.errcode && errorResponse?.errmsg) {
+        const { errcode, errmsg } = errorResponse;
+        const error = new Error(errmsg);
+        error.errcode = errcode;
+        throw error;
+      } else {
+        const error = new Error(
+          "OTP request failed: " + (err.message || "Unknown error")
+        );
+        error.errcode = "SMS_SEND_FAILED";
+        throw error;
+      }
     }
+    if (
+      !requestotpres.data ||
+      requestotpres.data.err !== null ||
+      requestotpres.data.msg !== "OTP request sent successfully"
+    ) {
+      const error = new Error("OTP request failed");
+      error.errcode = "OTP_REQUEST_FAILED";
+      throw error;
+    }
+    return requestotpres.data;
+  } catch (error) {
+    throw error;
+  }
 };

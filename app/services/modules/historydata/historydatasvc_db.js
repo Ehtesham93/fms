@@ -6,13 +6,13 @@ export default class HistoryDataSvcDB {
     this.clickHouseClient = clickHouseClient;
     this.logger = logger;
     this.canmetrics = [
-      "tstamp",
       "cycletime",
       "charger_sts_live",
       "bms_charger_plug_in_sts",
       "drive_enable",
       "bms_hvbatt_connect_sts",
       "bms_hvbatt_disconnect_sts",
+      "bms_in_keyon",
       "bms_cyclenum",
       "charger_temp_live",
       "chargertemp",
@@ -24,26 +24,27 @@ export default class HistoryDataSvcDB {
       "bms_batt_pack_temp",
       "brake_switch_status",
       "odometer",
-      "odometer_new",
       "vehiclespeed",
       "motorpower",
       "e_motor_rpm",
       "inv_drivemode_shift",
       "v_mode",
       "battery_ttc",
+      "percthrottle",
+      "kwh",
       "batt_current",
       "aux_batt_volt",
       "bat_voltage",
       "dte",
-      "can_dte",
       "can_throttle",
       "wakeup_command",
       "veh_immo_resp",
       "service_tt",
       "chargett",
       "connectionhealthtt",
-      "bms_in_keyon",
       "tcu_speedmode",
+      "Test Data",
+      "aux_batt_volt",
     ];
   }
 
@@ -492,7 +493,7 @@ export default class HistoryDataSvcDB {
           latitude: row.latitude,
           longitude: row.longitude,
           utctime: row.utctime,
-          gpstime: row.gpstime
+          gpstime: row.gpstime,
         };
       }
 
@@ -507,8 +508,7 @@ export default class HistoryDataSvcDB {
     try {
       const vinList = vinnos.map((vin) => `'${vin}'`).join(",");
       const query = `
-        SELECT vin, utctime, odometer, dte, soc, charger_sts_live, bms_charger_plug_in_sts, drive_enable, bms_cyclenum, charger_temp_live, bms_cell_avg_volt, bms_cell_avg_temp, motortemp, bms_batt_pack_temp, brake_switch_status, vehiclespeed, motorpower, e_motor_rpm, v_mode, battery_ttc, batt_current, aux_batt_volt, bat_voltage, veh_immo_resp, service_tt, chargett, bms_in_keyon, tcu_speedmode
-        FROM lmmdata_latest.candatalatest
+        SELECT * FROM lmmdata_latest.candatalatest
         WHERE vin IN (${vinList})
       `;
 
@@ -524,35 +524,65 @@ export default class HistoryDataSvcDB {
 
       const canDataMap = {};
       for (let row of result.data) {
-        canDataMap[row.vin] = { 
-          vin: row.vin, 
-          utctime: row.utctime, 
-          odometer: row.odometer, 
-          dte: row.dte, 
-          soc: row.soc, 
-          charger_sts_live: row.charger_sts_live, 
-          bms_charger_plug_in_sts: row.bms_charger_plug_in_sts, 
-          drive_enable: row.drive_enable, 
-          bms_cyclenum: row.bms_cyclenum, 
-          charger_temp_live: row.charger_temp_live, 
-          bms_cell_avg_volt: row.bms_cell_avg_volt, 
-          bms_cell_avg_temp: row.bms_cell_avg_temp, 
-          motortemp: row.motortemp, 
-          bms_batt_pack_temp: row.bms_batt_pack_temp, 
-          brake_switch_status: row.brake_switch_status, 
-          vehiclespeed: row.vehiclespeed, motorpower: row.motorpower, 
-          e_motor_rpm: row.e_motor_rpm,
-          v_mode: row.v_mode, 
-          battery_ttc: row.battery_ttc, 
-          batt_current: row.batt_current, 
-          aux_batt_volt: row.aux_batt_volt,
-          bat_voltage: row.bat_voltage,
-          veh_immo_resp: row.veh_immo_resp,
-          service_tt: row.service_tt,
-          chargett: row.chargett,
-          bms_in_keyon: row.bms_in_keyon,
-          tcu_speedmode: row.tcu_speedmode
-        };
+        const formatted = { ...row };
+
+        if (formatted.utctime !== undefined)
+          formatted.utctime = parseInt(formatted.utctime) || 0;
+        if (formatted.intime !== undefined)
+          formatted.intime = parseInt(formatted.intime) || 0;
+        if (formatted.proctime !== undefined)
+          formatted.proctime = parseInt(formatted.proctime) || 0;
+
+        const uint32Fields = [
+          "bms_cyclenum",
+          "can_soc",
+          "soh",
+          "brake_switch_status",
+          "e_motor_rpm",
+          "inv_drivemode_shift",
+          "v_mode",
+          "battery_ttc",
+          "can_dte",
+          "can_throttle",
+          "veh_immo_resp",
+          "service_tt",
+          "chargett",
+          "connectionhealthtt",
+          "tcu_speedmode",
+        ];
+        uint32Fields.forEach((field) => {
+          if (formatted[field] !== undefined) {
+            formatted[field] = parseInt(formatted[field]) || 0;
+          }
+        });
+
+        const float32Fields = [
+          "charger_temp_live",
+          "chargertemp",
+          "soc",
+          "bms_cell_avg_volt",
+          "bms_cell_avg_temp",
+          "motortemp",
+          "bms_batt_pack_temp",
+          "odometer",
+          "odometer_new",
+          "vehiclespeed",
+          "motorpower",
+          "percthrottle",
+          "kwh",
+          "batt_current",
+          "aux_batt_volt",
+          "bat_voltage",
+          "dte",
+          "wakeup_command",
+        ];
+        float32Fields.forEach((field) => {
+          if (formatted[field] !== undefined) {
+            formatted[field] = parseFloat(formatted[field]) || 0;
+          }
+        });
+
+        canDataMap[row.vin] = formatted;
       }
 
       return canDataMap;

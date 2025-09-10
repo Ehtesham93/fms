@@ -46,7 +46,7 @@ export default {
       "http://10.178.0.16:8123",
       "http://10.178.0.210:8123",
       "http://10.178.0.45:8123",
-      //"http://10.178.0.132:8123",
+      "http://10.178.0.132:8123",
     ],
     username: "default",
     password: "",
@@ -65,5 +65,24 @@ export default {
     sitekey: "6LfvoH8rAAAAAAIQoIm0yRc2lfEyzrwdh0RAMeH_",
     secretkey: "6LfvoH8rAAAAAHw1ivt1fmLTGViTQBrEtgPAsxwj",
     siteurl: "https://www.google.com/recaptcha/api/siteverify",
+  },
+  defaultuser: {
+    password:
+      "69f9f7c745883a32502dc7d9d67b16aaa09ea9d0b19de202555cf8e1b42be693",
+  },
+  logToConsole: false,
+  seedConfig: {
+    BASE_URL: "https://stg-nemo.mahindralastmilemobility.com",
+    PORT: "2083",
+  },
+  fmsFeatures: {
+    enableSubscribedVehiclesFilter: false,
+  },
+  serviceConfig: {
+    url: "http://dev-nemo3-api-service-svc.intellicar-frontend1:10004",
+    onboardingPath: "/api/v1/fms/service/vehicle/onboarding",
+  },
+  inMemCache: {
+    stdTTL: 3600, // in seconds
   },
 };

@@ -1,7 +1,9 @@
 import { v4 as uuidv4 } from "uuid";
-import { EncryptPassword, ComparePassword } from "../../utils/eccutil.js";
-import { SendSms } from "../../utils/smsutil.js";
+import { TOKEN_EXPIRY_TIME } from "../../utils/constant.js";
+import { ComparePassword, EncryptPassword } from "../../utils/eccutil.js";
 import { GetUnVerifiedClaims } from "../../utils/jwtutil.js";
+import { SendSms } from "../../utils/smsutil.js";
+
 
 export default class UserHdlrImpl {
   constructor(userSvcI, authSvcI, fmsSvcI, platformSvcI, logger) {
@@ -77,6 +79,26 @@ export default class UserHdlrImpl {
   };
 
   GetAccountTokenLogic = async (userid, accountid, expiresin) => {
+    // Check if account exists and is valid
+    let account = await this.platformSvcI
+      .getAccountSvc()
+      .GetAccountInfo(accountid);
+    if (!account) {
+      throw new Error("ACCOUNT_NOT_FOUND");
+    }
+
+    let userAccounts = await this.fmsSvcI.GetUserAccounts(userid);
+    if (!userAccounts) {
+      throw new Error("USER_HAS_NO_ACCOUNT_ACCESS");
+    }
+
+    let hasAccess = userAccounts.some(
+      (userAccount) => userAccount.accountid === accountid
+    );
+    if (!hasAccess) {
+      throw new Error("USER_DOES_NOT_HAVE_ACCESS_TO_ACCOUNT");
+    }
+
     let tokenclaims = {
       claims: {
         userid: userid,
@@ -168,7 +190,9 @@ export default class UserHdlrImpl {
   GetUserInfoLogic = async (userid) => {
     let userinfo = await this.userSvcI.GetUserDetails(userid);
     if (!userinfo) {
-      throw new Error("Failed to get user info");
+      const error = new Error("user not found or does not belong to this account");
+      error.errcode = "USER_NOT_FOUND";
+      throw error;
     }
     return userinfo;
   };
@@ -180,32 +204,13 @@ export default class UserHdlrImpl {
       throw error;
     }
 
-    let userDetails = await this.userSvcI.GetUserDetails(userid);
-    if (!userDetails) {
-      const error = new Error("User not found");
-      error.errcode = "USER_NOT_FOUND";
-      throw error;
-    }
-
-    if (!userDetails.isdeleted) {
-      const error = new Error("User is not deleted, cannot recover");
-      error.errcode = "USER_NOT_DELETED";
-      throw error;
-    }
-
-    if (!userDetails.displayname.includes("_deleted_")) {
-      const error = new Error("User doesn't appear to be soft deleted");
-      error.errcode = "USER_NOT_DELETED";
-      throw error;
-    }
-
     let result = await this.userSvcI.RecoverUser(userid, recoveredby);
     if (!result) {
       throw new Error("Failed to recover user");
     }
 
     try {
-      await this.authSvcI.CreateConsumer(userid, recoveredby);
+      await this.authSvcI.CreateConsumer(userid);
     } catch (error) {
       this.logger.error(
         `Failed to create consumer in auth service for user ${userid}`,
@@ -243,7 +248,11 @@ export default class UserHdlrImpl {
       });
 
       const message = `Verify_OTP_for_Mahindra_Nemo at ${otp} , please check - Intellicar`;
-      await SendSms(mobile, message);
+      try {
+        await SendSms(mobile, message);
+      } catch (err) {
+        throw err;
+      }
 
       return {
         message: "OTP sent to your mobile number",
@@ -505,9 +514,11 @@ export default class UserHdlrImpl {
       return {
         verifyid: verifyid,
         isvalid: result.isvalid,
+        isdifferentuser: result.isdifferentuser,
         status: result.status,
         message: result.message,
         email: result.email,
+        mobile: result.mobile,
         expiresat: result.expiresat,
       };
     } catch (error) {
@@ -517,6 +528,13 @@ export default class UserHdlrImpl {
 
   GetAcceptedTermsLogic = async (userid) => {
     let result = await this.userSvcI.GetAcceptedTerms(userid);
+    if (!result) {
+      result = {
+        promotions: false,
+        privacypolicy: false,
+        termsandconditions: false,
+      };
+    }
     return result;
   };
 
@@ -698,8 +716,11 @@ export default class UserHdlrImpl {
       throw error;
     }
 
-    let validity = 1 * 24 * 60 * 60;
-    if (mainClaims.userid === "3e086a85-e93a-4ed8-bee0-b33e6e8718ce") {
+    let validity = TOKEN_EXPIRY_TIME;
+    if (
+      mainClaims.userid === "3e086a85-e93a-4ed8-bee0-b33e6e8718ce"
+      // || mainClaims.userid === "0eeae96d-8ede-4b0b-8ce4-66ada24de8d8"
+    ) {
       validity = 10;
     }
     let tokenclaims = {

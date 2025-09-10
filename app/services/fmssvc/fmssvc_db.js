@@ -15,6 +15,8 @@ const FLEET_INVITE_TYPE = {
   MOBILE: "mobile",
 };
 
+const PLATFORM_ACCOUNT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+
 export default class FmsSvcDB {
   constructor(pgPoolI, logger) {
     this.pgPoolI = pgPoolI;
@@ -24,7 +26,7 @@ export default class FmsSvcDB {
   async getUserAccounts(userid) {
     try {
       let query = `
-            SELECT uf.accountid, a.accountname, a.accounttype, a.accountinfo, a.isenabled, a.createdat, a.createdby, a.updatedat, a.updatedby, af.fleetid as rootfleetid
+            SELECT distinct uf.accountid, a.accountname, a.accounttype, a.accountinfo, a.isenabled, a.createdat, a.createdby, a.updatedat, a.updatedby, af.fleetid as rootfleetid
             FROM user_fleet uf
             JOIN account a ON uf.accountid = a.accountid AND a.isenabled = true AND a.isdeleted = false
             LEFT JOIN account_fleet af ON uf.accountid = af.accountid AND af.isroot = true
@@ -32,7 +34,7 @@ export default class FmsSvcDB {
         `;
       let result = await this.pgPoolI.Query(query, [
         userid,
-        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        PLATFORM_ACCOUNT_ID,
       ]);
       if (result.rowCount === 0) {
         return null;
@@ -110,43 +112,70 @@ export default class FmsSvcDB {
       let invitesQuery = `
             SELECT 
                 fip.inviteid, fip.accountid, fip.fleetid, 
-                fip.info, fip.invitetype, fip.invitestatus, 
-                fip.createdat, fip.createdby, fip.updatedat, fip.updatedby,
-                NULL as isexternal,
+                fip.contact, fip.roleid, fip.invitetype, fip.invitestatus, 
+                fip.createdat as invitedat, u1.displayname as invitedby, fip.updatedat as updatedat, u2.displayname as updatedby,
                 a.accountname, ft.name as fleetname,
-                NULL as expiresat
+                fip.expiresat,
+                r.rolename
             FROM fleet_invite_pending fip
             JOIN account a ON fip.accountid = a.accountid
             JOIN fleet_tree ft ON fip.accountid = ft.accountid AND fip.fleetid = ft.fleetid
-            WHERE (fip.info->>'email' = $1 OR fip.info->>'mobile' = $2)
+            JOIN roles r ON fip.accountid = r.accountid AND fip.roleid = r.roleid
+            LEFT JOIN users u1 ON fip.createdby = u1.userid
+            LEFT JOIN users u2 ON fip.updatedby = u2.userid
+            WHERE fip.contact = $1 OR fip.contact = $2
             
             UNION ALL
             
             SELECT 
                 fid.inviteid, fid.accountid, fid.fleetid, 
-                fid.info, fid.invitetype, fid.invitestatus, 
-                fid.createdat, fid.createdby, fid.updatedat, fid.updatedby,
-                fid.isexternal,
+                fid.contact, fid.roleid, fid.invitetype, fid.invitestatus, 
+                fid.createdat as inviteacceptedat, u1.displayname as invitedby, fid.updatedat as updatedat, u2.displayname as updatedby,
                 a.accountname, ft.name as fleetname,
-                NULL as expiresat
+                fid.updatedat as expiresat,
+                r.rolename
             FROM fleet_invite_done fid
             JOIN account a ON fid.accountid = a.accountid
             JOIN fleet_tree ft ON fid.accountid = ft.accountid AND fid.fleetid = ft.fleetid
-            WHERE (fid.info->>'email' = $1 OR fid.info->>'mobile' = $2)
+            JOIN roles r ON fid.accountid = r.accountid AND fid.roleid = r.roleid
+            LEFT JOIN users u1 ON fid.createdby = u1.userid
+            LEFT JOIN users u2 ON fid.updatedby = u2.userid
+            WHERE fid.contact = $1 OR fid.contact = $2
             
-            ORDER BY createdat DESC
+            ORDER BY invitedat DESC
         `;
 
       result = await this.pgPoolI.Query(invitesQuery, [email, mobile]);
+
+      // Convert the flat result to the expected format with info object
+      for (let invite of result.rows) {
+        let contacttype = "contact";
+        if (invite.invitetype === FLEET_INVITE_TYPE.EMAIL) {
+          contacttype = "email";
+        } else if (invite.invitetype === FLEET_INVITE_TYPE.MOBILE) {
+          contacttype = "mobile";
+        }
+        invite.info = {
+          [contacttype]: invite.contact,
+          roleids: [invite.roleid],
+          rolenames: [invite.rolename],
+        };
+        invite.isexternal = false;
+        delete invite.contact;
+        delete invite.roleid;
+        delete invite.rolename;
+      }
+
       return result.rows;
     } catch (error) {
       throw new Error(`Failed to retrieve invites`);
     }
   }
 
-  async validateInvite(inviteid) {
+  async validateInvite(inviteid, userid) {
     let currtime = new Date();
     let emailForInvalidReason = "Different email";
+    let isdifferentuser = false;
 
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
@@ -155,13 +184,14 @@ export default class FmsSvcDB {
         isvalid: false,
         email: emailForInvalidReason,
         invalidreason: "Something went wrong",
+        isdifferentuser: isdifferentuser,
       };
     }
 
     try {
       // check if inviteid is valid
       let query = `
-                SELECT accountid, fleetid, inviteid, info, invitetype, invitestatus, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
             `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
@@ -174,11 +204,30 @@ export default class FmsSvcDB {
           isvalid: false,
           email: emailForInvalidReason,
           invalidreason: "Invalid invite id",
+          isdifferentuser: isdifferentuser,
         };
       }
 
       let invite = result.rows[0];
-      emailForInvalidReason = invite.info.email || emailForInvalidReason;
+      emailForInvalidReason = invite.contact || emailForInvalidReason;
+      const inviteemail = invite.contact;
+
+      // check if email already exists
+      query = `
+                SELECT userid FROM email_pwd_sso WHERE ssoid = $1
+            `;
+      result = await txclient.query(query, [inviteemail]);
+      let isuseralreadyexists = false;
+      let inviteuserid = null;
+      if (result.rowCount !== 0) {
+        isuseralreadyexists = true;
+        inviteuserid = result.rows[0].userid;
+      }
+      if (userid) {
+        if (inviteuserid !== userid) {
+          isdifferentuser = true;
+        }
+      }
 
       if (invite.invitestatus !== FLEET_INVITE_STATUS.PENDING) {
         this.logger.error("Invite is not in sent state", inviteid);
@@ -190,6 +239,7 @@ export default class FmsSvcDB {
           isvalid: false,
           email: emailForInvalidReason,
           invalidreason: "Invite is no longer valid state",
+          isdifferentuser: isdifferentuser,
         };
       }
 
@@ -205,34 +255,13 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason:
             "Invite is not an email invite. currently only email invites are supported",
+          isdifferentuser: isdifferentuser,
         };
       }
 
-      query = `
-                SELECT email, expiresat FROM fleet_invite_email WHERE accountid = $1 AND fleetid = $2 AND inviteid = $3
-            `;
-      result = await txclient.query(query, [
-        invite.accountid,
-        invite.fleetid,
-        invite.inviteid,
-      ]);
-      if (result.rowCount !== 1) {
-        this.logger.error("Invite email not found", inviteid);
-        let rollbackerr = await this.pgPoolI.TxRollback(txclient);
-        if (rollbackerr) {
-          this.logger.error("Failed to rollback transaction", rollbackerr);
-        }
-        return {
-          isvalid: false,
-          email: emailForInvalidReason,
-          invalidreason: "Invite email not found",
-        };
-      }
+      const inviteexpiresat = invite.expiresat;
 
-      const inviteemail = result.rows[0].email;
-      const inviteexpiresat = result.rows[0].expiresat;
-
-      if (inviteexpiresat < currtime) {
+      if (new Date(inviteexpiresat) < currtime) {
         this.logger.info(
           `fmssvc_db.validateInvite: markInviteAsExpired: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, inviteid: ${invite.inviteid}`
         );
@@ -253,17 +282,8 @@ export default class FmsSvcDB {
           isvalid: false,
           email: emailForInvalidReason,
           invalidreason: "Invite has expired",
+          isdifferentuser: isdifferentuser,
         };
-      }
-
-      // check if email already exists
-      query = `
-                SELECT userid FROM email_pwd_sso WHERE ssoid = $1
-            `;
-      result = await txclient.query(query, [inviteemail]);
-      let isuseralreadyexists = false;
-      if (result.rowCount !== 0) {
-        isuseralreadyexists = true;
       }
 
       // get account name and fleet name for invite text
@@ -281,6 +301,7 @@ export default class FmsSvcDB {
           isvalid: false,
           email: emailForInvalidReason,
           invalidreason: "Invited account not found",
+          isdifferentuser: isdifferentuser,
         };
       }
       const accountname = result.rows[0].accountname;
@@ -299,6 +320,7 @@ export default class FmsSvcDB {
           isvalid: false,
           email: emailForInvalidReason,
           invalidreason: "Invited fleet not found",
+          isdifferentuser: isdifferentuser,
         };
       }
       const fleetname = result.rows[0].name;
@@ -310,6 +332,7 @@ export default class FmsSvcDB {
           isvalid: false,
           email: emailForInvalidReason,
           invalidreason: "Something went wrong",
+          isdifferentuser: isdifferentuser,
         };
       }
 
@@ -321,9 +344,10 @@ export default class FmsSvcDB {
         fleetname: fleetname,
         inviteemail: inviteemail,
         inviteexpiresat: inviteexpiresat,
-        inviteinfo: invite.info,
+        inviteinfo: { email: invite.contact, roleids: [invite.roleid] }, // Convert to expected format
         isuseralreadyexists: isuseralreadyexists,
         isvalid: true,
+        isdifferentuser: isdifferentuser,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -335,6 +359,7 @@ export default class FmsSvcDB {
         isvalid: false,
         email: emailForInvalidReason,
         invalidreason: "Unknown error",
+        isdifferentuser: isdifferentuser,
       };
     }
   }

@@ -73,7 +73,137 @@ export default class PlatformSvc {
     );
   }
 
+  async CheckVehicleExists(vinno) {
+    return await this.platformSvcDB.checkVehicleExists(vinno);
+  }
+
+  async CheckModelExists(modelcode) {
+    return await this.platformSvcDB.checkModelExists(modelcode);
+  }
+
+  async CheckVehicleFleetAssociations(vinno) {
+    return await this.platformSvcDB.checkVehicleFleetAssociations(vinno);
+  }
+
+  async CheckVehicleTaggedAssociations(vinno) {
+    return await this.platformSvcDB.checkVehicleTaggedAssociations(vinno);
+  }
+
+  async CheckVehicleSubscriptionAssociations(vinno) {
+    return await this.platformSvcDB.checkVehicleSubscriptionAssociations(vinno);
+  }
+
+  async CheckVehicleGeofenceRuleAssociations(vinno) {
+    return await this.platformSvcDB.checkVehicleGeofenceRuleAssociations(vinno);
+  }
+
+  async CheckVehicleTripAssociations(vinno) {
+    return await this.platformSvcDB.checkVehicleTripAssociations(vinno);
+  }
+
+  async CheckVehicleHistoricalData(vinno) {
+    return await this.platformSvcDB.checkVehicleHistoricalData(vinno);
+  }
+
+  async DeleteVehicle(vinno, deletedby) {
+    return await this.platformSvcDB.deleteVehicle(vinno, deletedby);
+  }
+
   async GetAccountByName(accountname) {
     return await this.platformSvcDB.getAccountByName(accountname);
+  }
+
+  async ListVehicles() {
+    return await this.platformSvcDB.listVehicles();
+  }
+
+  async GetVehicleInfo(vinno) {
+    return await this.platformSvcDB.getVehicleInfo(vinno);
+  }
+
+  async GetVehicleAccountDetails(vinno) {
+    return await this.platformSvcDB.getVehicleAccountDetails(vinno);
+  }
+
+  async AddToPendingReview(
+    vinno,
+    fields,
+    createdBy,
+  ) {
+    return await this.platformSvcDB.addToPendingReview(
+      vinno,
+      fields,
+      createdBy,
+    );
+  }
+
+  async UpdatePendingReview(
+    vinno,
+    updateFields,
+    createdBy
+  ) {
+    return await this.platformSvcDB.updatePendingReview(vinno, updateFields, createdBy);
+  }
+
+  async MoveToDoneReview(
+    vinno,
+    fields,
+    createdBy,
+  ) {
+    return await this.platformSvcDB.moveToDoneReview(
+      vinno,
+      fields,
+      createdBy,
+    );
+  }
+
+  async CheckVehicleInPending(vinno) {
+    return await this.platformSvcDB.checkVehicleInPending(vinno);
+  }
+
+  async RemoveFromPendingReview(vinno) {
+    return await this.platformSvcDB.removeFromPendingReview(vinno);
+  }
+
+  async ListPendingVehicles() {
+    return await this.platformSvcDB.listPendingVehicles();
+  }
+
+  async ListDoneVehicles() {
+    return await this.platformSvcDB.listDoneVehicles();
+  }
+
+  async GetAPIKey(platform, environment) {
+    return await this.platformSvcDB.getAPIKey(platform, environment);
+  }
+
+  async UpdateVehicleMobile(vinno, mobileno) {
+    return await this.platformSvcDB.updateVehicleMobile(vinno, mobileno);
+  }
+  async UpdateReviewPendingUser(userid, updateFields, updatedby) {
+    return await this.platformSvcDB.updateReviewPendingUser(
+      userid,
+      updateFields,
+      updatedby
+    );
+  }
+  async ValidateVehicleFields(fieldsToValidate) {
+    return await this.platformSvcDB.validateVehicleFields(fieldsToValidate);
+  }
+
+  async GetColourName(){
+    return await this.platformSvcDB.getColourName();
+  }
+
+  async GetConsolePlatformOverview() {
+    return await this.platformSvcDB.getConsolePlatformOverview();
+  }
+
+  async GetConsoleAccountAssignmentHistory(accountid, starttime, endtime) {
+    return await this.platformSvcDB.getConsoleAccountAssignmentHistory(accountid, starttime, endtime);
+  }
+
+  async GetConsoleVehicleAssignmentHistory(vinno, starttime, endtime) {
+    return await this.platformSvcDB.getConsoleVehicleAssignmentHistory(vinno, starttime, endtime);
   }
 }

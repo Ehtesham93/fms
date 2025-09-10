@@ -74,7 +74,7 @@ export default class RoleHdlrImpl {
     };
   };
 
-  GetRoleLogic = async (roleid) => {
+  GetRoleInfoLogic = async (roleid) => {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 
     let roleInfo = await this.roleSvcI.GetRoleInfo(accountid, roleid);
@@ -109,10 +109,10 @@ export default class RoleHdlrImpl {
       }
       let perm = {
         permid: platformModulePerm.permid,
-        isAssigned: false,
+        isassigned: false,
       };
       if (rolePerms.includes(platformModulePerm.permid)) {
-        perm.isAssigned = true;
+        perm.isassigned = true;
       }
       permmap[platformModulePerm.moduleid].perms.push(perm);
     }
@@ -136,6 +136,14 @@ export default class RoleHdlrImpl {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     let permsToAdd = [];
     let permsToRemove = [];
+    // TODO: temp code to prevent updating super admin role
+    if (roleid === "ffffffff-ffff-ffff-ffff-ffffffffffff") {
+      throw {
+        errcode: "CANNOT_UPDATE_SUPER_ADMIN_ROLE",
+        errdata: "Cannot update super admin role",
+        message: "Cannot update super admin role",
+      };
+    }
     for (let updatedperm of updatedperms) {
       if (
         updatedperm.selectedpermids &&
@@ -165,7 +173,7 @@ export default class RoleHdlrImpl {
       this.logger.error("Failed to update role permissions");
       throw new Error("Failed to update role permissions");
     }
-    return this.GetRoleLogic(roleid);
+    return this.GetRoleInfoLogic(roleid);
   };
 
   DeleteRoleLogic = async (roleid, deletedby) => {

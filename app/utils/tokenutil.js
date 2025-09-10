@@ -5,7 +5,13 @@ export const AuthenticateUserTokenFromCookie = async (req, res, next) => {
   try {
     let token = req.headers["Cookie"] || req.headers["cookie"];
     if (!token) {
-      APIResponseBadRequest(req, res, "TOKEN_REQUIRED", "Token is required");
+      APIResponseBadRequest(
+        req,
+        res,
+        "TOKEN_REQUIRED",
+        {},
+        "Token is required"
+      );
       return;
     }
 
@@ -27,7 +33,7 @@ export const AuthenticateUserTokenFromCookie = async (req, res, next) => {
 
     let claims = await GetUnVerifiedClaims(token);
     if (!claims) {
-      APIResponseBadRequest(req, res, "INVALID_TOKEN", "Invalid token");
+      APIResponseBadRequest(req, res, "INVALID_TOKEN", {}, "Invalid token");
       return;
     }
 
@@ -36,6 +42,7 @@ export const AuthenticateUserTokenFromCookie = async (req, res, next) => {
         req,
         res,
         "INVALID_TOKEN",
+        {},
         "User ID is missing in token"
       );
       return;
@@ -44,12 +51,12 @@ export const AuthenticateUserTokenFromCookie = async (req, res, next) => {
     req.userid = claims.userid;
 
     res.set({
-      'Cache-Control': 'no-store',  // Stronger than no-cache
-      'Pragma': 'no-cache',
-      'Expires': '0',
+      "Cache-Control": "no-store", // Stronger than no-cache
+      Pragma: "no-cache",
+      Expires: "0",
     });
-    res.removeHeader('ETag');
-    
+    res.removeHeader("ETag");
+
     next();
   } catch (error) {
     this.logger.error("User token authentication failed", error);
@@ -57,6 +64,7 @@ export const AuthenticateUserTokenFromCookie = async (req, res, next) => {
       req,
       res,
       "INVALID_TOKEN",
+      {},
       "User token validation failed"
     );
   }
@@ -66,7 +74,13 @@ export const AuthenticateAccountTokenFromCookie = async (req, res, next) => {
   try {
     let token = req.headers["Cookie"] || req.headers["cookie"];
     if (!token) {
-      APIResponseBadRequest(req, res, "TOKEN_REQUIRED", "Token is required");
+      APIResponseBadRequest(
+        req,
+        res,
+        "TOKEN_REQUIRED",
+        {},
+        "Token is required"
+      );
       return;
     }
 
@@ -88,7 +102,7 @@ export const AuthenticateAccountTokenFromCookie = async (req, res, next) => {
 
     let claims = await GetUnVerifiedClaims(token);
     if (!claims) {
-      APIResponseBadRequest(req, res, "INVALID_TOKEN", "Invalid token");
+      APIResponseBadRequest(req, res, "INVALID_TOKEN", {}, "Invalid token");
       return;
     }
 
@@ -97,6 +111,7 @@ export const AuthenticateAccountTokenFromCookie = async (req, res, next) => {
         req,
         res,
         "INVALID_TOKEN",
+        {},
         "User ID is missing in token"
       );
       return;
@@ -107,6 +122,7 @@ export const AuthenticateAccountTokenFromCookie = async (req, res, next) => {
         req,
         res,
         "INVALID_TOKEN",
+        {},
         "Account ID is missing in token"
       );
       return;
@@ -116,11 +132,11 @@ export const AuthenticateAccountTokenFromCookie = async (req, res, next) => {
     req.accountid = claims.accountid;
 
     res.set({
-      'Cache-Control': 'no-store',  // Stronger than no-cache
-      'Pragma': 'no-cache',
-      'Expires': '0',
+      "Cache-Control": "no-store", // Stronger than no-cache
+      Pragma: "no-cache",
+      Expires: "0",
     });
-    res.removeHeader('ETag');
+    res.removeHeader("ETag");
 
     next();
   } catch (error) {
@@ -129,6 +145,7 @@ export const AuthenticateAccountTokenFromCookie = async (req, res, next) => {
       req,
       res,
       "INVALID_TOKEN",
+      {},
       "Account token validation failed"
     );
   }
@@ -138,7 +155,13 @@ export const AuthenticateUserToken = async (req, res, next) => {
   try {
     let token = req.headers["Authorization"] || req.headers["authorization"];
     if (!token) {
-      APIResponseBadRequest(req, res, "TOKEN_REQUIRED", "Token is required");
+      APIResponseBadRequest(
+        req,
+        res,
+        "TOKEN_REQUIRED",
+        {},
+        "Token is required"
+      );
       return;
     }
 
@@ -148,7 +171,7 @@ export const AuthenticateUserToken = async (req, res, next) => {
 
     let claims = await GetUnVerifiedClaims(token);
     if (!claims) {
-      APIResponseBadRequest(req, res, "INVALID_TOKEN", "Invalid token");
+      APIResponseBadRequest(req, res, "INVALID_TOKEN", {}, "Invalid token");
       return;
     }
 
@@ -157,6 +180,7 @@ export const AuthenticateUserToken = async (req, res, next) => {
         req,
         res,
         "INVALID_TOKEN",
+        {},
         "User ID is missing in token"
       );
       return;
@@ -165,11 +189,11 @@ export const AuthenticateUserToken = async (req, res, next) => {
     req.userid = claims.userid;
 
     res.set({
-      'Cache-Control': 'no-store',  // Stronger than no-cache
-      'Pragma': 'no-cache',
-      'Expires': '0',
+      "Cache-Control": "no-store", // Stronger than no-cache
+      Pragma: "no-cache",
+      Expires: "0",
     });
-    res.removeHeader('ETag');
+    res.removeHeader("ETag");
 
     next();
   } catch (error) {
@@ -178,6 +202,7 @@ export const AuthenticateUserToken = async (req, res, next) => {
       req,
       res,
       "INVALID_TOKEN",
+      {},
       "User token validation failed"
     );
   }
@@ -187,7 +212,13 @@ export const AuthenticateAccountToken = async (req, res, next) => {
   try {
     let token = req.headers["Authorization"] || req.headers["authorization"];
     if (!token) {
-      APIResponseBadRequest(req, res, "TOKEN_REQUIRED", "Token is required");
+      APIResponseBadRequest(
+        req,
+        res,
+        "TOKEN_REQUIRED",
+        {},
+        "Token is required"
+      );
       return;
     }
 
@@ -197,7 +228,7 @@ export const AuthenticateAccountToken = async (req, res, next) => {
 
     let claims = await GetUnVerifiedClaims(token);
     if (!claims) {
-      APIResponseBadRequest(req, res, "INVALID_TOKEN", "Invalid token");
+      APIResponseBadRequest(req, res, "INVALID_TOKEN", {}, "Invalid token");
       return;
     }
 
@@ -206,6 +237,7 @@ export const AuthenticateAccountToken = async (req, res, next) => {
         req,
         res,
         "INVALID_TOKEN",
+        {},
         "User ID is missing in token"
       );
       return;
@@ -216,6 +248,7 @@ export const AuthenticateAccountToken = async (req, res, next) => {
         req,
         res,
         "INVALID_TOKEN",
+        {},
         "Account ID is missing in token"
       );
       return;
@@ -224,12 +257,12 @@ export const AuthenticateAccountToken = async (req, res, next) => {
     req.userid = claims.userid;
     req.accountid = claims.accountid;
 
-    rres.set({
-      'Cache-Control': 'no-store',  // Stronger than no-cache
-      'Pragma': 'no-cache',
-      'Expires': '0',
+    res.set({
+      "Cache-Control": "no-store", // Stronger than no-cache
+      Pragma: "no-cache",
+      Expires: "0",
     });
-    res.removeHeader('ETag');
+    res.removeHeader("ETag");
 
     next();
   } catch (error) {
@@ -238,6 +271,7 @@ export const AuthenticateAccountToken = async (req, res, next) => {
       req,
       res,
       "INVALID_TOKEN",
+      {},
       "Account token validation failed"
     );
   }

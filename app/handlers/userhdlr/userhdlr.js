@@ -9,6 +9,8 @@ import {
 import { AuthenticateUserTokenFromCookie } from "../../utils/tokenutil.js";
 import { validateAllInputs } from "../../utils/validationutil.js";
 import UserHdlrImpl from "./userhdlr_impl.js";
+import { TOKEN_EXPIRY_TIME, COOKIE_MAX_AGE } from "../../utils/constant.js";
+
 export default class UserHdlr {
   /**
    * @param {UserSvc} userSvcI
@@ -87,8 +89,24 @@ export default class UserHdlr {
 
       APIResponseOK(req, res, result, "Invite accepted successfully");
     } catch (e) {
-      this.logger.error(`userhdlr.AcceptInvite: error: ${e?.stack}`);
+      this.logger.error("AcceptInvite error: ", e);
       if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
+      } else if (
+        e.errcode === "INVALID_INVITE_ID" ||
+        e.errcode === "INVITE_NOT_IN_SENT_STATE" ||
+        e.errcode === "INVITE_NOT_AN_EMAIL_INVITE" ||
+        e.errcode === "INVITE_HAS_EXPIRED" ||
+        e.errcode === "USER_NOT_FOUND" ||
+        e.errcode === "USER_ID_DOES_NOT_MATCH" ||
+        e.errcode === "FAILED_TO_UPDATE_INVITE_STATUS"
+      ) {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
@@ -119,8 +137,24 @@ export default class UserHdlr {
       let result = await this.userHdlrImpl.RejectInviteLogic(inviteid, userid);
       APIResponseOK(req, res, result, "Invite rejected successfully");
     } catch (e) {
-      this.logger.error(`userhdlr.RejectInvite: error: ${e?.stack}`);
+      this.logger.error("RejectInvite error: ", e);
       if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
+      } else if (
+        e.errcode === "INVALID_INVITE_ID" ||
+        e.errcode === "INVITE_NOT_IN_SENT_STATE" ||
+        e.errcode === "INVITE_NOT_AN_EMAIL_INVITE" ||
+        e.errcode === "INVITE_HAS_EXPIRED" ||
+        e.errcode === "USER_NOT_FOUND" ||
+        e.errcode === "USER_ID_DOES_NOT_MATCH" ||
+        e.errcode === "FAILED_TO_UPDATE_INVITE_STATUS"
+      ) {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
@@ -140,6 +174,7 @@ export default class UserHdlr {
       let result = await this.userHdlrImpl.GetHomePageLogic(userid);
       APIResponseOK(req, res, result, "Home page fetched successfully");
     } catch (e) {
+      this.logger.error("GetHomePage error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -163,11 +198,12 @@ export default class UserHdlr {
       let result = await this.userHdlrImpl.GetUserAccountsLogic(userid);
       APIResponseOK(req, res, result, "User Accounts fetched successfully");
     } catch (error) {
+      this.logger.error("GetUserAccounts error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -200,7 +236,14 @@ export default class UserHdlr {
       });
 
       let validityMs = req.body.validity;
-      let expiresin = 1 * 24 * 60 * 60;
+      let expiresin = TOKEN_EXPIRY_TIME;
+
+      if (
+        userid === "3e086a85-e93a-4ed8-bee0-b33e6e8718ce"
+        // || userid === "0eeae96d-8ede-4b0b-8ce4-66ada24de8d8"
+      ) {
+        expiresin = 10;
+      }
 
       if (validityMs) {
         expiresin = Math.floor(validityMs / 1000);
@@ -214,7 +257,7 @@ export default class UserHdlr {
       res.cookie("token", result.accounttoken, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31, // 31 day
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
@@ -226,13 +269,38 @@ export default class UserHdlr {
         "User Account token fetched successfully"
       );
     } catch (error) {
+      this.logger.error("GetAccountToken error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
+        );
+      } else if (error.message === "ACCOUNT_NOT_FOUND") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "Account not found or not enabled"
+        );
+      } else if (error.message === "USER_HAS_NO_ACCOUNT_ACCESS") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "User has no account access"
+        );
+      } else if (error.message === "USER_DOES_NOT_HAVE_ACCESS_TO_ACCOUNT") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.message,
+          {},
+          "User does not have access to this account"
         );
       } else {
         APIResponseInternalErr(
@@ -254,6 +322,7 @@ export default class UserHdlr {
       res.clearCookie("refreshtoken");
       APIResponseOK(req, res, result, "Logout successful");
     } catch (error) {
+      this.logger.error("Logout error: ", error);
       res.clearCookie("token");
       res.clearCookie("refreshtoken");
       console.log("error while logging out", error);
@@ -280,6 +349,7 @@ export default class UserHdlr {
         "CSRF token fetched successfully"
       );
     } catch (error) {
+      this.logger.error("GetCSRFToken error: ", error);
       APIResponseInternalErr(
         req,
         res,
@@ -296,12 +366,12 @@ export default class UserHdlr {
         displayname: z
           .string({ message: "Display name is required" })
           .nonempty({ message: "Display name cannot be empty" })
-          .max(128, {
-            message: "Display Name must be at most 128 characters long",
-          })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Display Name can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
+          .max(128, {
+            message: "Display Name must be at most 128 characters long",
           }),
       });
 
@@ -316,11 +386,12 @@ export default class UserHdlr {
 
       APIResponseOK(req, res, result, "Display name set successfully");
     } catch (error) {
+      this.logger.error("UpdateDisplayName error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -351,11 +422,12 @@ export default class UserHdlr {
       let result = await this.userHdlrImpl.ListInvitesOfUserLogic(userid);
       APIResponseOK(req, res, result, "Invites fetched successfully");
     } catch (error) {
+      this.logger.error("ListInvitesOfUser error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -412,11 +484,12 @@ export default class UserHdlr {
 
       APIResponseOK(req, res, result, "User defaults set successfully");
     } catch (error) {
+      this.logger.error("SetDefaults error: ", error);
       if (error.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(
           req,
           res,
-          error.errcode,
+          "INPUT_ERROR",
           error.errdata,
           error.message
         );
@@ -443,6 +516,16 @@ export default class UserHdlr {
       };
       APIResponseOK(req, res, response, "User info fetched successfully");
     } catch (error) {
+      this.logger.error("GetUserInfo error: ", error);
+      if (error.errcode === "USER_NOT_FOUND") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          {},
+          error.message
+        );
+      }
       APIResponseInternalErr(
         req,
         res,
@@ -477,8 +560,15 @@ export default class UserHdlr {
 
       APIResponseOK(req, res, result, "User recovered successfully");
     } catch (e) {
+      this.logger.error("RecoverUser error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else if (
         e.errcode === "USER_NOT_FOUND" ||
         e.errcode === "USER_NOT_DELETED" ||
@@ -518,13 +608,26 @@ export default class UserHdlr {
       );
       APIResponseOK(req, res, result, "OTP sent for mobile verification");
     } catch (e) {
+      this.logger.error("AddUserMobile error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else if (
         e.errcode === "MOBILE_ALREADY_EXISTS" ||
         e.errcode === "USER_ALREADY_HAS_MOBILE"
       ) {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "TOO_MANY_OTP_REQUESTS" ||
+        e.errcode === "SMS_SEND_FAILED" ||
+        e.errcode === "INVALID_MOBILE"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -571,8 +674,15 @@ export default class UserHdlr {
       );
       APIResponseOK(req, res, result, "Mobile number added successfully");
     } catch (e) {
+      this.logger.error("VerifyAddMobileOtp error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else if (
         e.errcode === "INVALID_OTP" ||
         e.errcode === "MOBILE_ALREADY_EXISTS"
@@ -611,8 +721,15 @@ export default class UserHdlr {
       );
       APIResponseOK(req, res, result, "Verification email sent successfully");
     } catch (e) {
+      this.logger.error("AddUserEmail error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else if (
         e.errcode === "EMAIL_ALREADY_EXISTS" ||
         e.errcode === "USER_ALREADY_HAS_EMAIL"
@@ -655,8 +772,15 @@ export default class UserHdlr {
       );
       APIResponseOK(req, res, result, "Email added successfully");
     } catch (e) {
+      this.logger.error("VerifyEmailPwd error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else if (
         e.errcode === "INVALID_VERIFICATION" ||
         e.errcode === "EMAIL_ALREADY_EXISTS"
@@ -692,8 +816,15 @@ export default class UserHdlr {
       );
       APIResponseOK(req, res, result, result.message);
     } catch (e) {
+      this.logger.error("ValidateAddEmailVerification error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else {
         return APIResponseInternalErr(
           req,
@@ -722,8 +853,15 @@ export default class UserHdlr {
 
       APIResponseOK(req, res, result, "Terms fetched successfully");
     } catch (e) {
+      this.logger.error("GetAcceptedTerms error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else {
         return APIResponseInternalErr(
           req,
@@ -772,8 +910,15 @@ export default class UserHdlr {
 
       APIResponseOK(req, res, result, "Terms accepted successfully");
     } catch (e) {
+      this.logger.error("PutAcceptedTerms error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else {
         return APIResponseInternalErr(
           req,
@@ -791,6 +936,7 @@ export default class UserHdlr {
       let result = await this.userHdlrImpl.GetSosContactsLogic();
       APIResponseOK(req, res, result, "SOS contacts fetched successfully");
     } catch (e) {
+      this.logger.error("GetSosContacts error: ", e);
       return APIResponseInternalErr(
         req,
         res,
@@ -806,6 +952,7 @@ export default class UserHdlr {
       let result = await this.userHdlrImpl.GetDocumentsLogic();
       APIResponseOK(req, res, result, "Documents fetched successfully");
     } catch (e) {
+      this.logger.error("GetDocuments error: ", e);
       return APIResponseInternalErr(
         req,
         res,
@@ -880,10 +1027,23 @@ export default class UserHdlr {
       }
       APIResponseOK(req, res, result, result.message);
     } catch (e) {
+      this.logger.error("SetMpin error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else if (e.errcode === "MPIN_ALREADY_EXISTS") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "MPIN_ALREADY_EXISTS",
+          e.errdata,
+          e.message
+        );
       } else {
         return APIResponseInternalErr(
           req,
@@ -901,6 +1061,7 @@ export default class UserHdlr {
       let result = await this.userHdlrImpl.GetBannersLogic();
       APIResponseOK(req, res, result, "Banners fetched successfully");
     } catch (e) {
+      this.logger.error("GetBanners error: ", e);
       return APIResponseInternalErr(
         req,
         res,
@@ -918,14 +1079,14 @@ export default class UserHdlr {
       res.cookie("token", result.token, {
         httpOnly: true,
         secure: true,
-        maxAge: 1000 * 60 * 60 * 24 * 31,
+        maxAge: COOKIE_MAX_AGE,
         path: "/",
         sameSite: "None",
       });
 
       APIResponseOK(req, res, result, "Token refreshed successfully");
     } catch (e) {
-      this.logger.error(`userhdlr.RefreshToken: error: ${e?.stack}`);
+      this.logger.error("RefreshToken error: ", e);
       if (
         e.errcode === "INPUT_ERROR" ||
         e.errcode === "INVALID_TOKEN" ||
@@ -972,8 +1133,15 @@ export default class UserHdlr {
 
       APIResponseOK(req, res, result, "Password updated successfully");
     } catch (e) {
+      this.logger.error("UpdatePassword error: ", e);
       if (e.errcode === "INPUT_ERROR") {
-        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
       } else if (
         e.errcode === "INVALID_OLD_PASSWORD" ||
         e.errcode === "SAME_PASSWORD_ERROR"

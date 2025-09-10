@@ -1,11 +1,14 @@
 import z from "zod";
 import {
+  APIResponseForbidden,
   APIResponseBadRequest,
   APIResponseInternalErr,
   APIResponseOK,
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import ModelHdlrImpl from "./modelhdlr_impl.js";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
+
 export default class ModelHdlr {
   constructor(modelSvcI, userSvcI, logger) {
     this.modelSvcI = modelSvcI;
@@ -17,39 +20,19 @@ export default class ModelHdlr {
   RegisterRoutes(router) {
     // param family CRUD
     router.post("/paramfamily", this.CreateParamFamily);
-    router.get("/paramfamily/list", this.ListParamFamilies);
-    router.put("/paramfamily/:paramfamilycode", this.UpdateParamFamily);
-    router.delete("/paramfamily/:paramfamilycode", this.DeleteParamFamily);
-    router.get(
-      "/isparamfamilycodeavailable/:paramfamilycode",
-      this.IsParamFamilyCodeAvailable
-    );
+    router.put(`/paramfamily/:paramfamilycode`, this.UpdateParamFamily);
+    router.delete(`/paramfamily/:paramfamilycode`, this.DeleteParamFamily);
 
     // parameter CRUD
     router.post("/param", this.CreateModelParam);
-    router.get("/param/list", this.ListModelParams);
-    router.get("/param/list/:paramfamilycode", this.ListModelParamsByFamily);
-    router.put("/param/:paramfamilycode/:paramcode", this.UpdateModelParam);
-    router.delete("/param/:paramfamilycode/:paramcode", this.DeleteModelParam);
-    router.get(
-      "/isparamcodeavailable/:paramfamilycode/:paramcode",
-      this.IsParamCodeAvailable
-    );
+    router.put(`/param/:paramfamilycode/:paramcode`, this.UpdateModelParam);
+    router.delete(`/param/:paramfamilycode/:paramcode`, this.DeleteModelParam);
 
     // family CRUD
     router.post("/family", this.CreateModelFamily);
-    router.get("/family/list", this.ListModelFamilies);
-    router.put("/family/:familycode", this.UpdateModelFamily);
-    router.delete("/family/:familycode", this.DeleteModelFamily);
-    router.get(
-      "/isfamilycodeavailable/:familycode",
-      this.IsFamilyCodeAvailable
-    );
+    router.put(`/family/:familycode`, this.UpdateModelFamily);
+    router.delete(`/family/:familycode`, this.DeleteModelFamily);
 
-    router.get(
-      "/family/param/:familycode/:paramfamilycode",
-      this.ListModelFamilyParams
-    );
     router.post("/family/param", this.CreateModelFamilyParam);
     router.delete(
       "/family/param/:familycode/:paramfamilycode/:paramcode",
@@ -58,9 +41,35 @@ export default class ModelHdlr {
 
     // vehicle model CRUD
     router.post("/", this.CreateVehicleModel);
-    router.get("/list", this.ListVehicleModels);
     router.put("/:modelcode", this.UpdateVehicleModel);
     router.delete("/:modelcode", this.DeleteVehicleModel);
+  }
+
+  RegisterNoPermsRoutes(router) {
+    router.get("/paramfamily/list", this.ListParamFamilies);
+    router.get(
+      "/isparamfamilycodeavailable/:paramfamilycode",
+      this.IsParamFamilyCodeAvailable
+    );
+    router.get(
+      "/isparamcodeavailable/:paramfamilycode/:paramcode",
+      this.IsParamCodeAvailable
+    );
+
+    router.get("/param/list", this.ListModelParams);
+    router.get("/param/list/:paramfamilycode", this.ListModelParamsByFamily);
+
+    router.get("/family/list", this.ListModelFamilies);
+    router.get(
+      "/isfamilycodeavailable/:familycode",
+      this.IsFamilyCodeAvailable
+    );
+    router.get(
+      "/family/param/:familycode/:paramfamilycode",
+      this.ListModelFamilyParams
+    );
+
+    router.get("/list", this.ListVehicleModels);
     router.get("/ismodelcodeavailable/:modelcode", this.IsModelCodeAvailable);
     router.get(
       "/ismodelnamevariantavailable/:modelname/:modelvariant",
@@ -71,12 +80,24 @@ export default class ModelHdlr {
 
   CreateParamFamily = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create param family."
+        );
+      }
       let createdby = req.userid;
 
       const schema = z.object({
         paramfamilycode: z
           .string({ message: "Invalid Param Family Code format" })
-          .nonempty({ message: "Param Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces (no leading/trailing space)",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -87,7 +108,7 @@ export default class ModelHdlr {
           .max(128, {
             message: "Param Family Name must be at most 128 characters",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Param Family Name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -116,6 +137,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Param family created successfully");
     } catch (e) {
+      this.logger.error("CreateParamFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -135,6 +157,7 @@ export default class ModelHdlr {
       let result = await this.modelHdlrImpl.ListParamFamiliesLogic();
       APIResponseOK(req, res, result, "Param families fetched successfully");
     } catch (e) {
+      this.logger.error("ListParamFamilies error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -147,10 +170,23 @@ export default class ModelHdlr {
 
   UpdateParamFamily = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update param family."
+        );
+      }
       let schema = z.object({
         paramfamilycode: z
           .string({ message: "Param Family Code is required" })
           .nonempty({ message: "Param Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces (no leading/trailing space)",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -159,7 +195,7 @@ export default class ModelHdlr {
           .max(128, {
             message: "Param Family Name must be at most 128 characters",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Param Family Name can only contain letters, numbers, spaces, hyphens, and underscores",
           })
@@ -185,6 +221,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Param family updated successfully");
     } catch (e) {
+      this.logger.error("UpdateParamFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -201,12 +238,25 @@ export default class ModelHdlr {
 
   DeleteParamFamily = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to delete param family."
+        );
+      }
       let schema = z.object({
         paramfamilycode: z
           .string({
             message: "Invalid Param Family Code format",
           })
           .nonempty({ message: "Invalid Param Family Code format" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces (no leading/trailing space)",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -227,6 +277,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Param family deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteParamFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -247,6 +298,10 @@ export default class ModelHdlr {
         paramfamilycode: z
           .string({ message: "Invalid Param Family Code format" })
           .nonempty({ message: "Param Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces (no leading/trailing space)",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -265,6 +320,7 @@ export default class ModelHdlr {
         "Param family code availability checked successfully"
       );
     } catch (e) {
+      this.logger.error("IsParamFamilyCodeAvailable error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -282,9 +338,22 @@ export default class ModelHdlr {
   // parameter CRUD
   CreateModelParam = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create model param."
+        );
+      }
       let schema = z.object({
         paramfamilycode: z
           .string({ message: "Invalid Param Family Code format" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           })
@@ -292,6 +361,10 @@ export default class ModelHdlr {
         paramcode: z
           .string({ message: "Invalid Param Code format" })
           .nonempty({ message: "Param Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Param Code must be at most 128 characters" }),
 
         paramname: z
@@ -300,7 +373,7 @@ export default class ModelHdlr {
           .max(128, {
             message: "Param Name must be at most 128 characters",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Param Name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
@@ -330,6 +403,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Model parameter created successfully");
     } catch (e) {
+      this.logger.error("CreateModelParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -349,6 +423,7 @@ export default class ModelHdlr {
       let result = await this.modelHdlrImpl.ListModelParamsLogic();
       APIResponseOK(req, res, result, "Model parameters fetched successfully");
     } catch (e) {
+      this.logger.error("ListModelParams error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -365,6 +440,10 @@ export default class ModelHdlr {
         paramfamilycode: z
           .string({ message: "Invalid Param Family Code format" })
           .nonempty({ message: "Param Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -379,6 +458,7 @@ export default class ModelHdlr {
       );
       APIResponseOK(req, res, result, "Model parameters fetched successfully");
     } catch (e) {
+      this.logger.error("ListModelParamsByFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -395,10 +475,23 @@ export default class ModelHdlr {
 
   UpdateModelParam = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update model param."
+        );
+      }
       let schema = z.object({
         paramfamilycode: z
           .string({ message: "Param Family Code is required" })
           .nonempty({ message: "Param Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces (no leading/trailing space)",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -406,6 +499,10 @@ export default class ModelHdlr {
         paramcode: z
           .string({ message: "Param Code is required" })
           .nonempty({ message: "Param Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Param Code must be at most 128 characters" }),
 
         paramname: z
@@ -413,7 +510,7 @@ export default class ModelHdlr {
           .max(128, {
             message: "Param Name must be at most 128 characters",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Param Name can only contain letters, numbers, spaces, hyphens, and underscores",
           })
@@ -443,6 +540,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Model parameter updated successfully");
     } catch (e) {
+      this.logger.error("UpdateModelParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -459,16 +557,33 @@ export default class ModelHdlr {
 
   DeleteModelParam = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to delete model param."
+        );
+      }
       let schema = z.object({
         paramfamilycode: z
           .string({ message: "Param Family Code is required" })
           .nonempty({ message: "Param Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces ",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
         paramcode: z
           .string({ message: "Param Code is required" })
           .nonempty({ message: "Param Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Param Code must be at most 128 characters" }),
 
         deletedby: z
@@ -490,6 +605,7 @@ export default class ModelHdlr {
       );
       APIResponseOK(req, res, result, "Model parameter deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteModelParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -510,6 +626,10 @@ export default class ModelHdlr {
         paramfamilycode: z
           .string({ message: "Invalid Param Family Code format" })
           .nonempty({ message: "Param Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code must contain only letters, digits, underscores, hyphens, and spaces",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -517,6 +637,10 @@ export default class ModelHdlr {
         paramcode: z
           .string({ message: "Invalid Param Code format" })
           .nonempty({ message: "Param Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Param Code must be at most 128 characters" }),
       });
       let { paramfamilycode, paramcode } = validateAllInputs(schema, {
@@ -534,6 +658,7 @@ export default class ModelHdlr {
         "Model parameter code availability checked successfully"
       );
     } catch (e) {
+      this.logger.error("IsParamCodeAvailable error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -551,6 +676,15 @@ export default class ModelHdlr {
   // family CRUD
   CreateModelFamily = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create model family."
+        );
+      }
       let schema = z.object({
         createdby: z
           .string({ message: "Invalid User ID format" })
@@ -560,17 +694,21 @@ export default class ModelHdlr {
         familycode: z
           .string({ message: "Invalid Family Code format" })
           .nonempty({ message: "Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Family Code must be at most 128 characters" }),
 
         familyname: z
           .string({ message: "Invalid Family Name format" })
           .nonempty({ message: "Family Name cannot be empty" })
-          .max(128, {
-            message: "Family Name must be at most 128 characters",
-          })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Family Name can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
+          .max(128, {
+            message: "Family Name must be at most 128 characters",
           }),
 
         familyinfo: z
@@ -599,6 +737,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Model family created successfully");
     } catch (e) {
+      this.logger.error("CreateModelFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -618,6 +757,7 @@ export default class ModelHdlr {
       let result = await this.modelHdlrImpl.ListModelFamiliesLogic();
       APIResponseOK(req, res, result, "Model families fetched successfully");
     } catch (e) {
+      this.logger.error("ListModelFamilies error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -630,10 +770,23 @@ export default class ModelHdlr {
 
   UpdateModelFamily = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update model family."
+        );
+      }
       const schema = z.object({
         familycode: z
           .string({ message: "Invalid Model Family Code format" })
           .nonempty({ message: "Model Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Model Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, {
             message: "Model Family Code must be at most 128 characters",
           }),
@@ -643,7 +796,7 @@ export default class ModelHdlr {
           .max(128, {
             message: "Family Name must be at most 128 characters",
           })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Family Name can only contain letters, numbers, spaces, hyphens, and underscores",
           })
@@ -678,6 +831,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Model family updated successfully");
     } catch (e) {
+      this.logger.error("UpdateModelFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -694,6 +848,15 @@ export default class ModelHdlr {
 
   DeleteModelFamily = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to delete model family."
+        );
+      }
       let schema = z.object({
         deletedby: z
           .string({ message: "Invalid User ID format" })
@@ -701,6 +864,10 @@ export default class ModelHdlr {
         familycode: z
           .string({ message: "Invalid Familycode format" })
           .nonempty({ message: "Invalid Family Code format" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Family code  must not exceed 128 characters" }),
       });
       let { deletedby, familycode } = validateAllInputs(schema, {
@@ -713,6 +880,7 @@ export default class ModelHdlr {
       );
       APIResponseOK(req, res, result, "Model family deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteModelFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -733,6 +901,10 @@ export default class ModelHdlr {
         familycode: z
           .string({ message: "Invalid Family Code format" })
           .nonempty({ message: "Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Family Code must be at most 128 characters" }),
       });
 
@@ -751,6 +923,7 @@ export default class ModelHdlr {
         "Model family code availability checked successfully"
       );
     } catch (e) {
+      this.logger.error("IsFamilyCodeAvailable error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -767,6 +940,15 @@ export default class ModelHdlr {
 
   CreateModelFamilyParam = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create model family param."
+        );
+      }
       let schema = z.object({
         createdby: z
           .string({ message: "Invalid User ID format" })
@@ -775,11 +957,19 @@ export default class ModelHdlr {
         familycode: z
           .string({ message: "Invalid Family Code format" })
           .nonempty({ message: "Family code is required" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Family code must be at most 128 characters" }),
 
         paramfamilycode: z
           .string({ message: "Invalid Param Family Code format" })
           .nonempty({ message: "Param family code is required" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -789,7 +979,11 @@ export default class ModelHdlr {
             z.object({
               paramcode: z
                 .string({ message: "Invalid Param Code format" })
-                .nonempty({ message: "Param Code cannot be empty" }),
+                .nonempty({ message: "Param Code cannot be empty" })
+                .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+                  message:
+                    "Param Code can only contain letters, numbers, spaces, hyphens, and underscores",
+                }),
               paramvalue: z.any(),
             })
           )
@@ -987,6 +1181,7 @@ export default class ModelHdlr {
         "Model family parameters updated successfully"
       );
     } catch (e) {
+      this.logger.error("CreateModelFamilyParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1007,11 +1202,19 @@ export default class ModelHdlr {
         familycode: z
           .string({ message: "Invalid Family Code format" })
           .nonempty({ message: "Family code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Family code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Family code must not exceed 128 characters" }),
 
         paramfamilycode: z
           .string({ message: "Invalid Param Family Code format" })
           .nonempty({ message: "Param family code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param family code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, {
             message: "Param family code must not exceed 128 characters",
           }),
@@ -1031,6 +1234,7 @@ export default class ModelHdlr {
         "Model family parameters fetched successfully"
       );
     } catch (e) {
+      this.logger.error("ListModelFamilyParams error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1047,6 +1251,15 @@ export default class ModelHdlr {
 
   DeleteModelFamilyParam = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to delete model family param."
+        );
+      }
       let schema = z.object({
         deletedby: z
           .string({ message: "Invalid User ID format" })
@@ -1055,11 +1268,19 @@ export default class ModelHdlr {
         familycode: z
           .string({ message: "Invalid Family Code format" })
           .nonempty({ message: "Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Family Code must be at most 128 characters" }),
 
         paramfamilycode: z
           .string({ message: "Invalid Param Family Code format" })
           .nonempty({ message: "Param Family Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, {
             message: "Param Family Code must be at most 128 characters",
           }),
@@ -1067,6 +1288,10 @@ export default class ModelHdlr {
         paramcode: z
           .string({ message: "Invalid Param Code format" })
           .nonempty({ message: "Param Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Param Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Param Code must be at most 128 characters" }),
       });
 
@@ -1091,6 +1316,7 @@ export default class ModelHdlr {
         "Model family parameter deleted successfully"
       );
     } catch (e) {
+      this.logger.error("DeleteModelFamilyParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1108,11 +1334,24 @@ export default class ModelHdlr {
   // vehicle model CRUD
   CreateVehicleModel = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create vehicle model."
+        );
+      }
       const schema = z
         .object({
           modelcode: z
             .string({ message: "Invalid Model Code format" })
             .nonempty({ message: "Model Code cannot be empty" })
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+              message:
+                "Model Code can only contain letters, numbers, spaces, hyphens, and underscores",
+            })
             .max(128, { message: "Model Code must be at most 128 characters" }),
 
           modelname: z
@@ -1120,7 +1359,7 @@ export default class ModelHdlr {
             .max(128, {
               message: "Model Name must be at most 128 characters",
             })
-            .regex(/^[A-Za-z0-9 _-]+$/, {
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
               message:
                 "Model Name can only contain letters, numbers, spaces, hyphens, and underscores",
             })
@@ -1128,6 +1367,10 @@ export default class ModelHdlr {
 
           modelvariant: z
             .string({ message: "Invalid Model Variant format" })
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+              message:
+                "Model Variant can only contain letters, numbers, spaces, hyphens, and underscores",
+            })
             .max(128, {
               message: "Model Variant must be at most 128 characters",
             })
@@ -1135,6 +1378,10 @@ export default class ModelHdlr {
 
           modelfamilycode: z
             .string({ message: "Invalid Model Family Code format" })
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+              message:
+                "Model Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+            })
             .max(128, {
               message: "Model Family Code must be at most 128 characters",
             })
@@ -1145,7 +1392,7 @@ export default class ModelHdlr {
             .max(128, {
               message: "Model Display Name must be at most 128 characters",
             })
-            .regex(/^[A-Za-z0-9 _-]+$/, {
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
               message:
                 "Model Display Name can only contain letters, numbers, spaces, hyphens, and underscores",
             })
@@ -1154,7 +1401,7 @@ export default class ModelHdlr {
           modelinfo: z
             .object({
               modelimage: z
-                .string({message:"Invalid ModelImage url format"})
+                .string({ message: "Invalid ModelImage url format" })
                 .max(255, {
                   message: "ModelImage must be at most 255 characters",
                 })
@@ -1165,7 +1412,7 @@ export default class ModelHdlr {
                 .optional(),
 
               modelicon: z
-                .string({message:"Invalid ModelIcon url format"})
+                .string({ message: "Invalid ModelIcon url format" })
                 .max(255, {
                   message: "ModelIcon must be at most 255 characters",
                 })
@@ -1176,7 +1423,7 @@ export default class ModelHdlr {
                 .optional(),
 
               modelmanual: z
-                .string({message:"Invalid ModelManual url format"})
+                .string({ message: "Invalid ModelManual url format" })
                 .max(255, {
                   message: "ModelManual must be at most 255 characters",
                 })
@@ -1185,7 +1432,8 @@ export default class ModelHdlr {
                   { message: "Invalid ModelManual URL format" }
                 )
                 .optional(),
-            }).strict()
+            })
+            .strict()
             .optional(),
 
           isenabled: z
@@ -1238,6 +1486,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Vehicle model created successfully");
     } catch (e) {
+      this.logger.error("CreateVehicleModel error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1257,6 +1506,7 @@ export default class ModelHdlr {
       let result = await this.modelHdlrImpl.ListVehicleModelsLogic();
       APIResponseOK(req, res, result, "Vehicle models fetched successfully");
     } catch (e) {
+      this.logger.error("ListVehicleModels error: ", e);
       APIResponseInternalErr(
         req,
         res,
@@ -1269,18 +1519,31 @@ export default class ModelHdlr {
 
   UpdateVehicleModel = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to update vehicle model."
+        );
+      }
       let schema = z
         .object({
           modelcode: z
             .string({ message: "Invalid Model Code format" })
-            .nonempty({ message: "Model Code cannot be empty" }),
+            .nonempty({ message: "Model Code cannot be empty" })
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+              message:
+                "Model Code can only contain letters, numbers, spaces, hyphens, and underscores",
+            }),
 
           modelname: z
             .string({ message: "Invalid Model Name format" })
             .max(128, {
               message: "Model Name must be at most 128 characters",
             })
-            .regex(/^[A-Za-z0-9 _-]+$/, {
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
               message:
                 "Model Name can only contain letters, numbers, spaces, hyphens, and underscores",
             })
@@ -1288,6 +1551,10 @@ export default class ModelHdlr {
 
           modelvariant: z
             .string({ message: "Invalid Model Variant format" })
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+              message:
+                "Model Variant can only contain letters, numbers, spaces, hyphens, and underscores",
+            })
             .max(128, {
               message: "Model Variant must be at most 128 characters",
             })
@@ -1295,6 +1562,10 @@ export default class ModelHdlr {
 
           modelfamilycode: z
             .string({ message: "Invalid Model Family Code format" })
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+              message:
+                "Model Family Code can only contain letters, numbers, spaces, hyphens, and underscores",
+            })
             .max(128, {
               message: "Model Family Code must be at most 128 characters",
             })
@@ -1305,7 +1576,7 @@ export default class ModelHdlr {
             .max(128, {
               message: "Model Display Name must be at most 128 characters",
             })
-            .regex(/^[A-Za-z0-9 _-]+$/, {
+            .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
               message:
                 "Model Display Name can only contain letters, numbers, spaces, hyphens, and underscores",
             })
@@ -1314,7 +1585,7 @@ export default class ModelHdlr {
           modelinfo: z
             .object({
               modelimage: z
-                .string({message:"Invalid ModelImage url format"})
+                .string({ message: "Invalid ModelImage url format" })
                 .max(255, {
                   message: "ModelImage must be at most 255 characters",
                 })
@@ -1325,7 +1596,7 @@ export default class ModelHdlr {
                 .optional(),
 
               modelicon: z
-                .string({message:"Invalid ModelIcon url format"})
+                .string({ message: "Invalid ModelIcon url format" })
                 .max(255, {
                   message: "ModelIcon must be at most 255 characters",
                 })
@@ -1336,7 +1607,7 @@ export default class ModelHdlr {
                 .optional(),
 
               modelmanual: z
-                .string({message:"Invalid ModelManual url format"})
+                .string({ message: "Invalid ModelManual url format" })
                 .max(255, {
                   message: "modelManual must be at most 255 characters",
                 })
@@ -1345,7 +1616,8 @@ export default class ModelHdlr {
                   { message: "Invalid ModelManual URL format" }
                 )
                 .optional(),
-            }).strict()
+            })
+            .strict()
             .optional(),
 
           isenabled: z
@@ -1379,6 +1651,7 @@ export default class ModelHdlr {
 
       APIResponseOK(req, res, result, "Vehicle model updated successfully");
     } catch (e) {
+      this.logger.error("UpdateVehicleModel error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1395,6 +1668,15 @@ export default class ModelHdlr {
 
   DeleteVehicleModel = async (req, res, next) => {
     try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.model.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to delete vehicle model."
+        );
+      }
       let schema = z.object({
         deletedby: z
           .string({ message: "Invalid User ID format" })
@@ -1402,6 +1684,10 @@ export default class ModelHdlr {
         modelcode: z
           .string({ message: "Invalid Model Code format" })
           .nonempty({ message: "Model Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Model Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Model Code must be at most 128 characters" }),
       });
 
@@ -1415,6 +1701,7 @@ export default class ModelHdlr {
       );
       APIResponseOK(req, res, result, "Vehicle model deleted successfully");
     } catch (e) {
+      this.logger.error("DeleteVehicleModel error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1435,6 +1722,10 @@ export default class ModelHdlr {
         modelcode: z
           .string({ message: "Invalid Model Code format" })
           .nonempty({ message: "Model Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Model Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, { message: "Model Code must be at most 128 characters" }),
       });
 
@@ -1451,6 +1742,7 @@ export default class ModelHdlr {
         "Vehicle model code availability checked successfully"
       );
     } catch (e) {
+      this.logger.error("IsModelCodeAvailable error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1472,13 +1764,17 @@ export default class ModelHdlr {
           .string({ message: "Invalid Model Name format" })
           .nonempty({ message: "Model Name cannot be empty" })
           .max(128, { message: "Model Name must be at most 128 characters" })
-          .regex(/^[A-Za-z0-9 _-]+$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
             message:
               "Model Name can only contain letters, numbers, spaces, hyphens, and underscores",
           }),
         modelvariant: z
           .string({ message: "Invalid Model Variant format" })
           .nonempty({ message: "Model Variant cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Model Variant can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
           .max(128, {
             message: "Model Variant must be at most 128 characters",
           }),
@@ -1498,6 +1794,7 @@ export default class ModelHdlr {
         "Vehicle model name and variant availability checked successfully"
       );
     } catch (e) {
+      this.logger.error("IsModelNameVariantAvailable error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
@@ -1522,6 +1819,7 @@ export default class ModelHdlr {
         "All models with family fetched successfully"
       );
     } catch (e) {
+      this.logger.error("GetAllModelsWithFamily error: ", e);
       APIResponseInternalErr(
         req,
         res,

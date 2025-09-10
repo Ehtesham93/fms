@@ -104,10 +104,10 @@ export default class PlatformHdlrImpl {
     let pkgcost = 0;
     for (let module of allModules) {
       if (modules.includes(module.moduleid)) {
-        module.isAssigned = true;
+        module.isassigned = true;
         pkgcost += Number(module.creditspervehicleday);
       } else {
-        module.isAssigned = false;
+        module.isassigned = false;
       }
     }
 

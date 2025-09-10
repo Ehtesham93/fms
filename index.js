@@ -1,4 +1,5 @@
 import winston from "winston";
+import NodeCache from "node-cache";
 
 import APIServer from "./app/apiserver.js";
 import config from "./app/config/config.js";
@@ -28,6 +29,7 @@ import LivetrackingSvc from "./app/services/modules/livetracking/livetrackingsvc
 import TripsInsightSvc from "./app/services/modules/tripsinsights/tripsinsightssvc.js";
 import PlatformSvc from "./app/services/platformsvc/platformsvc.js";
 import UserSvc from "./app/services/usersvc/usersvc.js";
+import { Logger } from "./lib/nemo3-lib-observability/index.js";
 
 // The config has been given here, we can proceed with the starting of the services...
 const myFormat = winston.format.printf(
@@ -36,22 +38,38 @@ const myFormat = winston.format.printf(
   }
 );
 
+//setup logger
+const logger = new Logger({
+  environment: process.env.APP_ENV || "LOCAL",
+  service: "nemo3-api-fms-svc",
+  instance: process.env.INSTANCE || "localhost",
+  ip: process.env.IP || "127.0.0.1",
+  loglevel: "info",
+  logToConsole: config.logToConsole || false,
+  maxSizeBytes: 10 * 1024 * 1024, // 10MB
+  maxBackups: 5,
+  checkIntervalMs: 2 * 1000,
+  autoInstrument: true,
+  flushInterval: 5000,
+});
+
 // 0. Config Related...
 let apiserverport = config.apiserver.port;
 
 // 1. Services...
-let servicelogger = console;
+let servicelogger = logger;
 let pgPoolI = new PgPool(config.pgdb, servicelogger);
+let inMemCacheI = new NodeCache(config.inMemCache);
 let redisSvc = new RedisSvc(config.redis, servicelogger);
 
 let healthSvcI = new HealthSvc();
 let authSvcI = new AuthSvc(config, servicelogger);
-let userSvcI = new UserSvc(pgPoolI, servicelogger);
+let userSvcI = new UserSvc(pgPoolI, config, servicelogger);
 let platformSvcI = new PlatformSvc(pgPoolI, servicelogger);
 let fmsSvcI = new FmsSvc(pgPoolI, servicelogger);
-let fmsAccountSvcI = new FmsAccountSvc(pgPoolI, servicelogger);
+let fmsAccountSvcI = new FmsAccountSvc(pgPoolI, servicelogger, config);
 let historyDataSvcI = new HistoryDataSvc(pgPoolI, servicelogger);
-let livetrackingSvcI = new LivetrackingSvc(pgPoolI, servicelogger);
+let livetrackingSvcI = new LivetrackingSvc(pgPoolI, servicelogger, config);
 let tripsInsightSvcI = new TripsInsightSvc(pgPoolI, servicelogger);
 let chargeInsightSvcI = new ChargeInsightSvc(pgPoolI, servicelogger);
 let fleetInsightSvcI = new FleetInsightSvc(pgPoolI, servicelogger);
@@ -65,6 +83,9 @@ let platformHdlrI = new PlatformHdlr(
   userSvcI,
   authSvcI,
   fmsAccountSvcI,
+  historyDataSvcI,
+  inMemCacheI,
+  redisSvc,
   servicelogger
 );
 let userHdlrI = new UserHdlr(
@@ -78,7 +99,9 @@ let userHdlrI = new UserHdlr(
 let fmsAccountHdlrI = new FmsAccountHdlr(
   fmsAccountSvcI,
   userSvcI,
-  servicelogger
+  servicelogger,
+  platformSvcI,
+  inMemCacheI
 );
 let historyDataHdlrI = new HistoryDataHdlr(
   historyDataSvcI,
@@ -88,23 +111,30 @@ let historyDataHdlrI = new HistoryDataHdlr(
 let livetrackingHdlrI = new LivetrackingHdlr(
   livetrackingSvcI,
   fmsAccountSvcI,
+  userSvcI,
   servicelogger
 );
 let tripsInsightHdlrI = new TripsInsightHdlr(
   tripsInsightSvcI,
   fmsAccountSvcI,
-  servicelogger
+  userSvcI,
+  servicelogger,
+  redisSvc
 );
 let chargeInsightHdlrI = new ChargeInsightHdlr(
   chargeInsightSvcI,
   fmsAccountSvcI,
   tripsInsightSvcI,
-  servicelogger
+  userSvcI,
+  servicelogger,
+  redisSvc
 );
 let fleetInsightHdlrI = new FleetInsightHdlr(
   fleetInsightSvcI,
   fmsAccountSvcI,
-  servicelogger
+  userSvcI,
+  servicelogger,
+  redisSvc
 );
 
 let publicHdlrI = new PublicHdlr(
@@ -112,6 +142,7 @@ let publicHdlrI = new PublicHdlr(
   authSvcI,
   fmsSvcI,
   platformSvcI,
+  inMemCacheI,
   config,
   servicelogger
 );
@@ -134,10 +165,33 @@ let apiRoutes = [
 ];
 
 // 4. API Server...
-let apiserverlogger = console;
+let apiserverlogger = logger;
 let App = new APIServer(publicRoutes, apiRoutes, config, apiserverlogger);
+
+if (!config.logToConsole) {
+  App.app.use(logger.getMetrics().middleware());
+  logger.start();
+}
 
 // 5. Initialize Swagger documentation
 swaggerDocs(App.app, config);
 
 App.Start(apiserverport);
+
+const gracefulShutdown = async () => {
+  try {
+    redisSvc.disconnect();
+    if (!config.logToConsole) {
+      logger.info("Graceful shutdown initiated...");
+      logger.stop();
+      logger.flush();
+    }
+    process.exit(0);
+  } catch (error) {
+    console.error("Error during graceful shutdown:", error);
+    process.exit(1);
+  }
+};
+
+process.on("SIGINT", () => gracefulShutdown());
+process.on("SIGTERM", () => gracefulShutdown());

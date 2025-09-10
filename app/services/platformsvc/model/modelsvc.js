@@ -200,9 +200,12 @@ export default class ModelSvc {
   };
 
   UpdateVehicleModel = async (modelcode, updateFields, updatedby) => {
-  return await this.modelSvcDB.updateVehicleModel(modelcode, updateFields, updatedby);
-};
-
+    return await this.modelSvcDB.updateVehicleModel(
+      modelcode,
+      updateFields,
+      updatedby
+    );
+  };
 
   DeleteVehicleModel = async (modelcode, deletedby) => {
     return await this.modelSvcDB.deleteVehicleModel(modelcode, deletedby);
@@ -221,5 +224,12 @@ export default class ModelSvc {
 
   GetAllModelsWithFamily = async () => {
     return await this.modelSvcDB.getAllModelsWithFamily();
+  };
+
+  GetModelCodeByNameAndVariant = async (modelname, modelvariant) => {
+    return await this.modelSvcDB.getModelCodeByNameAndVariant(
+      modelname,
+      modelvariant
+    );
   };
 }
