@@ -2,11 +2,12 @@ import { v4 as uuidv4 } from "uuid";
 import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
 
 export default class fmsAccountHdlrImpl {
-  constructor(fmsAccountSvcI, userSvcI, logger, platformSvcI) {
+  constructor(fmsAccountSvcI, userSvcI, logger, platformSvcI, redisSvc) {
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.userSvcI = userSvcI;
     this.logger = logger;
     this.platformSvcI = platformSvcI;
+    this.redisSvc = redisSvc;
   }
 
   ListInvitesOfAccountLogic = async (accountid) => {

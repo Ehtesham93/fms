@@ -1,4 +1,5 @@
 import clhTimeBucketRange from "./historydatasvc_utils.js";
+import { PARAM_FAMILY_CODE_REGULAR_DATA } from "../../../utils/constant.js";
 
 export default class HistoryDataSvcDB {
   constructor(pgPoolI, clickHouseClient, logger) {
@@ -237,15 +238,21 @@ export default class HistoryDataSvcDB {
       return new Error("canparams must be a non-empty array");
     }
 
-    if (
-      !canparams.every(
-        (param) => typeof param === "string" && this.canmetrics.includes(param)
-      )
-    ) {
+    if (!canparams.every((param) => typeof param === "string")) {
       return new Error("canparams must contain only strings");
     }
 
     try {
+      const allCanParams = await this.getAllCanParams();
+
+      if (allCanParams.length === 0) {
+        return new Error("Could not fetch All CAN params");
+      }
+
+      if (!canparams.every((param) => allCanParams.includes(param))) {
+        return new Error("Some CAN params does not exist");
+      }
+
       // Get the time buckets for the given time range
       const timeBuckets = clhTimeBucketRange(starttime, endtime);
 
@@ -291,6 +298,19 @@ export default class HistoryDataSvcDB {
     }
   }
 
+  async getAllCanParams() {
+    const canParamsQuery = `SELECT paramcode from paramfamily_param WHERE paramfamilycode = $1`;
+    const canParamsResult = await this.pgPoolI.Query(canParamsQuery, [
+      PARAM_FAMILY_CODE_REGULAR_DATA,
+    ]);
+
+    if (canParamsResult.rows.length === 0) {
+      return [];
+    }
+
+    return canParamsResult.rows.map((row) => row.paramcode);
+  }
+
   async getMergedCANGPSHistoryData(
     accountid,
     vinnumber,
@@ -310,15 +330,21 @@ export default class HistoryDataSvcDB {
       return new Error("canparams must be a non-empty array");
     }
 
-    if (
-      !canparams.every(
-        (param) => typeof param === "string" && this.canmetrics.includes(param)
-      )
-    ) {
+    if (!canparams.every((param) => typeof param === "string")) {
       return new Error("canparams must contain only strings");
     }
 
     try {
+      const allCanParams = await this.getAllCanParams();
+
+      if (allCanParams.length === 0) {
+        return new Error("Could not fetch All CAN params");
+      }
+
+      if (!canparams.every((param) => allCanParams.includes(param))) {
+        return new Error("Some CAN params does not exist");
+      }
+
       const vehicleQuery = `SELECT modelcode FROM vehicle WHERE vinno = $1`;
       const vehicleResult = await this.pgPoolI.Query(vehicleQuery, [vinnumber]);
 

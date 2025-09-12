@@ -125,36 +125,24 @@ export default class PlatformSvc {
     return await this.platformSvcDB.getVehicleAccountDetails(vinno);
   }
 
-  async AddToPendingReview(
-    vinno,
-    fields,
-    createdBy,
-  ) {
+  async AddToPendingReview(vinno, fields, createdBy) {
     return await this.platformSvcDB.addToPendingReview(
       vinno,
       fields,
-      createdBy,
+      createdBy
     );
   }
 
-  async UpdatePendingReview(
-    vinno,
-    updateFields,
-    createdBy
-  ) {
-    return await this.platformSvcDB.updatePendingReview(vinno, updateFields, createdBy);
-  }
-
-  async MoveToDoneReview(
-    vinno,
-    fields,
-    createdBy,
-  ) {
-    return await this.platformSvcDB.moveToDoneReview(
+  async UpdatePendingReview(vinno, updateFields, createdBy) {
+    return await this.platformSvcDB.updatePendingReview(
       vinno,
-      fields,
-      createdBy,
+      updateFields,
+      createdBy
     );
+  }
+
+  async MoveToDoneReview(vinno, fields, createdBy) {
+    return await this.platformSvcDB.moveToDoneReview(vinno, fields, createdBy);
   }
 
   async CheckVehicleInPending(vinno) {
@@ -177,8 +165,12 @@ export default class PlatformSvc {
     return await this.platformSvcDB.getAPIKey(platform, environment);
   }
 
-  async UpdateVehicleMobile(vinno, mobileno) {
-    return await this.platformSvcDB.updateVehicleMobile(vinno, mobileno);
+  async UpdateVehicleMobile(vinno, mobileno, userid) {
+    return await this.platformSvcDB.updateVehicleMobile(
+      vinno,
+      mobileno,
+      userid
+    );
   }
   async UpdateReviewPendingUser(userid, updateFields, updatedby) {
     return await this.platformSvcDB.updateReviewPendingUser(
@@ -191,7 +183,7 @@ export default class PlatformSvc {
     return await this.platformSvcDB.validateVehicleFields(fieldsToValidate);
   }
 
-  async GetColourName(){
+  async GetColourName() {
     return await this.platformSvcDB.getColourName();
   }
 
@@ -200,10 +192,18 @@ export default class PlatformSvc {
   }
 
   async GetConsoleAccountAssignmentHistory(accountid, starttime, endtime) {
-    return await this.platformSvcDB.getConsoleAccountAssignmentHistory(accountid, starttime, endtime);
+    return await this.platformSvcDB.getConsoleAccountAssignmentHistory(
+      accountid,
+      starttime,
+      endtime
+    );
   }
 
   async GetConsoleVehicleAssignmentHistory(vinno, starttime, endtime) {
-    return await this.platformSvcDB.getConsoleVehicleAssignmentHistory(vinno, starttime, endtime);
+    return await this.platformSvcDB.getConsoleVehicleAssignmentHistory(
+      vinno,
+      starttime,
+      endtime
+    );
   }
 }

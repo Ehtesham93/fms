@@ -212,7 +212,7 @@ export default class TripsinsighthdlrImpl {
           return b._startEpoch - a._startEpoch; // Reverse order (newest first)
         });
         // Remove the temporary _startEpoch field after sorting
-        vehicles[vin].trips.forEach(trip => {
+        vehicles[vin].trips.forEach((trip) => {
           delete trip._startEpoch;
         });
       }
@@ -1415,39 +1415,6 @@ export default class TripsinsighthdlrImpl {
     });
 
     return drillDown;
-  };
-
-  getDefaultDrillDown = () => {
-    return {
-      boost_mode: {
-        category: "boost_mode",
-        title: "Boost Mode Usage - Daily Breakdown",
-        threshold: 30,
-        unit: "%",
-        dailydata: [],
-      },
-      eco_mode: {
-        category: "eco_mode",
-        title: "Eco Mode Usage - Daily Breakdown",
-        threshold: 70,
-        unit: "%",
-        dailydata: [],
-      },
-      idle_time: {
-        category: "idle_time",
-        title: "Idle Time - Daily Breakdown",
-        threshold: 5,
-        unit: "minutes",
-        dailydata: [],
-      },
-      short_trips: {
-        category: "short_trips",
-        title: "Short Trips - Daily Breakdown",
-        threshold: 50,
-        unit: "%",
-        dailydata: [],
-      },
-    };
   };
 
   calculateAllFleetInsights = (tripData, allTripData) => {

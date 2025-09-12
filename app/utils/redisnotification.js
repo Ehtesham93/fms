@@ -1,4 +1,18 @@
 /**
+ * Gets the environment prefix for Redis topics
+ * @returns {string} - Environment prefix ("dev", "stg", or "local")
+ */
+const getEnvironmentPrefix = () => {
+  if (process.env.APP_ENV === "STAGING") {
+    return "stg";
+  } else if (process.env.APP_ENV === "DEVELOPMENT") {
+    return "dev";
+  } else {
+    return "local";
+  }
+};
+
+/**
  * Publishes an account update notification to Redis
  * @param {string} accountid - The account ID
  * @param {string} action - The action performed ("added", "updated", "removed")
@@ -21,7 +35,8 @@ export const publishAccountUpdate = async (
       action: action,
     };
 
-    const key = `account.updates.${accountid}.${updateType}`;
+    const envPrefix = getEnvironmentPrefix();
+    const key = `${envPrefix}.account.updates.${accountid}.${updateType}`;
     const message = JSON.stringify(updateData);
 
     // Set the key with the data (persistent state)

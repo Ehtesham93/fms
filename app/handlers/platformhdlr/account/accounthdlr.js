@@ -1,20 +1,22 @@
-import z from "zod";
 import crypto from "crypto";
 import { UAParser } from "ua-parser-js";
+import z from "zod";
 
 import {
+  ADMIN_ROLE_ID,
+  INVITE_RATE_LIMIT_PER_HOUR,
+} from "../../../utils/constant.js";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
+import {
   APIResponseBadRequest,
+  APIResponseError,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
-  APIResponseForbidden,
-  APIResponseError,
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import AccountHdlrImpl from "./accounthdlr_impl.js";
-import { CheckUserPerms } from "../../../utils/permissionutil.js";
 
-const ADMIN_ROLEID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-const RATE_LIMIT_PER_HOUR = 3;
 export default class AccountHdlr {
   constructor(
     accountSvcI,
@@ -951,7 +953,7 @@ export default class AccountHdlr {
       let invitedby = req.userid;
       let accountid = req.params.accountid;
       let contact = req.body.contact;
-      let roles = [ADMIN_ROLEID];
+      let roles = [ADMIN_ROLE_ID];
       let headerReferer = req.headers.origin;
 
       let contactSchema = z.object({
@@ -992,7 +994,7 @@ export default class AccountHdlr {
 
       let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
 
-      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+      if (currentCount >= INVITE_RATE_LIMIT_PER_HOUR) {
         const error = new Error(
           "Too many invites sent to this contact for this account. Please try after an hour."
         );
@@ -1085,7 +1087,7 @@ export default class AccountHdlr {
 
       let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
 
-      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+      if (currentCount >= INVITE_RATE_LIMIT_PER_HOUR) {
         const error = new Error(
           "Too many resend attempts for this invite. Please try after an hour."
         );

@@ -1,6 +1,5 @@
 import PpUserSvcDB from "./pusersvc_db.js";
-
-const PLATFORM_ACCOUNT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+import { PLATFORM_ACCOUNT_ID } from "../../../utils/constant.js";
 
 export default class PUserSvc {
   constructor(pgPoolI, logger) {
@@ -95,8 +94,6 @@ export default class PUserSvc {
     return await this.pUserSvcDB.addReviewDoneUser(userData);
   }
 
-
-
   async AddReviewPendingUser(userData) {
     return await this.pUserSvcDB.addReviewPendingUser(userData);
   }
@@ -121,7 +118,11 @@ export default class PUserSvc {
     return await this.pUserSvcDB.deletePendingUserReviewById(userid);
   }
   async UpdateReviewPendingUser(userid, updateFields, updatedby) {
-    return await this.pUserSvcDB.updateReviewPendingUser(userid, updateFields, updatedby);
+    return await this.pUserSvcDB.updateReviewPendingUser(
+      userid,
+      updateFields,
+      updatedby
+    );
   }
 
   async UpdateUserInfo(userid, userinfo, updatedby) {

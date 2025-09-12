@@ -19,20 +19,21 @@ export default class RedisSvc {
 
   async connect() {
     try {
-      this.client = createCluster({
-        rootNodes: [
-          {
-            url: `redis://${this.config.host}:${this.config.port}`,
+      if(!this.client) {
+        this.client = createCluster({
+          rootNodes: [
+            {
+              url: `redis://${this.config.host}:${this.config.port}`,
+            },
+          ],
+          defaults: {
+            socket: {
+              connectTimeout: 10000,
+              lazyConnect: true,
+            },
           },
-        ],
-        defaults: {
-          socket: {
-            connectTimeout: 10000,
-            lazyConnect: true,
-          },
-        },
-      });
-
+        });
+      }
       this.client.on("error", (err) => {
         this.logger.error("Redis Cluster Error:", err);
       });
@@ -44,8 +45,9 @@ export default class RedisSvc {
       this.client.on("ready", () => {
         this.logger.info("Redis Cluster Ready");
       });
-
-      await this.client.connect();
+      if(!this.client.isOpen) {
+        await this.client.connect();
+      }
       return [true, null];
     } catch (error) {
       this.logger.error("Redis cluster connection error:", error);
@@ -241,7 +243,7 @@ export default class RedisSvc {
       return [result, null];
     } catch (error) {
       this.logger.error("Redis publish error:", error);
-      return [null, ErrPublish.NewWData(error)];
+      return [null, error];
     }
   }
 

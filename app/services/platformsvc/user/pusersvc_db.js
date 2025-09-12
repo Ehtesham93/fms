@@ -1,23 +1,14 @@
+import {
+  FLEET_INVITE_STATUS,
+  FLEET_INVITE_TYPE,
+} from "../../../utils/constant.js";
 import { EncryptPassword, Sha256hash } from "../../../utils/eccutil.js";
 import {
-  isRedundantInvite,
-  shouldUpdateExistingInvite,
-  updateInviteExpiryAndSendEmail,
-  markInviteAsExpired,
   getInviteEmailTemplate,
+  isRedundantInvite,
+  markInviteAsExpired,
+  updateInviteExpiryAndSendEmail
 } from "../../../utils/inviteUtil.js";
-
-const FLEET_INVITE_STATUS = {
-  PENDING: "PENDING",
-  ACCEPTED: "ACCEPTED",
-  REJECTED: "REJECTED",
-  EXPIRED: "EXPIRED",
-};
-
-const FLEET_INVITE_TYPE = {
-  EMAIL: "email",
-  MOBILE: "mobile",
-};
 
 export default class PUserSvcDB {
   /**
@@ -912,15 +903,21 @@ export default class PUserSvcDB {
   async getMetadataOptions() {
     try {
       // Execute all queries in parallel using Promise.all
-      const [cityResult, dealerResult, colourResult, fueltypeResult, tgu_modelResult, tgu_sw_versionResult] =
-        await Promise.all([
-          this.pgPoolI.Query("SELECT cityname FROM city"),
-          this.pgPoolI.Query("SELECT dealername FROM dealer"),
-          this.pgPoolI.Query("SELECT colorname from color"),
-          this.pgPoolI.Query("SELECT fueltypename FROM fueltype"),
-          this.pgPoolI.Query("SELECT tgu_model FROM tgu_model"),
-          this.pgPoolI.Query("SELECT tgu_sw_version FROM tgu_sw_version"),
-        ]);
+      const [
+        cityResult,
+        dealerResult,
+        colourResult,
+        fueltypeResult,
+        tgu_modelResult,
+        tgu_sw_versionResult,
+      ] = await Promise.all([
+        this.pgPoolI.Query("SELECT cityname FROM city"),
+        this.pgPoolI.Query("SELECT dealername FROM dealer"),
+        this.pgPoolI.Query("SELECT colorname from color"),
+        this.pgPoolI.Query("SELECT fueltypename FROM fueltype"),
+        this.pgPoolI.Query("SELECT tgu_model FROM tgu_model"),
+        this.pgPoolI.Query("SELECT tgu_sw_version FROM tgu_sw_version"),
+      ]);
 
       return {
         city: cityResult.rows.map((row) => row.cityname),
@@ -928,7 +925,9 @@ export default class PUserSvcDB {
         colour: colourResult.rows.map((row) => row.colorname),
         fueltype: fueltypeResult.rows.map((row) => row.fueltypename),
         tgu_model: tgu_modelResult.rows.map((row) => row.tgu_model),
-        tgu_sw_version: tgu_sw_versionResult.rows.map((row) => row.tgu_sw_version),
+        tgu_sw_version: tgu_sw_versionResult.rows.map(
+          (row) => row.tgu_sw_version
+        ),
         gender: ["Male", "Female", "Other"],
       };
     } catch (error) {

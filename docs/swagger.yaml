@@ -397,6 +397,472 @@ paths:
                     type: string
                     example: "Failed to get vehicle insights"
 
+  /api/v1/fms/fleetinsights/fleet/{fleetid}/allinsights:
+    get:
+      tags:
+        - FMS JS > FMS > FleetInsights
+      summary: Get All Fleet Insights
+      description: Retrieve comprehensive fleet insights including charging sessions, distance travelled, trips, energy consumed, and charging deviations for a specific fleet within a specified time range
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: fleetid
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "16d1bfc0-249f-41a9-b894-57f9630d8135"
+          description: Fleet ID to get insights for
+        - in: query
+          name: starttime
+          required: true
+          schema:
+            type: string
+          example: "1716150000000"
+          description: Start time in milliseconds (timestamp). Must be less than endtime
+        - in: query
+          name: endtime
+          required: true
+          schema:
+            type: string
+          example: "1716236400000"
+          description: End time in milliseconds (timestamp). Must be greater than starttime
+        - in: query
+          name: recursive
+          required: false
+          schema:
+            type: boolean
+            default: false
+          example: true
+          description: Whether to include sub-fleets recursively
+        - in: query
+          name: filter
+          required: false
+          schema:
+            type: string
+            enum: ["all", "distancetravelled", "chargingsessions", "energyconsumed", "trips", "chargingdeviation"]
+            default: "all"
+          example: "all"
+          description: Filter to specify which insights to include
+      responses:
+        "200":
+          description: Fleet insights retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    type: object
+                    properties:
+                      totalchargingsessions:
+                        type: integer
+                        description: "Total number of charging sessions"
+                        example: 45
+                      totaldistancetravelled:
+                        type: number
+                        description: "Total distance travelled in kilometers"
+                        example: 1250.5
+                      totalenergyconsumed:
+                        type: number
+                        description: "Total energy consumed in kWh"
+                        example: 345.8
+                      totaltrips:
+                        type: integer
+                        description: "Total number of trips"
+                        example: 123
+                      totalchargingdeviation:
+                        type: integer
+                        description: "Total charging deviations"
+                        example: 3
+                      distancetravelled:
+                        type: object
+                        description: "Detailed distance travelled analytics by vehicle"
+                        additionalProperties: true
+                      chargingsessions:
+                        type: object
+                        description: "Detailed charging sessions analytics by vehicle"
+                        additionalProperties: true
+                      energyconsumed:
+                        type: object
+                        description: "Detailed energy consumption analytics by vehicle"
+                        additionalProperties: true
+                      trips:
+                        type: object
+                        description: "Detailed trips analytics by vehicle"
+                        additionalProperties: true
+                      chargingdeviation:
+                        type: object
+                        description: "Detailed charging deviation analytics by vehicle"
+                        additionalProperties: true
+                  msg:
+                    type: string
+                    example: "SUCCESS"
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INVALID_TIME_RANGE"
+                      errdata:
+                        type: object
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "starttime must be less than endtime"
+        "403":
+          description: Forbidden - Insufficient permissions to access fleet insights
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INSUFFICIENT_PERMISSIONS"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You don't have permission to get fleet insights."
+        "500":
+          description: Internal Server Error - Failed to retrieve fleet insights
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INTERNAL_ERROR"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Failed to get fleet insights"
+
+  /api/v1/fms/fleetinsights/vehicle/ecocontribution:
+    post:
+      tags:
+        - FMS JS > FMS > FleetInsights
+      summary: Get Vehicle Eco Contribution
+      description: Calculate eco contribution metrics (fuel cost saved, trees saved, CO2 emissions saved) for one or multiple vehicles
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - vinnumbers
+              properties:
+                vinnumbers:
+                  oneOf:
+                    - type: string
+                      minLength: 1
+                      maxLength: 128
+                      description: "Single VIN number"
+                      example: "WBAFW31050F123456"
+                    - type: array
+                      items:
+                        type: string
+                        minLength: 1
+                        maxLength: 128
+                      minItems: 1
+                      description: "Array of VIN numbers"
+                      example:
+                        [
+                          "WBAFW31050F123456",
+                          "WBAFW31050F123457",
+                          "WBAFW31050F123458",
+                        ]
+                  description: "Single VIN number or array of VIN numbers for which to calculate eco contribution"
+                vehiclematric:
+                  type: boolean
+                  default: false
+                  description: "Whether to include detailed vehicle-wise metrics breakdown"
+                  example: true
+      responses:
+        "200":
+          description: Vehicle eco contribution calculated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    oneOf:
+                      - type: object
+                        description: "Simple cumulative response when vehiclematric=false"
+                        properties:
+                          fuelcostsaved:
+                            type: string
+                            description: "Total fuel cost saved in rupees"
+                            example: "₹1,250.50"
+                          treesaved:
+                            type: string
+                            description: "Total trees saved equivalent"
+                            example: "15"
+                          co2emissionssaved:
+                            type: string
+                            description: "Total CO2 emissions saved in tonnes"
+                            example: "2.5 t"
+                      - type: object
+                        description: "Detailed response when vehiclematric=true"
+                        properties:
+                          cumulativecontribution:
+                            type: object
+                            properties:
+                              fuelcostsaved:
+                                type: string
+                                description: "Total fuel cost saved in rupees"
+                                example: "₹1,250.50"
+                              treesaved:
+                                type: string
+                                description: "Total trees saved equivalent"
+                                example: "15"
+                              co2emissionssaved:
+                                type: string
+                                description: "Total CO2 emissions saved in tonnes"
+                                example: "2.5 t"
+                          vehiclecontribution:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                vin:
+                                  type: string
+                                  description: "Vehicle VIN number"
+                                fuelsaved:
+                                  type: string
+                                  description: "Fuel cost saved for this vehicle"
+                                treessaved:
+                                  type: string
+                                  description: "Trees saved equivalent for this vehicle"
+                                co2saved:
+                                  type: string
+                                  description: "CO2 emissions saved for this vehicle"
+                            description: "Individual vehicle contribution breakdown"
+                  msg:
+                    type: string
+                    example: "SUCCESS"
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INPUT_ERROR"
+                      errdata:
+                        type: object
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "VIN NO is required"
+        "403":
+          description: Forbidden - Insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INSUFFICIENT_PERMISSIONS"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You don't have permission to get fleet insights."
+        "500":
+          description: Internal Server Error - Failed to calculate eco contribution
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "FAILED_TO_GET_VEHICLE_ECO_CONTRIBUTION"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Failed to get vehicle eco contribution"
+
+  /api/v1/fms/fleetinsights/fleet/{fleetid}/ecocontribution:
+    get:
+      tags:
+        - FMS JS > FMS > FleetInsights
+      summary: Get Fleet Eco Contribution
+      description: Calculate eco contribution metrics (fuel cost saved, trees saved, CO2 emissions saved) for all vehicles in a fleet
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: fleetid
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "16d1bfc0-249f-41a9-b894-57f9630d8135"
+          description: Fleet ID to calculate eco contribution for
+        - in: query
+          name: vehiclematric
+          required: false
+          schema:
+            type: boolean
+            default: false
+          example: true
+          description: Whether to include detailed vehicle-wise metrics breakdown
+        - in: query
+          name: recursive
+          required: false
+          schema:
+            type: boolean
+            default: false
+          example: true
+          description: Whether to include sub-fleets recursively
+      responses:
+        "200":
+          description: Fleet eco contribution calculated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    type: object
+                    properties:
+                      cumulativecontribution:
+                        type: object
+                        properties:
+                          fuelcostsaved:
+                            type: string
+                            description: "Total fuel cost saved in rupees"
+                            example: "₹5,250.75"
+                          treesaved:
+                            type: string
+                            description: "Total trees saved equivalent"
+                            example: "65"
+                          co2emissionssaved:
+                            type: string
+                            description: "Total CO2 emissions saved in tonnes"
+                            example: "12.3 t"
+                      vehiclecontribution:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            vin:
+                              type: string
+                              description: "Vehicle VIN number"
+                            fuelsaved:
+                              type: string
+                              description: "Fuel cost saved for this vehicle"
+                            treessaved:
+                              type: string
+                              description: "Trees saved equivalent for this vehicle"
+                            co2saved:
+                              type: string
+                              description: "CO2 emissions saved for this vehicle"
+                        description: "Individual vehicle contribution breakdown (only included when vehiclematric=true)"
+                  msg:
+                    type: string
+                    example: "SUCCESS"
+        "400":
+          description: Bad Request - Invalid fleet ID or parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "FLEET_NOT_FOUND"
+                      errdata:
+                        type: object
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Fleet not found or does not belong to this account"
+        "403":
+          description: Forbidden - Insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INSUFFICIENT_PERMISSIONS"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You don't have permission to get fleet insights."
+        "500":
+          description: Internal Server Error - Failed to calculate fleet eco contribution
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "FAILED_TO_GET_VEHICLE_ECO_CONTRIBUTION"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Failed to get vehicle eco contribution"
+
   /api/v1/fms/account/fleet:
     post:
       tags:
@@ -903,6 +1369,7 @@ paths:
       tags:
         - FMS JS > Platform > Users
       summary: Delete User
+      description: Permanently delete a user from the platform (requires super admin permissions)
       parameters:
         - in: path
           name: userid
@@ -910,13 +1377,97 @@ paths:
           schema:
             type: string
             format: uuid
+          example: "6f66b236-e11b-47b8-b150-1fd201b6f7c4"
+          description: UUID of the user to delete
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Successful response
+          description: User deleted successfully
           content:
-            application/json: {}
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    type: object
+                    properties:
+                      userid:
+                        type: string
+                        format: uuid
+                        description: "ID of the deleted user"
+                      deletedby:
+                        type: string
+                        format: uuid
+                        description: "ID of the user who performed the deletion"
+                      deletedat:
+                        type: string
+                        format: date-time
+                        description: "Timestamp when user was deleted"
+                  msg:
+                    type: string
+                    example: "User deleted successfully"
+        "400":
+          description: Bad Request - Invalid user ID or business logic error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        enum: ["INPUT_ERROR", "CANNOT_DELETE_SELF", "USER_NOT_FOUND", "USER_ALREADY_DELETED", "CANNOT_DELETE_SEED_USER"]
+                        example: "CANNOT_DELETE_SELF"
+                      errdata:
+                        type: object
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You cannot delete yourself"
+        "403":
+          description: Forbidden - Insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INSUFFICIENT_PERMISSIONS"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You don't have permission to delete user."
+        "500":
+          description: Internal Server Error - Failed to delete user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "DELETE_USER_ERR"
+                      errdata:
+                        type: string
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Delete user failed"
   /api/v1/platform/user/{userid}/role:
     post:
       tags:
@@ -1727,14 +2278,6 @@ paths:
             type: string
             format: uuid
             description: Account ID (must be a valid UUID)
-        - in: query
-          name: subscriptiontype
-          required: true
-          schema:
-            type: string
-            enum: ["all.all.all", "subscribed", "subscribeable"]
-            description: Type of vehicles to retrieve
-          example: "subscribed"
       security:
         - cookieAuth: []
       responses:
@@ -3335,6 +3878,117 @@ paths:
           description: Successful response
           content:
             application/json: {}
+
+  /api/v1/fms/account/user/{userid}/remove:
+    delete:
+      tags:
+        - FMS JS > FMS > AccountMangement > Fleet > User
+      summary: Remove User from Account
+      description: Remove a user from the current account context. The user will lose all access to this account's resources and fleets.
+      parameters:
+        - in: path
+          name: userid
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "6f66b236-e11b-47b8-b150-1fd201b6f7c4"
+          description: UUID of the user to remove from account
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User removed from account successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    type: object
+                    properties:
+                      userid:
+                        type: string
+                        format: uuid
+                        description: "ID of the removed user"
+                      accountid:
+                        type: string
+                        format: uuid
+                        description: "ID of the account user was removed from"
+                      removedby:
+                        type: string
+                        format: uuid
+                        description: "ID of the user who performed the removal"
+                      removedat:
+                        type: string
+                        format: date-time
+                        description: "Timestamp when user was removed"
+                      message:
+                        type: string
+                        example: "User removed from account successfully"
+                  msg:
+                    type: string
+                    example: "User removed from account successfully"
+        "400":
+          description: Bad Request - Invalid user ID or business logic error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        enum: ["INPUT_ERROR", "CANNOT_REMOVE_SELF", "USER_NOT_FOUND", "USER_NOT_IN_ACCOUNT", "CANNOT_REMOVE_SEED_USER"]
+                        example: "CANNOT_REMOVE_SELF"
+                      errdata:
+                        type: object
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You cannot remove yourself from the account"
+        "403":
+          description: Forbidden - Insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INSUFFICIENT_PERMISSIONS"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You don't have permission to remove user."
+        "500":
+          description: Internal Server Error - Failed to remove user from account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "FAILED_TO_REMOVE_USER_FROM_ACCOUNT"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Failed to remove user from account"
+
   /api/v1/fms/user/accounts:
     get:
       tags:
@@ -4470,6 +5124,401 @@ paths:
                   msg:
                     type: string
                     example: "Vehicle creation failed"
+
+  /api/v1/platform/vehicle/{vinno}/getlatestdata:
+    get:
+      tags:
+        - FMS JS > Platform > Vehicle
+      summary: Get Vehicle Latest Data
+      description: Retrieve the latest GPS and CAN data for a specific vehicle by VIN number
+      parameters:
+        - in: path
+          name: vinno
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+          example: "MA1AD2ZA7PJF25186"
+          description: Vehicle Identification Number (VIN)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Vehicle latest data fetched successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    type: object
+                    properties:
+                      gpsdata:
+                        type: object
+                        description: "Latest GPS data for the vehicle"
+                        properties:
+                          latitude:
+                            type: number
+                            format: float
+                            example: 17.6867174
+                            description: "Vehicle latitude coordinate"
+                          longitude:
+                            type: number
+                            format: float
+                            example: 77.5822892
+                            description: "Vehicle longitude coordinate"
+                        additionalProperties: true
+                      candata:
+                        type: object
+                        description: "Latest CAN bus data for the vehicle"
+                        additionalProperties: true
+                  msg:
+                    type: string
+                    example: "Vehicle latest data fetched successfully"
+        "400":
+          description: Bad Request - Invalid VIN format or input parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INPUT_ERROR"
+                      errdata:
+                        type: object
+                        description: "Validation error details"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "VIN must be a valid format"
+        "403":
+          description: Forbidden - Insufficient permissions to access vehicle data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INSUFFICIENT_PERMISSIONS"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You don't have permission to get vehicle latest data."
+        "500":
+          description: Internal Server Error - Failed to retrieve vehicle data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "GET_VEHICLE_LATEST_DATA_ERR"
+                      errdata:
+                        type: string
+                        description: "Error details"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Get vehicle latest data failed"
+
+  /api/v1/platform/vehicle/{vinno}/info:
+    get:
+      tags:
+        - FMS JS > Platform > Vehicle
+      summary: Get Vehicle Information
+      description: Retrieve detailed information about a specific vehicle by VIN number
+      parameters:
+        - in: path
+          name: vinno
+          required: true
+          schema:
+            type: string
+            maxLength: 128
+          example: "MA1CA2ZA7SJC46267"
+          description: Vehicle Identification Number (VIN)
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Vehicle information fetched successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    type: object
+                    properties:
+                      vinno:
+                        type: string
+                        description: "Vehicle Identification Number"
+                        example: "MA1CA2ZA7SJC46267"
+                      modelvariant:
+                        type: string
+                        description: "Vehicle model variant"
+                        example: "Standard"
+                      modelname:
+                        type: string
+                        description: "Vehicle model name"
+                        example: "Treo"
+                      modeldisplayname:
+                        type: string
+                        description: "Display name for the vehicle model"
+                        example: "TREO Standard"
+                      modelcode:
+                        type: string
+                        description: "Vehicle model code"
+                        example: "treo_standard"
+                      vehicleinfo:
+                        type: object
+                        description: "Additional vehicle information"
+                        additionalProperties: true
+                      mobile:
+                        type: string
+                        description: "Mobile number associated with vehicle"
+                        example: "9848312193"
+                      regno:
+                        type: string
+                        description: "Vehicle registration number or license plate"
+                        example: "KA01AB1234"
+                      color:
+                        type: string
+                        description: "Vehicle color"
+                        example: "White"
+                      vehicle_city:
+                        type: string
+                        description: "City where vehicle is registered"
+                        example: "Bangalore"
+                      dealer:
+                        type: string
+                        description: "Dealer information"
+                        example: "ABC Motors"
+                      delivered:
+                        type: boolean
+                        description: "Whether vehicle has been delivered"
+                        example: true
+                      delivered_date:
+                        type: string
+                        format: date-time
+                        description: "Date when vehicle was delivered"
+                      data_freq:
+                        type: integer
+                        description: "Data frequency setting"
+                        example: 30
+                      tgu_model:
+                        type: string
+                        description: "TGU model information"
+                      tgu_sw_version:
+                        type: string
+                        description: "TGU software version"
+                      tgu_phone_no:
+                        type: string
+                        description: "TGU phone number"
+                      tgu_imei_no:
+                        type: string
+                        description: "TGU IMEI number"
+                      createdat:
+                        type: string
+                        format: date-time
+                        description: "Timestamp when vehicle was created"
+                      createdby:
+                        type: string
+                        description: "Name of user who created the vehicle record"
+                      updatedat:
+                        type: string
+                        format: date-time
+                        description: "Timestamp when vehicle was last updated"
+                      updatedby:
+                        type: string
+                        description: "Name of user who last updated the vehicle record"
+                  msg:
+                    type: string
+                    example: "Vehicle info fetched successfully"
+        "400":
+          description: Bad Request - Invalid VIN format or input parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INPUT_ERROR"
+                      errdata:
+                        type: object
+                        description: "Validation error details"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "VIN must be a valid format"
+        "403":
+          description: Forbidden - Insufficient permissions to access vehicle information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INSUFFICIENT_PERMISSIONS"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You don't have permission to get vehicle info."
+        "500":
+          description: Internal Server Error - Failed to retrieve vehicle information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "GET_VEHICLE_INFO_ERR"
+                      errdata:
+                        type: string
+                        description: "Error details"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Get vehicle info failed"
+
+  /api/v1/platform/vehicle/vehicleserviceonboarding:
+    post:
+      tags:
+        - FMS JS > Platform > Vehicle
+      summary: Vehicle Service Onboarding
+      description: Onboard a vehicle with an external service using VIN and mobile number. This endpoint facilitates the integration with third-party services for vehicle registration.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - vin
+                - mobileno
+              properties:
+                vin:
+                  type: string
+                  minLength: 17
+                  maxLength: 17
+                  description: "Vehicle Identification Number"
+                  example: "MA1AD2ZA7PJF25186"
+                mobileno:
+                  type: string
+                  description: "Mobile number - exactly 10 digits starting with 6-9"
+      responses:
+        "200":
+          description: Vehicle service onboarding completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: "null"
+                  data:
+                    type: object
+                    description: "Response data from the external service"
+                    additionalProperties: true
+                  msg:
+                    type: string
+                    description: "Success message from the external service"
+                    example: "Vehicle service onboarding completed successfully"
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INPUT_ERROR"
+                      errdata:
+                        type: object
+                        description: "Validation error details"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Please enter a valid Indian VIN number starting with MA or MB"
+        "403":
+          description: Forbidden - Insufficient permissions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "INSUFFICIENT_PERMISSIONS"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "You don't have permission to onboard vehicle service."
+        "500":
+          description: Internal Server Error - Vehicle service onboarding failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  err:
+                    type: object
+                    properties:
+                      errcode:
+                        type: string
+                        example: "VEHICLE_SERVICE_ONBOARDING_ERR"
+                      errdata:
+                        type: string
+                        description: "Error details from the external service"
+                  data:
+                    type: "null"
+                  msg:
+                    type: string
+                    example: "Vehicle service onboarding failed"
 
   /api/v1/fms/account/subscriptions:
     get:

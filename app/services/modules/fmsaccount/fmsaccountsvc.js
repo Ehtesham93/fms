@@ -524,4 +524,9 @@ export default class FmsAccountSvc {
       updatedby
     );
   }
+
+  // helper function
+  async GetAccountAndPackageInfo(accountid) {
+    return await this.fmsAccountSvcDB.getAccountAndPackageInfo(accountid);
+  }
 }

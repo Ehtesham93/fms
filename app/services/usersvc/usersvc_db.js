@@ -1,27 +1,15 @@
 import { v4 as uuidv4 } from "uuid";
-const { EncryptPassword } = await import("../../utils/eccutil.js");
+import {
+  ADMIN_ROLE_ID,
+  ADMIN_USER_ID,
+  EMAIL_PWD_SSO,
+  FLEET_INVITE_STATUS,
+  FLEET_INVITE_TYPE,
+  MOBILE_SSO,
+  PASSWORD_EXPIRE_TIME,
+} from "../../utils/constant.js";
 import { markInviteAsExpired } from "../../utils/inviteUtil.js";
-
-const EMAIL_PWD_SSO = "EMAIL_PWD"; // TODO: move these to constants util
-const MOBILE_SSO = "MOBILE";
-
-const SIGNUP_WITH_INVITE_FLOW = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-const ADMIN_ROLEID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-
-const FLEET_INVITE_STATUS = {
-  PENDING: "PENDING",
-  ACCEPTED: "ACCEPTED",
-  REJECTED: "REJECTED",
-  EXPIRED: "EXPIRED",
-  DELETED: "DELETED",
-};
-
-const FLEET_INVITE_TYPE = {
-  EMAIL: "email",
-  MOBILE: "mobile",
-};
-
-const PASSWORD_EXPIRE_TIME = 90;
+const { EncryptPassword } = await import("../../utils/eccutil.js");
 
 export default class UserSvcDB {
   /**
@@ -127,7 +115,7 @@ export default class UserSvcDB {
 
       let consoleaccountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
       // let consoleaccountrootfleetid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-      let superadminroleid = ADMIN_ROLEID;
+      let superadminroleid = ADMIN_ROLE_ID;
 
       query = `
                 SELECT fleetid FROM account_fleet WHERE accountid = $1 AND isroot = true
@@ -741,7 +729,7 @@ export default class UserSvcDB {
         invite.createdat,
         invite.createdby,
         currtime,
-        SIGNUP_WITH_INVITE_FLOW,
+        ADMIN_USER_ID,
         userid,
       ]);
       if (result.rowCount !== 1) {
@@ -773,9 +761,9 @@ export default class UserSvcDB {
         true,
         true,
         currtime,
-        SIGNUP_WITH_INVITE_FLOW,
+        ADMIN_USER_ID,
         currtime,
-        SIGNUP_WITH_INVITE_FLOW,
+        ADMIN_USER_ID,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to create user");
@@ -1344,7 +1332,7 @@ export default class UserSvcDB {
         throw new Error("Failed to add user to fleet");
       }
 
-      let roleid = ADMIN_ROLEID;
+      let roleid = ADMIN_ROLE_ID;
       if (roleids && roleids.length > 0) {
         roleid = roleids[0];
       }
@@ -1377,7 +1365,7 @@ export default class UserSvcDB {
         accountid,
         rootfleetid,
         contact,
-        ADMIN_ROLEID,
+        ADMIN_ROLE_ID,
         contacttype,
         FLEET_INVITE_STATUS.ACCEPTED,
         currtime,
@@ -1507,7 +1495,7 @@ export default class UserSvcDB {
       // result = await txclient.query(query, [
       //   accountid,
       //   rootfleetid,
-      //   ADMIN_ROLEID,
+      //   ADMIN_ROLE_ID,
       // ]);
       // const adminCount = parseInt(result.rows[0].admin_count);
 
@@ -1518,7 +1506,7 @@ export default class UserSvcDB {
       // `;
       // result = await txclient.query(query, [accountid, rootfleetid, userid]);
       // const userRoles = result.rows.map((row) => row.roleid);
-      // const isUserAdmin = userRoles.includes(ADMIN_ROLEID);
+      // const isUserAdmin = userRoles.includes(ADMIN_ROLE_ID);
 
       // // If user is admin and this is the last admin, prevent removal
       // if (isUserAdmin && adminCount <= 1) {

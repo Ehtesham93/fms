@@ -79,6 +79,7 @@ export default {
   },
   fmsFeatures: {
     enableSubscribedVehiclesFilter: true,
+    enableCreditChecks: false,
   },
   serviceConfig: {
     url: "https://stg-nemo.mahindraelectric.com:2083/api/v1/fms/service/vehicle/onboarding",

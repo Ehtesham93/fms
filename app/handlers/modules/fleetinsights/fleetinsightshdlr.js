@@ -14,7 +14,14 @@ import FleetInsightsHdlrImpl from "./fleetinsightshdlr_impl.js";
 import PermissionSvc from "../../../services/permsvc/permsvc.js";
 import { CheckUserPerms } from "../../../utils/permissionutil.js";
 export default class FleetInsightsHdlr {
-  constructor(fleetInsightsSvcI, fmsAccountSvcI, userSvcI, logger, redisSvc) {
+  constructor(
+    fleetInsightsSvcI,
+    fmsAccountSvcI,
+    userSvcI,
+    logger,
+    redisSvc,
+    config
+  ) {
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.logger = logger;
     this.fleetInsightsHdlrImpl = new FleetInsightsHdlrImpl(
@@ -24,13 +31,93 @@ export default class FleetInsightsHdlr {
     );
     this.permissionSvc = new PermissionSvc(fmsAccountSvcI, userSvcI, logger);
     this.redisSvc = redisSvc;
+    this.config = config;
   }
+
+  CheckEnoughCredits = async (req, res, next) => {
+    try {
+      const { accountid } = req;
+
+      if (!accountid) {
+        APIResponseUnauthorized(
+          req,
+          res,
+          "MISSING_CREDENTIALS",
+          {},
+          "Account ID missing from token"
+        );
+        return;
+      }
+
+      const userAgent = req.headers["user-agent"] || "";
+
+      // Skip credit checks for iOS and Android requests
+      if (/android/i.test(userAgent) || /iphone|ipad|ipod/i.test(userAgent)) {
+        next();
+        return;
+      }
+
+      const accountInfo = await this.fmsAccountSvcI.GetAccountAndPackageInfo(
+        accountid
+      );
+
+      if (!accountInfo) {
+        APIResponseForbidden(
+          req,
+          res,
+          "NO_PACKAGE_SUBSCRIPTION",
+          {},
+          "Account does not have an active package subscription"
+        );
+        return;
+      }
+
+      const {
+        total_subscribed_vehicles,
+        graceperiod,
+        available_credits,
+        total_credits_per_vehicle_day,
+      } = accountInfo;
+
+      const graceCredits =
+        -1 *
+        (total_subscribed_vehicles *
+          graceperiod *
+          total_credits_per_vehicle_day);
+
+      if (available_credits < graceCredits) {
+        APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_CREDITS",
+          {},
+          `Insufficient credits. Your limit is ${graceCredits} credits, but you are currently at ${available_credits} credits`
+        );
+        return;
+      }
+
+      next();
+    } catch (error) {
+      this.logger.error(`fmsaccounthdlr.CheckEnoughCredits: error: ${error}`);
+      APIResponseInternalErr(
+        req,
+        res,
+        error,
+        {},
+        "Failed to check credit sufficiency"
+      );
+    }
+  };
 
   // TODO: add permission check for each route
   RegisterRoutes(router) {
     const accountTokenGroup = promiserouter();
     accountTokenGroup.use(AuthenticateAccountTokenFromCookie);
     accountTokenGroup.use(this.VerifyUserAccountAccess);
+    if (this.config?.fmsFeatures?.enableCreditChecks) {
+      accountTokenGroup.use(this.CheckEnoughCredits);
+    }
+
     router.use("/", accountTokenGroup);
 
     accountTokenGroup.get("/getallfleets", this.GetAllFleets);
@@ -224,7 +311,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetAllFleets error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
@@ -294,7 +387,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetAccountOverview error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
@@ -363,7 +462,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetFleetAge error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
@@ -497,7 +602,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetAllFleetInsights error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
@@ -659,7 +770,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetAllVehicleInsights error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
@@ -738,7 +855,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetFleetVehicleEcoContribution error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
@@ -833,7 +956,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetVehicleEcoContribution error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
@@ -965,7 +1094,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetFleetAnalytics error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
@@ -1097,7 +1232,13 @@ export default class FleetInsightsHdlr {
     } catch (error) {
       this.logger.error("GetFleetUtilization error: ", error);
       if (error.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||

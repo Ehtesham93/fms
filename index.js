@@ -101,25 +101,30 @@ let fmsAccountHdlrI = new FmsAccountHdlr(
   userSvcI,
   servicelogger,
   platformSvcI,
-  inMemCacheI
+  inMemCacheI,
+  redisSvc,
+  config
 );
 let historyDataHdlrI = new HistoryDataHdlr(
   historyDataSvcI,
   fmsAccountSvcI,
-  servicelogger
+  servicelogger,
+  config
 );
 let livetrackingHdlrI = new LivetrackingHdlr(
   livetrackingSvcI,
   fmsAccountSvcI,
   userSvcI,
-  servicelogger
+  servicelogger,
+  config
 );
 let tripsInsightHdlrI = new TripsInsightHdlr(
   tripsInsightSvcI,
   fmsAccountSvcI,
   userSvcI,
   servicelogger,
-  redisSvc
+  redisSvc,
+  config
 );
 let chargeInsightHdlrI = new ChargeInsightHdlr(
   chargeInsightSvcI,
@@ -127,14 +132,16 @@ let chargeInsightHdlrI = new ChargeInsightHdlr(
   tripsInsightSvcI,
   userSvcI,
   servicelogger,
-  redisSvc
+  redisSvc,
+  config
 );
 let fleetInsightHdlrI = new FleetInsightHdlr(
   fleetInsightSvcI,
   fmsAccountSvcI,
   userSvcI,
   servicelogger,
-  redisSvc
+  redisSvc,
+  config
 );
 
 let publicHdlrI = new PublicHdlr(

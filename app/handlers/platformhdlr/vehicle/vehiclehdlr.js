@@ -41,6 +41,7 @@ export default class VehicleHdlr {
     router.post("/reviewvehicleonboard", this.ReviewVehicleOnboard);
     router.get("/listpending", this.ListPendingVehicles);
     router.get("/listdone", this.ListDoneVehicles);
+    router.post("/vehicleserviceonboarding", this.VehicleServiceOnboarding);
   }
 
   ValidateEpochTime = (timeStr, fieldName) => {
@@ -93,7 +94,8 @@ export default class VehicleHdlr {
 
         mobileno: z
           .string({ message: "Invalid Mobile Number format" })
-          .optional().nullable(),
+          .optional()
+          .nullable(),
       });
       let createdby = req.userid;
 
@@ -635,7 +637,8 @@ export default class VehicleHdlr {
           .nonempty({ message: "VIN cannot be empty" })
           .length(17, { message: "VIN must be exactly 17 characters" })
           .regex(/^M[AB][A-HJ-NPR-Z0-9]{15}$/, {
-            message: "Please enter a valid Indian VIN number starting with MA or MB",
+            message:
+              "Please enter a valid Indian VIN number starting with MA or MB",
           }),
         vehicleModel: z
           .string({ message: "Invalid Vehicle Model format" })
@@ -648,13 +651,16 @@ export default class VehicleHdlr {
           .nonempty({ message: "Vehicle Variant cannot be empty" }),
         tgu_imei_no: z
           .string({ message: "Invalid TGU IMEI Number format" })
-          .optional().nullable(),
+          .optional()
+          .nullable(),
         mobileNo: z
           .string({ message: "Invalid Mobile Number format" })
           .regex(/^[6-9]\d{9}$/, {
             message:
               "Mobile number must be exactly 10 digits and start with 6 to 9",
-          }).optional().nullable(),
+          })
+          .optional()
+          .nullable(),
 
         dealer: z.string().optional().nullable(),
         deliveredDate: z.string().optional().nullable(),
@@ -709,7 +715,7 @@ export default class VehicleHdlr {
   };
 
   ReviewVehicleOnboard = async (req, res, next) => {
-    try{
+    try {
       if (!CheckUserPerms(req.userperms, ["consolemgmt.vehicle.admin"])) {
         return APIResponseForbidden(
           req,
@@ -723,7 +729,8 @@ export default class VehicleHdlr {
         userid: z
           .string({ message: "Invalid User ID format" })
           .uuid({ message: "Invalid User ID format" }),
-        updatedfields: z.object({
+        updatedfields: z
+          .object({
             vin: z.string(),
             vehicleModel: z.string(),
             vehicleVariant: z.string(),
@@ -737,15 +744,16 @@ export default class VehicleHdlr {
             retailsSaleDate: z.string().optional().nullable(),
             vehicleCity: z.string().optional().nullable(),
             vehicleColour: z.string().optional().nullable(),
-          }).refine(
-          (val) => {
-            // Ensure at least one field is provided
-            return Object.keys(val).length > 0;
-          },
-          {
-            message: "At least one field must be provided in updatedfields",
-          }
-        )
+          })
+          .refine(
+            (val) => {
+              // Ensure at least one field is provided
+              return Object.keys(val).length > 0;
+            },
+            {
+              message: "At least one field must be provided in updatedfields",
+            }
+          ),
       });
       let { userid, updatedfields } = validateAllInputs(schema, {
         userid: req.userid,
@@ -757,7 +765,7 @@ export default class VehicleHdlr {
         updatedfields
       );
       APIResponseOK(req, res, result, "Vehicle reviewed successfully");
-    }catch (e) {
+    } catch (e) {
       this.logger.error("ReviewVehicleOnboard error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
@@ -840,6 +848,64 @@ export default class VehicleHdlr {
           "List done vehicles failed"
         );
       }
+    }
+  };
+
+  VehicleServiceOnboarding = async (req, res, next) => {
+    try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.vehicle.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to onboard vehicle service."
+        );
+      }
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        vin: z
+          .string({ message: "Invalid VIN format" })
+          .nonempty({ message: "VIN cannot be empty" })
+          .length(17, { message: "VIN must be exactly 17 characters" })
+          .regex(/^M[AB][A-HJ-NPR-Z0-9]{15}$/, {
+            message:
+              "Please enter a valid Indian VIN number starting with MA or MB",
+          }),
+        mobileno: z
+          .string({ message: "Invalid Mobile Number format" })
+          .regex(/^[6-9]\d{9}$/, {
+            message:
+              "Mobile number must be exactly 10 digits and start with 6 to 9",
+          }),
+      });
+      let { userid, vin, mobileno } = validateAllInputs(schema, {
+        userid: req.userid,
+        vin: req.body.vin,
+        mobileno: req.body.mobileno,
+      });
+      let result = await this.vehicleHdlrImpl.VehicleServiceOnboardingLogic(
+        vin,
+        mobileno,
+        userid
+      );
+      APIResponseOK(req, res, result.data, result.msg);
+    } catch (e) {
+      this.logger.error("VehicleServiceOnboarding error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "VEHICLE_SERVICE_ONBOARDING_ERR",
+          e.toString(),
+          "Vehicle service onboarding failed"
+        );
+      }
+      APIResponseInternalErr(req, res, e.errcode, e.errdata, e.message);
     }
   };
 }

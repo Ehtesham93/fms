@@ -8,10 +8,6 @@ export default class PlatformSvcDB {
     this.logger = logger;
   }
 
-  ADDED_VEHICLE = "ADDED";
-  UPDATED_VEHICLE = "UPDATED";
-  REMOVED_VEHICLE = "REMOVED";
-
   async getUserName(userid) {
     try {
       let query = `
@@ -694,10 +690,28 @@ export default class PlatformSvcDB {
     }
   }
 
-  async updateVehicleMobile(vinno, mobileno) {
+  async updateVehicleMobile(vinno, mobileno, userid) {
     try {
-      let query = `UPDATE vehicle SET mobile = $1 WHERE vinno = $2`;
-      let result = await this.pgPoolI.Query(query, [mobileno, vinno]);
+      let currtime = new Date();
+      let alreadyExists = await this.pgPoolI.Query(
+        `SELECT vinno, mobile FROM vehicle WHERE vinno = $1`,
+        [vinno]
+      );
+      if (alreadyExists.rowCount === 0) {
+        throw new Error("Vehicle not found");
+      }
+
+      if (alreadyExists.rows[0].mobile === mobileno) {
+        return true;
+      }
+
+      let query = `UPDATE vehicle SET mobile = $1, updatedat = $2, updatedby = $3 WHERE vinno = $4`;
+      let result = await this.pgPoolI.Query(query, [
+        mobileno,
+        currtime,
+        userid,
+        vinno,
+      ]);
       return result.rowCount > 0;
     } catch (error) {
       throw new Error(`Failed to update vehicle mobile: ${error.message}`);

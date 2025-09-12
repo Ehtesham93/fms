@@ -1,39 +1,18 @@
 import { v4 as uuidv4 } from "uuid";
 import {
-  isRedundantInvite,
-  shouldUpdateExistingInvite,
-  updateInviteExpiryAndSendEmail,
-  markInviteAsExpired,
+  ACCOUNT_CREATION_CREDITS,
+  ACCOUNT_VEHICLE_SUBSCRIPTION_STATE,
+  ADMIN_ROLE_ID,
+  FLEET_INVITE_STATUS,
+  FLEET_INVITE_TYPE,
+  VEHICLE_ACTION,
+} from "../../../utils/constant.js";
+import {
   getInviteEmailTemplate,
+  isRedundantInvite,
+  markInviteAsExpired,
+  updateInviteExpiryAndSendEmail,
 } from "../../../utils/inviteUtil.js";
-const ADMIN_ROLEID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-
-const ACCOUNT_VEHICLE_SUBSCRIPTION_STATE = {
-  PENDING: 0,
-  ENABLED: 1,
-  STAGED_FOR_DISABLE: 2,
-  DISABLED: 3,
-};
-
-const FLEET_INVITE_STATUS = {
-  PENDING: "PENDING",
-  ACCEPTED: "ACCEPTED",
-  REJECTED: "REJECTED",
-  EXPIRED: "EXPIRED",
-};
-
-const FLEET_INVITE_TYPE = {
-  EMAIL: "email",
-  MOBILE: "mobile",
-};
-
-const VEHICLE_ACTION = {
-  ADDED: "ADDED",
-  UPDATED: "UPDATED",
-  REMOVED: "REMOVED",
-};
-
-const ACCOUNT_CREATION_CREDITS = 1000;
 
 export default class AccountSvcDB {
   constructor(pgPoolI, logger) {
@@ -158,7 +137,7 @@ export default class AccountSvcDB {
       }
 
       // add admin to account root fleet
-      let rootFleetAdminRoleId = ADMIN_ROLEID;
+      let rootFleetAdminRoleId = ADMIN_ROLE_ID;
       let rootFleetAdminRoleName = "Admin";
       query = `
                 INSERT INTO roles (accountid, roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -1206,7 +1185,7 @@ export default class AccountSvcDB {
       }
 
       const fleetid = result.rows[0].fleetid;
-      const roleid = ADMIN_ROLEID;
+      const roleid = ADMIN_ROLE_ID;
 
       query = `
         INSERT INTO user_fleet (userid, accountid, fleetid) VALUES ($1, $2, $3)

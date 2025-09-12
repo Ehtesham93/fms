@@ -20,7 +20,8 @@ export default class Chargeinsightshdlr {
     tripsinsightssvcI,
     userSvcI,
     logger,
-    redisSvc
+    redisSvc,
+    config
   ) {
     this.chargeinsightssvcI = chargeinsightssvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
@@ -33,13 +34,93 @@ export default class Chargeinsightshdlr {
     );
     this.permissionSvc = new PermissionSvc(fmsAccountSvcI, userSvcI, logger);
     this.redisSvc = redisSvc;
+    this.config = config;
   }
+
+  CheckEnoughCredits = async (req, res, next) => {
+    try {
+      const { accountid } = req;
+
+      if (!accountid) {
+        APIResponseUnauthorized(
+          req,
+          res,
+          "MISSING_CREDENTIALS",
+          {},
+          "Account ID missing from token"
+        );
+        return;
+      }
+
+      const userAgent = req.headers["user-agent"] || "";
+
+      // Skip credit checks for iOS and Android requests
+      if (/android/i.test(userAgent) || /iphone|ipad|ipod/i.test(userAgent)) {
+        next();
+        return;
+      }
+
+      const accountInfo = await this.fmsAccountSvcI.GetAccountAndPackageInfo(
+        accountid
+      );
+
+      if (!accountInfo) {
+        APIResponseForbidden(
+          req,
+          res,
+          "NO_PACKAGE_SUBSCRIPTION",
+          {},
+          "Account does not have an active package subscription"
+        );
+        return;
+      }
+
+      const {
+        total_subscribed_vehicles,
+        graceperiod,
+        available_credits,
+        total_credits_per_vehicle_day,
+      } = accountInfo;
+
+      const graceCredits =
+        -1 *
+        (total_subscribed_vehicles *
+          graceperiod *
+          total_credits_per_vehicle_day);
+
+      if (available_credits < graceCredits) {
+        APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_CREDITS",
+          {},
+          `Insufficient credits. Your limit is ${graceCredits} credits, but you are currently at ${available_credits} credits`
+        );
+        return;
+      }
+
+      next();
+    } catch (error) {
+      this.logger.error(`fmsaccounthdlr.CheckEnoughCredits: error: ${error}`);
+      APIResponseInternalErr(
+        req,
+        res,
+        error,
+        {},
+        "Failed to check credit sufficiency"
+      );
+    }
+  };
 
   // TODO: add permission check for each route
   RegisterRoutes(router) {
     const accountTokenGroup = promiserouter();
     accountTokenGroup.use(AuthenticateAccountTokenFromCookie);
     accountTokenGroup.use(this.VerifyUserAccountAccess);
+    if (this.config?.fmsFeatures?.enableCreditChecks) {
+      accountTokenGroup.use(this.CheckEnoughCredits);
+    }
+
     router.use("/", accountTokenGroup);
 
     accountTokenGroup.post(

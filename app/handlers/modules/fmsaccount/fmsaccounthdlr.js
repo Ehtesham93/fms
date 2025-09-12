@@ -5,29 +5,39 @@ import z from "zod";
 import {
   APIResponseBadRequest,
   APIResponseError,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
   APIResponseUnauthorized,
-  APIResponseForbidden,
 } from "../../../utils/responseutil.js";
 import { AuthenticateAccountTokenFromCookie } from "../../../utils/tokenutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import fmsAccountHdlrImpl from "./fmsaccounthdlr_impl.js";
 
 import PermissionSvc from "../../../services/permsvc/permsvc.js";
+import { INVITE_RATE_LIMIT_PER_HOUR } from "../../../utils/constant.js";
 import { CheckUserPerms } from "../../../utils/permissionutil.js";
 
-const RATE_LIMIT_PER_HOUR = 3;
 export default class FmsAccountHdlr {
-  constructor(fmsAccountSvcI, userSvcI, logger, platformSvcI, inMemCacheI) {
+  constructor(
+    fmsAccountSvcI,
+    userSvcI,
+    logger,
+    platformSvcI,
+    inMemCacheI,
+    redisSvc,
+    config
+  ) {
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.fmsAccountHdlrImpl = new fmsAccountHdlrImpl(
       fmsAccountSvcI,
       userSvcI,
       logger,
-      platformSvcI
+      platformSvcI,
+      redisSvc
     );
     this.logger = logger;
+    this.config = config;
     this.inMemCacheI = inMemCacheI;
     this.permissionSvc = new PermissionSvc(fmsAccountSvcI, userSvcI, logger);
   }
@@ -38,6 +48,9 @@ export default class FmsAccountHdlr {
 
     accountTokenGroup.use(AuthenticateAccountTokenFromCookie);
     accountTokenGroup.use(this.VerifyUserAccountAccess);
+    if (this.config.fmsFeatures.enableCreditChecks) {
+      accountTokenGroup.use(this.CheckEnoughCredits);
+    }
 
     router.use("/", accountTokenGroup);
 
@@ -235,6 +248,81 @@ export default class FmsAccountHdlr {
         res,
         error,
         "Failed to verify user account access"
+      );
+    }
+  };
+
+  CheckEnoughCredits = async (req, res, next) => {
+    try {
+      const { accountid } = req;
+
+      if (!accountid) {
+        APIResponseUnauthorized(
+          req,
+          res,
+          "MISSING_CREDENTIALS",
+          {},
+          "Account ID missing from token"
+        );
+        return;
+      }
+
+      const userAgent = req.headers["user-agent"] || "";
+
+      // Skip credit checks for iOS and Android requests
+      if (/android/i.test(userAgent) || /iphone|ipad|ipod/i.test(userAgent)) {
+        next();
+        return;
+      }
+
+      const accountInfo = await this.fmsAccountSvcI.GetAccountAndPackageInfo(
+        accountid
+      );
+
+      if (!accountInfo) {
+        APIResponseForbidden(
+          req,
+          res,
+          "NO_PACKAGE_SUBSCRIPTION",
+          {},
+          "Account does not have an active package subscription"
+        );
+        return;
+      }
+
+      const {
+        total_subscribed_vehicles,
+        graceperiod,
+        available_credits,
+        total_credits_per_vehicle_day,
+      } = accountInfo;
+
+      const graceCredits =
+        -1 *
+        (total_subscribed_vehicles *
+          graceperiod *
+          total_credits_per_vehicle_day);
+
+      if (available_credits < graceCredits) {
+        APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_CREDITS",
+          {},
+          `Insufficient credits. Your limit is ${graceCredits} credits, but you are currently at ${available_credits} credits`
+        );
+        return;
+      }
+
+      next();
+    } catch (error) {
+      this.logger.error(`fmsaccounthdlr.CheckEnoughCredits: error: ${error}`);
+      APIResponseInternalErr(
+        req,
+        res,
+        error,
+        {},
+        "Failed to check credit sufficiency"
       );
     }
   };
@@ -439,7 +527,7 @@ export default class FmsAccountHdlr {
       const rateLimitKey = `email_invite_rate_limit:${inviteFingerprint}`;
       let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
 
-      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+      if (currentCount >= INVITE_RATE_LIMIT_PER_HOUR) {
         const error = new Error(
           "Too many invites sent to this contact for this account and fleet. Please try after an hour."
         );
@@ -531,7 +619,7 @@ export default class FmsAccountHdlr {
 
       let currentCount = this.inMemCacheI.get(rateLimitKey) || 0;
 
-      if (currentCount >= RATE_LIMIT_PER_HOUR) {
+      if (currentCount >= INVITE_RATE_LIMIT_PER_HOUR) {
         const error = new Error(
           "Too many resend attempts for this invite. Please try after an hour."
         );
@@ -600,7 +688,7 @@ export default class FmsAccountHdlr {
           .uuid({ message: "Invalid Invite ID format" }),
       });
 
-      let { inviteid } = validateAllInputs(schema, {
+      let { userid, inviteid } = validateAllInputs(schema, {
         userid: req.userid,
         inviteid: req.body.inviteid,
       });

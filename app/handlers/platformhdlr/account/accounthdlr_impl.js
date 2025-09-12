@@ -1,13 +1,14 @@
 import { v4 as uuidv4 } from "uuid";
 import { EmailMobileValidation } from "../../../utils/commonutil.js";
+import {
+  CUSTOMER_ACCOUNT_TYPE,
+  PLATFORM_ACCOUNT_ID,
+  PLATFORM_ACCOUNT_TYPE,
+  PLATFORM_ROOT_FLEET_ID,
+  PLATFORM_ROOT_FLEET_PARENT_ID,
+  ROOT_FLEET_NAME,
+} from "../../../utils/constant.js";
 import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
-
-const PLATFORM_ACCOUNT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-const PLATFORM_ROOT_FLEET_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-const PLATFORM_ROOT_FLEET_PARENT_ID = "00000000-0000-0000-0000-000000000000";
-const PLATFORM_ACCOUNT_TYPE = "platform";
-const CUSTOMER_ACCOUNT_TYPE = "customer";
-const ROOT_FLEET_NAME = "Home";
 
 export default class AccountHdlrImpl {
   constructor(

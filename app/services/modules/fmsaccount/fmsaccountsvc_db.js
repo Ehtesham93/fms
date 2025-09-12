@@ -1,27 +1,17 @@
+import { DateTime } from "luxon";
 import ClickHouseClient from "../../../utils/clickhouse.js";
-import { CREDIT_THRESHOLD, ADMIN_ROLE_ID } from "../../../utils/constant.js";
+import {
+  ADMIN_ROLE_ID,
+  FLEET_INVITE_STATUS,
+  FLEET_INVITE_TYPE,
+  NEGATIVE_CREDIT_THRESHOLD,
+} from "../../../utils/constant.js";
 import {
   getInviteEmailTemplate,
   isRedundantInvite,
   markInviteAsExpired,
   updateInviteExpiryAndSendEmail,
 } from "../../../utils/inviteUtil.js";
-import { DateTime } from "luxon";
-
-const FLEET_INVITE_STATUS = {
-  PENDING: "PENDING",
-  ACCEPTED: "ACCEPTED",
-  REJECTED: "REJECTED",
-  EXPIRED: "EXPIRED",
-  CANCELLED: "CANCELLED",
-};
-
-const FLEET_INVITE_TYPE = {
-  EMAIL: "email",
-  MOBILE: "mobile",
-};
-
-const NEGATIVE_CREDIT_THRESHOLD = -10000;
 
 export default class FmsAccountSvcDB {
   constructor(pgPoolI, logger, config) {
@@ -1908,24 +1898,6 @@ export default class FmsAccountSvcDB {
     return result.rows;
   }
 
-  async getSubscribedVehiclesFromList(accountid, vehicles) {
-    if (!vehicles || vehicles.length === 0) {
-      return [];
-    }
-
-    // Extract VIN numbers from the vehicles list
-    const vinNumbers = vehicles.map((vehicle) => vehicle.vinno);
-    const vinList = vinNumbers.map((vin) => `'${vin}'`).join(",");
-
-    let query = `
-      SELECT vinno, startsat, endsat, createdat, createdby
-      FROM account_vehicle_subscription 
-      WHERE accountid = $1 AND state = 1 AND vinno IN (${vinList})
-    `;
-    let result = await this.pgPoolI.Query(query, [accountid]);
-    return result.rows;
-  }
-
   // user management
   async getFleetUsers(accountid, fleetid, recursive = false) {
     try {
@@ -2865,7 +2837,7 @@ export default class FmsAccountSvcDB {
       // Modified credit validation for existing subscriptions
       const projectedCreditsAfterExisting =
         availableCredits - creditsForAlreadySubscribed;
-      if (projectedCreditsAfterExisting < CREDIT_THRESHOLD) {
+      if (projectedCreditsAfterExisting < NEGATIVE_CREDIT_THRESHOLD) {
         for (let vinno of validVins) {
           vinResults.push({
             vinno: vinno,
@@ -2878,7 +2850,7 @@ export default class FmsAccountSvcDB {
               availablecredits: availableCredits,
               requiredcredits: creditsForAlreadySubscribed,
               projectedcredits: projectedCreditsAfterExisting,
-              negativecreditthreshold: CREDIT_THRESHOLD,
+              negativecreditthreshold: NEGATIVE_CREDIT_THRESHOLD,
               existingsubscribedcount: existingSubscribedCount,
               activesubscribedcount: activeSubscribedVins.length,
               availabledays: availableDays,
@@ -5362,6 +5334,66 @@ export default class FmsAccountSvcDB {
         throw rollbackerr;
       }
       throw e;
+    }
+  }
+
+  // helper function
+  async getAccountAndPackageInfo(accountid) {
+    try {
+      let query = `
+        SELECT 
+          p.pkgname,
+          p.pkginfo,
+          aps.pkgid,
+          COUNT(avs.vinno) as total_subscribed_vehicles,
+          COALESCE(ac.credits, 0) as available_credits
+        FROM account_package_subscription aps
+        JOIN package p ON aps.pkgid = p.pkgid
+        LEFT JOIN account_vehicle_subscription avs ON aps.accountid = avs.accountid AND avs.state = 1
+        LEFT JOIN account_credits ac ON aps.accountid = ac.accountid
+        WHERE aps.accountid = $1
+        GROUP BY p.pkgname, p.pkginfo, aps.pkgid, ac.credits
+      `;
+
+      let result = await this.pgPoolI.Query(query, [accountid]);
+
+      if (result.rowCount === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+      const pkgid = row.pkgid;
+
+      query = `
+        SELECT moduleid, creditspervehicleday FROM module WHERE isenabled = true
+      `;
+      const allModulesResult = await this.pgPoolI.Query(query);
+      const allModules = allModulesResult.rows || [];
+
+      query = `
+        SELECT moduleid FROM package_module WHERE pkgid = $1
+      `;
+      const pkgModulesResult = await this.pgPoolI.Query(query, [pkgid]);
+      const assignedModuleIds = pkgModulesResult.rows.map(
+        (row) => row.moduleid
+      );
+
+      let pkgcost = 0;
+      for (let module of allModules) {
+        if (assignedModuleIds.includes(module.moduleid)) {
+          pkgcost += Number(module.creditspervehicleday);
+        }
+      }
+
+      return {
+        pkgname: row.pkgname,
+        graceperiod: row.pkginfo?.graceperiod || 0,
+        total_subscribed_vehicles: parseInt(row.total_subscribed_vehicles) || 0,
+        available_credits: parseFloat(row.available_credits) || 0,
+        total_credits_per_vehicle_day: pkgcost,
+      };
+    } catch (error) {
+      throw new Error("Unable to retrieve account and package information");
     }
   }
 }

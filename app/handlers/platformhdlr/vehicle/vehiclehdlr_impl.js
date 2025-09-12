@@ -1,5 +1,7 @@
 import { formatEpochToDateTime } from "../../../utils/epochconverter.js";
 import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
+import axios from "axios";
+import config from "../../../config/config.js";
 
 export default class VehicleHdlrImpl {
   constructor(platformSvcI, historyDataSvcI, logger) {
@@ -1046,5 +1048,31 @@ export default class VehicleHdlrImpl {
     });
 
     return result;
+  };
+
+  VehicleServiceOnboardingLogic = async (vin, mobileno, userid) => {
+    try {
+      const payloaddata = {
+        vinno: vin,
+        mobileno: mobileno,
+      };
+      const url = `${config.serviceConfig.url}${config.serviceConfig.onboardingPath}`;
+      const response = await axios.post(url, payloaddata, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      if (response.status !== 200) {
+        return {
+          errcode: "VEHICLE_SERVICE_ONBOARDING_FAILED",
+          status: "PENDING_VEHICLE_SERVICE_ONBOARDING",
+          message: "Vehicle service onboarding failed",
+        };
+      }
+      return response.data;
+    } catch (error) {
+      this.logger.error("VehicleServiceOnboardingLogic failed", error);
+      throw error;
+    }
   };
 }

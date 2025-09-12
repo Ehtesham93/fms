@@ -77,6 +77,7 @@ export default {
   },
   fmsFeatures: {
     enableSubscribedVehiclesFilter: false,
+    enableCreditChecks: false,
   },
   serviceConfig: {
     url: "http://dev-nemo3-api-service-svc.intellicar-frontend1:10004",

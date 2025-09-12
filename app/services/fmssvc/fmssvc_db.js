@@ -1,21 +1,10 @@
-const EMAIL_PWD_SSO = "EMAIL_PWD"; // TODO: move these to constants util
-const MOBILE_SSO = "MOBILE";
-
+import {
+  EMAIL_PWD_SSO,
+  FLEET_INVITE_STATUS,
+  FLEET_INVITE_TYPE,
+  PLATFORM_ACCOUNT_ID
+} from "../../utils/constant.js";
 import { markInviteAsExpired } from "../../utils/inviteUtil.js";
-
-const FLEET_INVITE_STATUS = {
-  PENDING: "PENDING",
-  ACCEPTED: "ACCEPTED",
-  REJECTED: "REJECTED",
-  EXPIRED: "EXPIRED",
-};
-
-const FLEET_INVITE_TYPE = {
-  EMAIL: "email",
-  MOBILE: "mobile",
-};
-
-const PLATFORM_ACCOUNT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 
 export default class FmsSvcDB {
   constructor(pgPoolI, logger) {

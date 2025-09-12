@@ -1,12 +1,13 @@
-import { EncryptPassword } from "../../../utils/eccutil.js";
+import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import config from "../../../config/config.js";
-import axios from "axios";
-
-const PLATFORM_ROLE_TYPE = "platform";
-const ACCOUNT_ROLE_TYPE = "account";
-const CUSTOMER_TYPE_INDIVIDUAL = "Individual";
-const CUSTOMER_TYPE_CORPORATE = "Corporate";
+import {
+  ACCOUNT_ROLE_TYPE,
+  CUSTOMER_TYPE_CORPORATE,
+  CUSTOMER_TYPE_INDIVIDUAL,
+  PLATFORM_ROLE_TYPE,
+} from "../../../utils/constant.js";
+import { EncryptPassword } from "../../../utils/eccutil.js";
 
 export default class PUserHdlrImpl {
   constructor(
@@ -1135,7 +1136,10 @@ export default class PUserHdlrImpl {
   ) {
     const existingcontact = await this.userSvcI.CheckMobileExists(contact);
 
-    const isUserAddedToAccount = await this.pUserSvcI.checkIsUserAddedToAccount(existingcontact, accountid);
+    const isUserAddedToAccount = await this.pUserSvcI.checkIsUserAddedToAccount(
+      existingcontact,
+      accountid
+    );
     if (isUserAddedToAccount) {
       return null;
     }
@@ -1184,7 +1188,8 @@ export default class PUserHdlrImpl {
         accountid: accountid,
         errcode: "USER_ASSIGNMENT_FAILED",
         status: "PENDING_USER_ASSIGNMENT",
-        message: "Account and user created successfully. User assignment failed. User assignment pending manual review.",
+        message:
+          "Account and user created successfully. User assignment failed. User assignment pending manual review.",
       };
     }
     return null; // Success
@@ -1201,60 +1206,60 @@ export default class PUserHdlrImpl {
     accountid
   ) {
     try {
-    const payloaddata = {
-      vinno: vin,
-      mobileno: vehiclemobile,
-    }
-    const url = `${config.serviceConfig.url}${config.serviceConfig.onboardingPath}`;
-    const response = await axios.post(url, payloaddata, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    if (response.status !== 200) {
-      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(taskid);
-      if (pendingaccount) {
-        await this.accountSvcI.UpdateReviewPendingAccount(
-          pendingaccount.accountid,
-          {
-            accountname: accountname,
-            error_status: "SERVICE_ONBOARDING",
-            status: "PENDING_SERVICE_ONBOARDING",
-            reason:
-              "Service onboarding failed. Service onboarding pending manual review.",
-            original_input: original_input,
-          },
-          userid
-        );
-      } else {
-        await this.AddAccountToReviewPending(
-          taskid,
-          accountname,
-          original_input,
-          "SERVICE_ONBOARDING",
-          userid,
-          `Service onboarding failed. Service onboarding pending manual review.`,
-          "PENDING_SERVICE_ONBOARDING"
-        );
-      }
-      return {
-        userid: createduserid,
-        accountid: accountid,
-        errcode: "SERVICE_ONBOARDING_FAILED",
-        status: "PENDING_SERVICE_ONBOARDING",
-        message:
-          "Service onboarding failed. Service onboarding pending manual review.",
+      const payloaddata = {
+        vinno: vin,
+        mobileno: vehiclemobile,
       };
-    }
-    return null; // Success
+      const url = `${config.serviceConfig.url}${config.serviceConfig.onboardingPath}`;
+      const response = await axios.post(url, payloaddata, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      if (response.status !== 200) {
+        const pendingaccount =
+          await this.accountSvcI.GetPendingAccountReviewById(taskid);
+        if (pendingaccount) {
+          await this.accountSvcI.UpdateReviewPendingAccount(
+            pendingaccount.accountid,
+            {
+              accountname: accountname,
+              error_status: "SERVICE_ONBOARDING",
+              status: "PENDING_SERVICE_ONBOARDING",
+              reason:
+                "Service onboarding failed. Service onboarding pending manual review.",
+              original_input: original_input,
+            },
+            userid
+          );
+        } else {
+          await this.AddAccountToReviewPending(
+            taskid,
+            accountname,
+            original_input,
+            "SERVICE_ONBOARDING",
+            userid,
+            `Service onboarding failed. Service onboarding pending manual review.`,
+            "PENDING_SERVICE_ONBOARDING"
+          );
+        }
+        return {
+          userid: createduserid,
+          accountid: accountid,
+          errcode: "SERVICE_ONBOARDING_FAILED",
+          status: "PENDING_SERVICE_ONBOARDING",
+          message:
+            "Service onboarding failed. Service onboarding pending manual review.",
+        };
+      }
+      return null; // Success
     } catch (error) {
       return {
         userid: createduserid,
         accountid: accountid,
         errcode: "SERVICE_ONBOARDING_FAILED",
         status: "PENDING_SERVICE_ONBOARDING",
-        message:
-          `Service onboarding failed: ${error.response.data.msg}. Service onboarding pending manual review.`,
+        message: `Service onboarding failed: ${error.response.data.msg}. Service onboarding pending manual review.`,
       };
     }
   }
@@ -1273,7 +1278,8 @@ export default class PUserHdlrImpl {
   ) {
     let vehicleExists = await this.platformSvcI.CheckVehicleExists(vin);
     if (vehicleExists) {
-      const isVehicleAddedToAccount = await this.pUserSvcI.checkIsVehicleAddedToAccount(vin);
+      const isVehicleAddedToAccount =
+        await this.pUserSvcI.checkIsVehicleAddedToAccount(vin);
       if (isVehicleAddedToAccount) {
         const vehicleResult = await this.handleServiceOnboarding(
           vin,
@@ -1338,7 +1344,8 @@ export default class PUserHdlrImpl {
       // Update vehicle mobile
       const updatevehicle = await this.platformSvcI.UpdateVehicleMobile(
         vin,
-        vehiclemobile
+        vehiclemobile,
+        userid
       );
       if (!updatevehicle) {
         // Do nothing
@@ -1354,7 +1361,7 @@ export default class PUserHdlrImpl {
         accountid
       );
       if (serviceResult) return serviceResult;
-      
+
       return null; // Success
     } else {
       const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
@@ -1534,7 +1541,7 @@ export default class PUserHdlrImpl {
 
     return {
       userid: user.userid,
-      accountid: accountid,      
+      accountid: accountid,
       status: "ONBOARDED_SUCCESS",
       message:
         "Account and User created. User and Vehicle assigned to Account.",
@@ -2029,7 +2036,9 @@ export default class PUserHdlrImpl {
       customeraddresspincode: customeraddresspincode,
       customercontactemail: customercontactemail,
       customercontactmobile: vehiclemobile,
-      customerdateofbirth: customerdateofbirth ? this.convertDateFormat(customerdateofbirth) : null,
+      customerdateofbirth: customerdateofbirth
+        ? this.convertDateFormat(customerdateofbirth)
+        : null,
       customergender: customergender,
       customername: processedcustomername,
       licenseplate: licenseplate,
@@ -2037,7 +2046,7 @@ export default class PUserHdlrImpl {
       nemo_user_mobile: usermobile,
     };
 
-    if (customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL.toLowerCase()) {
+    if (customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL) {
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
       const existingaccount = await this.platformSvcI.GetAccountByName(
         accountname
@@ -2084,9 +2093,7 @@ export default class PUserHdlrImpl {
           original_input
         );
       }
-    } else if (
-      customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE.toLowerCase()
-    ) {
+    } else if (customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
       const existingemail = await this.userSvcI.CheckEmailExists(
         customercontactemail
@@ -2161,23 +2168,23 @@ export default class PUserHdlrImpl {
           );
         }
       } else if (tasktype === "userreview") {
-          const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(
-            taskid
+        const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(
+          taskid
+        );
+        if (pendinguser) {
+          return await this.handleUserReviewError(
+            taskid,
+            pendinguser,
+            userid,
+            updatedfields
           );
-          if (pendinguser) {
-            return await this.handleUserReviewError(
-              taskid,
-              pendinguser,
-              userid,
-              updatedfields
-            );
         }
       }
-      return{
+      return {
         errcode: "INVALID_TASK_TYPE",
         status: "INVALID_TASK_TYPE",
         message: "Invalid task type or task not found",
-      }
+      };
     } catch (error) {
       this.logger.error("CompositeOnboardAPILogic failed", error);
       throw error;
@@ -2185,12 +2192,7 @@ export default class PUserHdlrImpl {
   };
 
   // Handle ACCOUNT_CREATION error
-  async handleAccountReview(
-    taskid,
-    pendingaccount,
-    userid,
-    updatedfields
-  ) {
+  async handleAccountReview(taskid, pendingaccount, userid, updatedfields) {
     const original_input = pendingaccount.original_input;
     const accountname =
       updatedfields.accountname !== pendingaccount.accountname
@@ -2215,7 +2217,7 @@ export default class PUserHdlrImpl {
       original_input.nemo_user_mobile,
       taskid,
       accountname
-    )
+    );
   }
   // Handle USER_REVIEW error
   async handleUserReviewError(taskid, pendinguser, userid, updatedfields) {
@@ -2281,6 +2283,6 @@ export default class PUserHdlrImpl {
       mobile,
       taskid,
       accountname
-    )
+    );
   }
 }
