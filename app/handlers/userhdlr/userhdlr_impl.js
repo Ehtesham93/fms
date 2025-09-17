@@ -4,7 +4,6 @@ import { ComparePassword, EncryptPassword } from "../../utils/eccutil.js";
 import { GetUnVerifiedClaims } from "../../utils/jwtutil.js";
 import { SendSms } from "../../utils/smsutil.js";
 
-
 export default class UserHdlrImpl {
   constructor(userSvcI, authSvcI, fmsSvcI, platformSvcI, logger) {
     this.userSvcI = userSvcI;
@@ -190,7 +189,9 @@ export default class UserHdlrImpl {
   GetUserInfoLogic = async (userid) => {
     let userinfo = await this.userSvcI.GetUserDetails(userid);
     if (!userinfo) {
-      const error = new Error("user not found or does not belong to this account");
+      const error = new Error(
+        "user not found or does not belong to this account"
+      );
       error.errcode = "USER_NOT_FOUND";
       throw error;
     }
@@ -717,12 +718,12 @@ export default class UserHdlrImpl {
     }
 
     let validity = TOKEN_EXPIRY_TIME;
-    if (
-      mainClaims.userid === "3e086a85-e93a-4ed8-bee0-b33e6e8718ce"
-      // || mainClaims.userid === "0eeae96d-8ede-4b0b-8ce4-66ada24de8d8"
-    ) {
-      validity = 10;
+
+    // TODO: Remove this once we have a proper token verification implementation
+    if (mainClaims.userid === "45f49d41-1180-4fd2-9e24-ae09c18f0f52") {
+      validity = 30;
     }
+
     let tokenclaims = {
       claims: {
         userid: mainClaims.userid,

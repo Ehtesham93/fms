@@ -15,9 +15,10 @@ import {
 } from "../../../utils/inviteUtil.js";
 
 export default class AccountSvcDB {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
+    this.config = config;
   }
 
   async getLitePackageId(txclient) {
@@ -55,6 +56,10 @@ export default class AccountSvcDB {
 
   async createAccount(account) {
     let currtime = new Date();
+    let accountCreationCredits = ACCOUNT_CREATION_CREDITS;
+    if (this.config.credit.accountCreationCredits) {
+      accountCreationCredits = this.config.credit.accountCreationCredits;
+    }
 
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
@@ -180,7 +185,7 @@ export default class AccountSvcDB {
             `;
       result = await txclient.query(query, [
         account.accountid,
-        ACCOUNT_CREATION_CREDITS,
+        accountCreationCredits,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add credits to account");
@@ -195,7 +200,7 @@ export default class AccountSvcDB {
         account.accountid,
         currtime,
         currtime,
-        ACCOUNT_CREATION_CREDITS,
+        accountCreationCredits,
         qcredits,
         {},
         {},
@@ -1390,7 +1395,7 @@ export default class AccountSvcDB {
   async getAccountVehicles(accountid) {
     try {
       let query = `
-            SELECT fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, v.vehiclevariant, v.vehiclemodel, v.modelcode, v.vehicleinfo, 
+            SELECT fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, v.vehiclevariant, v.vehiclemodel, v.modelcode, vm.modeldisplayname, v.vehicleinfo, 
             fv.assignedat, COALESCE(uab.displayname, 'Unknown User') as assignedby, fv.updatedat, COALESCE(uub.displayname, 'Unknown User') as updatedby, avs.startsat as subscriptionstartsat, avs.endsat as subscriptionendsat, avs.subscriptioninfo, 
             avs.state as subscriptionstate, avs.createdat as subscriptioncreatedat, avs.createdby as subscriptioncreatedby, 
             avs.updatedat as subscriptionupdatedat, avs.updatedby as subscriptionupdatedby
@@ -1399,6 +1404,7 @@ export default class AccountSvcDB {
             LEFT JOIN account_vehicle_subscription avs ON fv.accountid = avs.accountid AND fv.vinno = avs.vinno
             LEFT JOIN users uab ON fv.assignedby = uab.userid
             LEFT JOIN users uub ON fv.updatedby = uub.userid
+            LEFT JOIN vehicle_model vm ON v.modelcode = vm.modelcode
             WHERE fv.accountid = $1
         `;
       let result = await this.pgPoolI.Query(query, [accountid]);

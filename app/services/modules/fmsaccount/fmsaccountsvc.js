@@ -529,4 +529,24 @@ export default class FmsAccountSvc {
   async GetAccountAndPackageInfo(accountid) {
     return await this.fmsAccountSvcDB.getAccountAndPackageInfo(accountid);
   }
+
+  async GetSharedVehicles(accountid) {
+    return await this.fmsAccountSvcDB.getSharedVehicles(accountid);
+  }
+
+  async GetVehicleInfo(accountid, vinno) {
+    return await this.fmsAccountSvcDB.getVehicleInfo(accountid, vinno);
+  }
+
+  async GetSharedAccounts(accountid, vinno) {
+    return await this.fmsAccountSvcDB.getSharedAccounts(accountid, vinno);
+  }
+
+  async GetVehiclesSharedToMe(accountid) {
+    return await this.fmsAccountSvcDB.getVehiclesSharedToMe(accountid);
+  }
+
+  async GetAccountInfo(accountid) {
+    return await this.fmsAccountSvcDB.getAccountInfo(accountid);
+  }
 }

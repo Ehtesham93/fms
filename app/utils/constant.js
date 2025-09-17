@@ -1,7 +1,7 @@
 export const UUID_PATTERN =
   "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
-export const NEGATIVE_CREDIT_THRESHOLD = -10000;
+export const NEGATIVE_CREDIT_THRESHOLD = 0;
 export const ACCOUNT_CREATION_CREDITS = 1000;
 
 // admin uuid

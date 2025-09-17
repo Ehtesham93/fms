@@ -61,6 +61,7 @@ export default class FmsAccountHdlr {
     accountTokenGroup.post("/invite/resend", this.ResendEmailInvite);
     accountTokenGroup.post("/invite/validate", this.ValidateInvite);
 
+    accountTokenGroup.get("/overview", this.GetAccountOverview);
     accountTokenGroup.get("/fleets", this.GetAccountFleets);
     accountTokenGroup.get("/modules", this.GetAccountModules);
     accountTokenGroup.get("/chargestationtypes", this.GetChargeStationTypes);
@@ -143,8 +144,13 @@ export default class FmsAccountHdlr {
       "/fleet/:fleetid/credits/history",
       this.GetAccountFleetCreditsHistory
     );
+
+    // tag vehicle
     accountTokenGroup.post("/tagvehicle", this.TagVehicle);
     accountTokenGroup.put("/untagvehicle", this.UntagVehicle);
+    accountTokenGroup.get("/vehicles/taggedout", this.GetTaggedOutVehicles);
+    accountTokenGroup.get("/vehicle/:vinno/shared", this.GetSharedAccounts);
+    accountTokenGroup.get("/vehicles/taggedin", this.GetTaggedInVehicles);
 
     accountTokenGroup.get(
       "/fleet/:fleetid/getmyperms",
@@ -207,6 +213,68 @@ export default class FmsAccountHdlr {
       .digest("hex");
 
     return inviteFingerprint;
+  };
+
+  getOperationFingerprint = (req, operation, additionalContext = "") => {
+    const deviceFingerprint = this.getDeviceFingerprint(req);
+    const fingerprintData = `${deviceFingerprint}-${operation}-${req.userid}-${req.accountid}-${additionalContext}`;
+    return crypto.createHash("sha256").update(fingerprintData).digest("hex");
+  };
+
+  checkOperationRateLimit = (operationFingerprint, operationType) => {
+    const rateLimitConfig = this.config.rateLimiting[operationType];
+    if (!rateLimitConfig) {
+      return { allowed: true };
+    }
+
+    if (rateLimitConfig.perMinute) {
+      const rateLimitKeyMinute = `${operationType}_rate_limit_minute:${operationFingerprint}`;
+      const currentCountMinute = this.inMemCacheI.get(rateLimitKeyMinute) || 0;
+
+      if (currentCountMinute >= rateLimitConfig.perMinute.max) {
+        return {
+          allowed: false,
+          reason: "minute_limit_exceeded",
+          message: `Too many ${operationType} attempts. Please try again after 1 minute.`,
+        };
+      }
+    }
+
+    if (rateLimitConfig.perHour) {
+      const rateLimitKeyHour = `${operationType}_rate_limit_hour:${operationFingerprint}`;
+      const currentCountHour = this.inMemCacheI.get(rateLimitKeyHour) || 0;
+
+      if (currentCountHour >= rateLimitConfig.perHour.max) {
+        return {
+          allowed: false,
+          reason: "hour_limit_exceeded",
+          message: `Too many ${operationType} attempts. Please try again after 1 hour.`,
+        };
+      }
+    }
+
+    return { allowed: true };
+  };
+
+  updateOperationRateLimit = (operationFingerprint, operationType) => {
+    const rateLimitConfig = this.config.rateLimiting[operationType];
+    if (!rateLimitConfig) return;
+
+    if (rateLimitConfig.perMinute) {
+      const rateLimitKeyMinute = `${operationType}_rate_limit_minute:${operationFingerprint}`;
+      const currentCountMinute = this.inMemCacheI.get(rateLimitKeyMinute) || 0;
+      this.inMemCacheI.set(rateLimitKeyMinute, currentCountMinute + 1, 60);
+    }
+
+    if (rateLimitConfig.perHour) {
+      const rateLimitKeyHour = `${operationType}_rate_limit_hour:${operationFingerprint}`;
+      const currentCountHour = this.inMemCacheI.get(rateLimitKeyHour) || 0;
+      this.inMemCacheI.set(rateLimitKeyHour, currentCountHour + 1, 3600);
+    }
+
+    this.logger.info(
+      `${operationType} rate limit updated for fingerprint: ${operationFingerprint.substring(0, 8)}...`
+    );
   };
 
   VerifyUserAccountAccess = async (req, res, next) => {
@@ -275,9 +343,8 @@ export default class FmsAccountHdlr {
         return;
       }
 
-      const accountInfo = await this.fmsAccountSvcI.GetAccountAndPackageInfo(
-        accountid
-      );
+      const accountInfo =
+        await this.fmsAccountSvcI.GetAccountAndPackageInfo(accountid);
 
       if (!accountInfo) {
         APIResponseForbidden(
@@ -339,9 +406,8 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
-      let result = await this.fmsAccountHdlrImpl.ListInvitesOfAccountLogic(
-        accountid
-      );
+      let result =
+        await this.fmsAccountHdlrImpl.ListInvitesOfAccountLogic(accountid);
       APIResponseOK(req, res, result, "Invites listed successfully");
     } catch (error) {
       this.logger.error("ListInvitesOfAccount error: ", error);
@@ -720,6 +786,43 @@ export default class FmsAccountHdlr {
     }
   };
 
+  GetAccountOverview = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+      });
+
+      let { accountid } = validateAllInputs(schema, {
+        accountid: req.accountid,
+      });
+
+      let result =
+        await this.fmsAccountHdlrImpl.GetAccountOverviewLogic(accountid);
+      APIResponseOK(req, res, result, "Account overview fetched successfully");
+    } catch (error) {
+      this.logger.error("GetAccountOverview error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ACCOUNT_OVERVIEW_ERR",
+          error.toString(),
+          "Get account overview failed"
+        );
+      }
+    }
+  };
+
   GetAccountFleets = async (req, res, next) => {
     try {
       let schema = z.object({
@@ -858,9 +961,8 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
-      let result = await this.fmsAccountHdlrImpl.GetChargeStationTypesLogic(
-        accountid
-      );
+      let result =
+        await this.fmsAccountHdlrImpl.GetChargeStationTypesLogic(accountid);
       APIResponseOK(
         req,
         res,
@@ -923,6 +1025,27 @@ export default class FmsAccountHdlr {
           fleetname: req.body.fleetname,
         });
 
+      const operationFingerprint = this.getOperationFingerprint(
+        req,
+        "fleetCreation",
+        parentfleetid
+      );
+      const rateLimitResult = this.checkOperationRateLimit(
+        operationFingerprint,
+        "fleetCreation"
+      );
+
+      if (!rateLimitResult.allowed) {
+        return APIResponseError(
+          req,
+          res,
+          429,
+          "FLEET_CREATION_RATE_LIMIT_EXCEEDED",
+          rateLimitResult.message,
+          rateLimitResult.message
+        );
+      }
+
       const userPerms = await this.permissionSvc.GetUserFleetPermissions(
         req.userid,
         accountid,
@@ -955,6 +1078,8 @@ export default class FmsAccountHdlr {
         fleetname,
         createdby
       );
+
+      this.updateOperationRateLimit(operationFingerprint, "fleetCreation");
 
       APIResponseOK(req, res, result, "Fleet created successfully");
     } catch (error) {
@@ -1384,9 +1509,8 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
-      let result = await this.fmsAccountHdlrImpl.ListSubscribedVehiclesLogic(
-        accountid
-      );
+      let result =
+        await this.fmsAccountHdlrImpl.ListSubscribedVehiclesLogic(accountid);
       APIResponseOK(
         req,
         res,
@@ -1445,6 +1569,26 @@ export default class FmsAccountHdlr {
         isenabled: req.body.isenabled,
       });
 
+      const operationFingerprint = this.getOperationFingerprint(
+        req,
+        "roleCreation"
+      );
+      const rateLimitResult = this.checkOperationRateLimit(
+        operationFingerprint,
+        "roleCreation"
+      );
+
+      if (!rateLimitResult.allowed) {
+        return APIResponseError(
+          req,
+          res,
+          429,
+          "ROLE_CREATION_RATE_LIMIT_EXCEEDED",
+          rateLimitResult.message,
+          rateLimitResult.message
+        );
+      }
+
       const userPerms = await this.permissionSvc.GetUserFleetPermissions(
         req.userid,
         accountid
@@ -1467,6 +1611,8 @@ export default class FmsAccountHdlr {
         isenabled,
         createdby
       );
+
+      this.updateOperationRateLimit(operationFingerprint, "roleCreation");
 
       APIResponseOK(req, res, result, "Role created successfully");
     } catch (error) {
@@ -2168,8 +2314,19 @@ export default class FmsAccountHdlr {
           error.errdata,
           "Fleet not found or does not belong to this account"
         );
+      } else if (
+        error.errcode === "VEHICLE_NOT_FOUND_IN_SOURCE_FLEET" ||
+        error.errcode === "VEHICLE_ALREADY_EXISTS_IN_TARGET_FLEET"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else {
-        APIResponseInternalErr(req, res, error, error.message);
+        APIResponseInternalErr(req, res, error, {}, error.message);
       }
     }
   };
@@ -2916,9 +3073,8 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result = await this.fmsAccountHdlrImpl.GetAccountSubscriptionsLogic(
-        accountid
-      );
+      let result =
+        await this.fmsAccountHdlrImpl.GetAccountSubscriptionsLogic(accountid);
       APIResponseOK(req, res, result, "Subscriptions fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountSubscriptions error: ", error);
@@ -3152,9 +3308,8 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result = await this.fmsAccountHdlrImpl.GetSubscriptionHistoryLogic(
-        accountid
-      );
+      let result =
+        await this.fmsAccountHdlrImpl.GetSubscriptionHistoryLogic(accountid);
       APIResponseOK(
         req,
         res,
@@ -3226,9 +3381,8 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result = await this.fmsAccountHdlrImpl.GetSubscriptionVehiclesLogic(
-        accountid
-      );
+      let result =
+        await this.fmsAccountHdlrImpl.GetSubscriptionVehiclesLogic(accountid);
       APIResponseOK(
         req,
         res,
@@ -3599,9 +3753,8 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result = await this.fmsAccountHdlrImpl.GetAccountCreditsLogic(
-        accountid
-      );
+      let result =
+        await this.fmsAccountHdlrImpl.GetAccountCreditsLogic(accountid);
       APIResponseOK(req, res, result, "Account credits fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountCredits error: ", error);
@@ -4266,6 +4419,190 @@ export default class FmsAccountHdlr {
         );
       } else {
         APIResponseInternalErr(req, res, error, "Failed to untag vehicles");
+      }
+    }
+  };
+
+  GetTaggedOutVehicles = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+      });
+
+      let { accountid } = validateAllInputs(schema, {
+        accountid: req.accountid,
+      });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.fleets.view",
+          "account.fleets.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to view shared vehicles."
+        );
+      }
+
+      let result =
+        await this.fmsAccountHdlrImpl.GetSharedVehiclesLogic(accountid);
+      APIResponseOK(req, res, result, "Shared vehicles fetched successfully");
+    } catch (error) {
+      this.logger.error("GetTaggedOutVehicles error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          "Failed to get shared vehicles"
+        );
+      }
+    }
+  };
+
+  GetSharedAccounts = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        vinno: z
+          .string({ message: "Invalid VIN format" })
+          .nonempty({ message: "VIN cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message:
+              "VIN must contain only letters, numbers, and spaces, and must not start or end with a space",
+          })
+          .max(128, { message: "VIN must not exceed 128 characters" }),
+      });
+
+      let { accountid, vinno } = validateAllInputs(schema, {
+        accountid: req.accountid,
+        vinno: req.params.vinno,
+      });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.fleets.view",
+          "account.fleets.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to view shared accounts."
+        );
+      }
+
+      let result = await this.fmsAccountHdlrImpl.GetSharedAccountsLogic(
+        accountid,
+        vinno
+      );
+      APIResponseOK(req, res, result, "Shared accounts fetched successfully");
+    } catch (error) {
+      this.logger.error("GetSharedAccounts error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          "Failed to get shared accounts"
+        );
+      }
+    }
+  };
+
+  GetTaggedInVehicles = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+      });
+
+      let { accountid } = validateAllInputs(schema, {
+        accountid: req.accountid,
+      });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.fleets.view",
+          "account.fleets.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to view vehicles shared to this account."
+        );
+      }
+
+      let result =
+        await this.fmsAccountHdlrImpl.GetVehiclesSharedToMeLogic(accountid);
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Vehicles shared to account fetched successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetVehiclesSharedToMe error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          "Failed to get vehicles shared to account"
+        );
       }
     }
   };

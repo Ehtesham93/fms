@@ -1,7 +1,11 @@
 import crypto from "crypto";
 import { UAParser } from "ua-parser-js";
 import z from "zod";
-import { UUID_PATTERN } from "../../../utils/constant.js";
+import { 
+  UUID_PATTERN,
+  CUSTOMER_TYPE_INDIVIDUAL,
+  CUSTOMER_TYPE_CORPORATE
+} from "../../../utils/constant.js";
 import { CheckUserPerms } from "../../../utils/permissionutil.js";
 import {
   APIResponseBadRequest,
@@ -1212,7 +1216,7 @@ export default class PUserHdlr {
           "You don't have permission to onboard user account."
         );
       }
-      let schema = z.object({
+      let baseSchema = z.object({
         userid: z
           .string({ message: "Invalid User ID format" })
           .uuid({ message: "Invalid User ID format" }),
@@ -1222,20 +1226,20 @@ export default class PUserHdlr {
           .nullable(),
         customeraddress: z
           .string({ message: "Customer address must be a string" })
-          .nonempty({ message: "Customer address cannot be empty" }),
+          .optional()
+          .nullable(),
         customeraddresscity: z
           .string({ message: "Customer address city must be a string" })
-          .nonempty({ message: "Customer address city cannot be empty" }),
+          .optional()
+          .nullable(),
         customeraddresscountry: z
           .string({ message: "Customer address country must be a string" })
-          .nonempty({ message: "Customer address country cannot be empty" }),
+          .optional()
+          .nullable(),
         customeraddresspincode: z
           .string({ message: "Customer address pincode must be a string" })
-          .nonempty({ message: "Customer address pincode cannot be empty" }),
-        customercontactemail: z
-          .string({ message: "Customer contact email must be a string" })
-          .nonempty({ message: "Customer contact email cannot be empty" })
-          .email({ message: "Invalid email format" }),
+          .optional()
+          .nullable(),
         customercontactmobile: z
           .string({ message: "Customer contact mobile must be a string" })
           .nonempty({ message: "Customer contact mobile cannot be empty" })
@@ -1274,6 +1278,24 @@ export default class PUserHdlr {
               "Invalid nemo user mobile format. Must be 10 digits starting with 6-9.",
           }),
       });
+      let schema;
+      if(req.body.customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE){
+        schema = baseSchema.extend({
+          customercontactemail: z
+            .string({ message: "Customer contact email must be a string" })
+            .nonempty({ message: "Customer contact email cannot be empty" })
+            .email({ message: "Invalid email format" }),
+        });
+      }else if(req.body.customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL){
+        schema = baseSchema.extend({
+          customercontactemail: z
+            .string({ message: "Customer contact email must be a string" })
+            .optional()
+            .nullable(),
+        });
+      }else{
+        return APIResponseBadRequest(req, res, "INPUT_ERROR", null, "Invalid customer type");
+      }
       const {
         userid,
         corporatetype,
@@ -1335,6 +1357,8 @@ export default class PUserHdlr {
           null,
           error.message
         );
+      }else if(error.errcode === "INPUT_ERROR"){
+        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
       } else {
         APIResponseInternalErr(
           req,

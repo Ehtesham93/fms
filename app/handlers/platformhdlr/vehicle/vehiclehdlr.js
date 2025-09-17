@@ -643,7 +643,7 @@ export default class VehicleHdlr {
         vehicleModel: z
           .string({ message: "Invalid Vehicle Model format" })
           .nonempty({ message: "Vehicle Model cannot be empty" })
-          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _.-]*[A-Za-z0-9])?$/, {
+          .regex(/^[A-Za-z0-9 _.+-]+$/, {
             message: "Please enter a valid Vehicle Model",
           }),
         vehicleVariant: z

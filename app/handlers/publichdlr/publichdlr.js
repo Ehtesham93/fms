@@ -64,7 +64,7 @@ export default class PublicHdlr {
 
     bindAuditToMethods(this, this.auditSvc, logger, methodsToAudit);
 
-    this.rateLimiter = new PublicRateLimiter(logger);
+    this.rateLimiter = new PublicRateLimiter(config, logger);
     this.limiters = this.rateLimiter.getRateLimiters();
   }
 
@@ -493,10 +493,10 @@ export default class PublicHdlr {
       let expiresin = TOKEN_EXPIRY_TIME;
       let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
-      // if (mobile == "9742720873") {
-      //   //if (mobile == "7739464603" || mobile == "9742720873") {
-      //   expiresin = 10;
-      // }
+      // TODO: Remove this once we have a proper OTP verification implementation
+      if (mobile == "8814010926") {
+        expiresin = 30;
+      }
 
       if (validityMs) {
         expiresin = Math.floor(validityMs / 1000);
@@ -1141,8 +1141,8 @@ export default class PublicHdlr {
       let expiresin = TOKEN_EXPIRY_TIME;
       let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
-      if (mobile == "7739464603" || mobile == "9742720873") {
-        expiresin = 10;
+      if (mobile == "8814010926") {
+        expiresin = 30;
       }
 
       if (validityMs) {

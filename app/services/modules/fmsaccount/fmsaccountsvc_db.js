@@ -1545,7 +1545,9 @@ export default class FmsAccountSvcDB {
         vehicleid,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Vehicle not found in source fleet");
+        const error = new Error("vehicle not found in source fleet");
+        error.errcode = "VEHICLE_NOT_FOUND_IN_SOURCE_FLEET";
+        throw error;
       }
 
       const vehicleData = result.rows[0];
@@ -1556,7 +1558,9 @@ export default class FmsAccountSvcDB {
       `;
       result = await txclient.query(query, [accountid, tofleetid, vehicleid]);
       if (result.rowCount > 0) {
-        throw new Error("Vehicle already exists in target fleet");
+        const error = new Error("vehicle already exists in target fleet");
+        error.errcode = "VEHICLE_ALREADY_EXISTS_IN_TARGET_FLEET";
+        throw error;
       }
 
       query = `
@@ -4395,7 +4399,7 @@ export default class FmsAccountSvcDB {
           let fleetVehicleValues = [];
           const fleetVehiclePlaceholders = retagVins
             .map((vinno, index) => {
-              const startindex = index * 10 + 1;
+              const startindex = index * 9 + 1;
               const vehicleData = vehicleDataMap[vinno];
               fleetVehicleValues.push(
                 dstaccountid,
@@ -4478,7 +4482,7 @@ export default class FmsAccountSvcDB {
           let fleetVehicleValues = [];
           const fleetVehiclePlaceholders = newTagVins
             .map((vinno, index) => {
-              const startindex = index * 10 + 1;
+              const startindex = index * 9 + 1;
               const vehicleData = vehicleDataMap[vinno];
               fleetVehicleValues.push(
                 dstaccountid,
@@ -5394,6 +5398,155 @@ export default class FmsAccountSvcDB {
       };
     } catch (error) {
       throw new Error("Unable to retrieve account and package information");
+    }
+  }
+
+  async getSharedVehicles(accountid) {
+    try {
+      const query = `
+        SELECT DISTINCT
+          tv.vinno,
+          COALESCE(v.license_plate, v.vinno) as regno,
+          v.modelcode,
+          vm.modeldisplayname
+        FROM tagged_vehicle tv
+        JOIN vehicle v ON tv.vinno = v.vinno
+        LEFT JOIN vehicle_model vm ON v.modelcode = vm.modelcode
+        WHERE tv.srcaccountid = $1 AND tv.isactive = true
+        ORDER BY tv.vinno
+      `;
+
+      let result = await this.pgPoolI.Query(query, [accountid]);
+      return result.rows || [];
+    } catch (error) {
+      this.logger.error("getSharedVehicles error: ", error);
+      throw new Error("Unable to retrieve shared vehicles information");
+    }
+  }
+
+  async getVehicleInfo(accountid, vinno) {
+    try {
+      const query = `
+      SELECT 
+        fv.vinno,
+        COALESCE(v.license_plate, v.vinno) as regno,
+        fv.isowner,
+        fv.accvininfo,
+        fv.assignedat,
+        fv.updatedat,
+        v.vehiclevariant,
+        v.vehiclemodel,
+        v.modelcode,
+        vm.modeldisplayname,
+        v.vehicleinfo,
+        v.delivered_date,
+        v.vehicle_city,
+        u1.displayname as assignedby,
+        u2.displayname as updatedby
+      FROM fleet_vehicle fv
+      JOIN vehicle v ON fv.vinno = v.vinno
+      LEFT JOIN vehicle_model vm ON v.modelcode = vm.modelcode
+      JOIN users u1 ON fv.assignedby = u1.userid
+      JOIN users u2 ON fv.updatedby = u2.userid
+      WHERE fv.accountid = $1 AND fv.vinno = $2
+      LIMIT 1
+    `;
+
+      let result = await this.pgPoolI.Query(query, [accountid, vinno]);
+      return result.rowCount > 0 ? result.rows[0] : null;
+    } catch (error) {
+      this.logger.error("getVehicleInfo error: ", error);
+      throw new Error("Unable to retrieve vehicle information");
+    }
+  }
+
+  async getSharedAccounts(accountid, vinno) {
+    try {
+      const query = `
+      SELECT 
+        tv.dstaccountid,
+        tv.taggedat,
+        tv.allow_retag,
+        tv.isactive,
+        da.accountname,
+        da.accounttype,
+        da.accountinfo,
+        u.displayname as tagged_by_user,
+        u.userid as tagged_by_userid
+      FROM tagged_vehicle tv
+      JOIN account da ON tv.dstaccountid = da.accountid
+      JOIN users u ON tv.taggedby = u.userid
+      WHERE tv.srcaccountid = $1 AND tv.vinno = $2 AND tv.isactive = true
+      ORDER BY tv.taggedat DESC
+    `;
+
+      let result = await this.pgPoolI.Query(query, [accountid, vinno]);
+      return result.rows || [];
+    } catch (error) {
+      this.logger.error("getSharedAccounts error: ", error);
+      throw new Error("Unable to retrieve shared accounts information");
+    }
+  }
+
+  async getVehiclesSharedToMe(accountid) {
+    try {
+      const query = `
+        SELECT 
+          tv.vinno,
+          COALESCE(v.license_plate, v.vinno) as regno,
+          v.modelcode,
+          vm.modeldisplayname,
+          tv.taggedat,
+          tv.allow_retag,
+          sa.accountname as owner_account_name,
+          sa.accounttype as owner_account_type,
+          sa.accountid as owner_account_id,
+          u.displayname as tagged_by_user,
+          u.userid as tagged_by_userid
+        FROM tagged_vehicle tv
+        JOIN vehicle v ON tv.vinno = v.vinno
+        LEFT JOIN vehicle_model vm ON v.modelcode = vm.modelcode
+        JOIN account sa ON tv.srcaccountid = sa.accountid
+        JOIN users u ON tv.taggedby = u.userid
+        WHERE tv.dstaccountid = $1 AND tv.isactive = true
+        ORDER BY tv.taggedat DESC
+      `;
+
+      let result = await this.pgPoolI.Query(query, [accountid]);
+      return result.rows || [];
+    } catch (error) {
+      this.logger.error("getVehiclesSharedToMe error: ", error);
+      throw new Error(
+        "Unable to retrieve vehicles shared to account information"
+      );
+    }
+  }
+
+  async getAccountInfo(accountid) {
+    try {
+      let query = `
+        SELECT 
+          a.accountid,
+          a.accountname,
+          a.createdat,
+          a.updatedat,
+          u1.displayname as createdby,
+          u2.displayname as updatedby
+        FROM account a
+        LEFT JOIN users u1 ON a.createdby = u1.userid
+        LEFT JOIN users u2 ON a.updatedby = u2.userid
+        WHERE a.accountid = $1 AND a.isenabled = true AND a.isdeleted = false
+      `;
+      let result = await this.pgPoolI.Query(query, [accountid]);
+
+      if (result.rowCount === 0) {
+        throw new Error("Account not found");
+      }
+
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("getAccountInfo error:", error);
+      throw new Error("Failed to get account information");
     }
   }
 }

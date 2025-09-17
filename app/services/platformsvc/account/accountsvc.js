@@ -1,10 +1,11 @@
 import AccountSvcDB from "./accountsvc_db.js";
 
 export default class AccountSvc {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
-    this.accountSvcDB = new AccountSvcDB(pgPoolI, logger);
+    this.config = config;
+    this.accountSvcDB = new AccountSvcDB(pgPoolI, logger, config);
   }
 
   async CreateAccount(account) {

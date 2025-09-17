@@ -243,7 +243,7 @@ export default class ModuleHdlr {
         moduleid: z
           .string({ message: "Invalid Module ID format" })
           .uuid({ message: "Module ID must be a valid UUID" }),
- 
+
         modulename: z
           .string({ message: "Invalid Module Name format" })
           .nonempty({ message: "Module Name cannot be empty" })
@@ -269,10 +269,29 @@ export default class ModuleHdlr {
           .optional()
           .default(0),
 
-        moduleinfo: z
-          .record(z.any(), { message: "moduleinfo must be an object" })
+          moduleinfo: z
+          .object({
+            moduleurl: z
+              .string()
+              .optional()
+              .refine(
+                (url) =>
+                  !url || /^(https?:\/\/)([\w.-]+)(:\d+)?(\/[\w./-]+)$/.test(url),
+                {
+                  message: "Invalid module URL format",
+                }
+              ),
+        
+            showfleets: z.boolean().optional(),
+            showaccounts: z.boolean().optional(),
+          })
           .optional()
-          .default({}),
+          .default({
+            moduleurl: "",
+            showfleets: false,
+            showaccounts: false,
+          }),
+        
 
         isenabled: z
           .preprocess((val) => val === "true" || val === true, z.boolean())

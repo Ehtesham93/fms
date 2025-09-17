@@ -157,9 +157,8 @@ export default class AccountHdlrImpl {
       };
     }
 
-    const vehicleCount = await this.accountSvcI.GetAccountVehicleCount(
-      accountid
-    );
+    const vehicleCount =
+      await this.accountSvcI.GetAccountVehicleCount(accountid);
     if (vehicleCount > 0) {
       throw {
         errcode: "ACCOUNT_HAS_VEHICLES",
@@ -297,7 +296,37 @@ export default class AccountHdlrImpl {
     if (!customPkgs) {
       customPkgs = [];
     }
-    return { pkgs: customPkgs };
+    let subscription = await this.accountSvcI.GetSubscriptionInfo(accountid);
+    let activepkgid = subscription?.pkgid;
+
+    for (let pkg of customPkgs) {
+      // Get package modules with credits information
+      let pkgWithModules = await this.accountSvcI.GetPkgInfoWithModules(
+        pkg.pkgid
+      );
+
+      if (pkgWithModules && pkgWithModules.modules) {
+        pkg.modules = pkgWithModules.modules;
+        pkg.totalcredits = pkgWithModules.pkgcredits || 0;
+      } else {
+        pkg.modules = [];
+        pkg.totalcredits = 0;
+      }
+
+      // Add subscription information
+      pkg.issubscribed = pkg.pkgid === activepkgid;
+      if (pkg.issubscribed && subscription) {
+        pkg.subscriptioninfo = {
+          startdate: subscription.subscriptioninfo.startdate,
+          enddate: subscription.subscriptioninfo.enddate,
+        };
+      }
+    }
+
+    return {
+      accountid: accountid,
+      custompkgs: customPkgs,
+    };
   };
 
   AddCustomPkgToAccountLogic = async (accountid, pkgids, updatedby) => {

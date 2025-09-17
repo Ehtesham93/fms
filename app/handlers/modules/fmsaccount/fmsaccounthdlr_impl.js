@@ -153,6 +153,72 @@ export default class fmsAccountHdlrImpl {
     }
   };
 
+  GetAccountOverviewLogic = async (accountid) => {
+    try {
+      const accountInfo = await this.fmsAccountSvcI.GetAccountInfo(accountid);
+
+      const rootFleetId = await this.fmsAccountSvcI.GetRootFleetId(accountid);
+      if (!rootFleetId) {
+        throw new Error("Root fleet not found for account");
+      }
+
+      const fleetCount = await this.fmsAccountSvcI.GetFleetCount(accountid);
+
+      const vehicles = await this.fmsAccountSvcI.GetVehicles(
+        accountid,
+        rootFleetId,
+        true
+      );
+      const vehicleCount = vehicles ? vehicles.length : 0;
+
+      const users = await this.fmsAccountSvcI.ListUsers(
+        accountid,
+        rootFleetId,
+        true
+      );
+      const userCount = users ? users.length : 0;
+
+      const subscriptionInfo =
+        await this.fmsAccountSvcI.GetSubscriptionInfo(accountid);
+
+      let subscribedVehicleCount = 0;
+      try {
+        const subscribedVehicles =
+          await this.fmsAccountSvcI.GetSubscribedVehicles(accountid);
+        subscribedVehicleCount = subscribedVehicles
+          ? subscribedVehicles.length
+          : 0;
+      } catch (e) {
+        this.logger.warn("Could not fetch subscribed vehicles:", e);
+      }
+
+      return {
+        accountid: accountid,
+        accountname: accountInfo.accountname,
+        createdby: accountInfo.createdby,
+        createdat: accountInfo.createdat,
+        updatedby: accountInfo.updatedby,
+        updatedat: accountInfo.updatedat,
+        fleetcount: fleetCount || 0,
+        vehiclecount: vehicleCount,
+        usercount: userCount,
+        subscribedvehiclecount: subscribedVehicleCount,
+        subscription: subscriptionInfo || null,
+        rootfleetid: rootFleetId.fleetid,
+        overview: {
+          totalfleets: fleetCount || 0,
+          totalvehicles: vehicleCount,
+          totalusers: userCount,
+          subscribedvehicles: subscribedVehicleCount,
+          activesubscription: subscriptionInfo ? true : false,
+        },
+      };
+    } catch (error) {
+      this.logger.error("GetAccountOverviewLogic error:", error);
+      throw error;
+    }
+  };
+
   GetAccountFleetsLogic = async (accountid, userid) => {
     let fleets = await this.fmsAccountSvcI.GetUserAccountFleets(
       accountid,
@@ -166,9 +232,8 @@ export default class fmsAccountHdlrImpl {
 
   GetAccountModulesLogic = async (accountid, userid) => {
     try {
-      let accountModules = await this.fmsAccountSvcI.GetAllAccountModules(
-        accountid
-      );
+      let accountModules =
+        await this.fmsAccountSvcI.GetAllAccountModules(accountid);
 
       let modules = [];
       for (let module of accountModules) {
@@ -565,9 +630,8 @@ export default class fmsAccountHdlrImpl {
     roleInfo.isadmin = false;
     roleInfo.isreadonly = false;
 
-    let accountModules = await this.fmsAccountSvcI.GetAllAccountModules(
-      accountid
-    );
+    let accountModules =
+      await this.fmsAccountSvcI.GetAllAccountModules(accountid);
 
     if (!accountModules) {
       accountModules = [];
@@ -575,9 +639,8 @@ export default class fmsAccountHdlrImpl {
 
     let accountModuleIds = accountModules.map((m) => m.moduleid);
 
-    let accountModulePerms = await this.fmsAccountSvcI.GetAllModulePerms(
-      accountModuleIds
-    );
+    let accountModulePerms =
+      await this.fmsAccountSvcI.GetAllModulePerms(accountModuleIds);
 
     if (!accountModulePerms) {
       accountModulePerms = [];
@@ -951,9 +1014,8 @@ export default class fmsAccountHdlrImpl {
       };
     }
 
-    let isAssignedToUsers = await this.fmsAccountSvcI.IsRoleAssignedToUsers(
-      roleid
-    );
+    let isAssignedToUsers =
+      await this.fmsAccountSvcI.IsRoleAssignedToUsers(roleid);
     if (isAssignedToUsers) {
       throw {
         errcode: "ROLE_IN_USE",
@@ -963,9 +1025,8 @@ export default class fmsAccountHdlrImpl {
       };
     }
 
-    let hasPermissions = await this.fmsAccountSvcI.DoesRoleHavePermissions(
-      roleid
-    );
+    let hasPermissions =
+      await this.fmsAccountSvcI.DoesRoleHavePermissions(roleid);
     if (hasPermissions) {
       throw {
         errcode: "ROLE_HAS_PERMISSIONS",
@@ -1083,9 +1144,8 @@ export default class fmsAccountHdlrImpl {
   };
 
   GetSubscriptionHistoryLogic = async (accountid) => {
-    let subscriptionHistory = await this.fmsAccountSvcI.GetSubscriptionHistory(
-      accountid
-    );
+    let subscriptionHistory =
+      await this.fmsAccountSvcI.GetSubscriptionHistory(accountid);
     if (!subscriptionHistory) {
       subscriptionHistory = [];
     }
@@ -1110,15 +1170,13 @@ export default class fmsAccountHdlrImpl {
     }
 
     const vinNumbers = allVehicles.map((vehicle) => vehicle.vinno);
-    const gpsDataMap = await this.fmsAccountSvcI.GetLastestGpsDataForVehicles(
-      vinNumbers
-    );
+    const gpsDataMap =
+      await this.fmsAccountSvcI.GetLastestGpsDataForVehicles(vinNumbers);
 
     const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
 
-    let subscriptionInfo = await this.fmsAccountSvcI.GetSubscriptionInfo(
-      accountid
-    );
+    let subscriptionInfo =
+      await this.fmsAccountSvcI.GetSubscriptionInfo(accountid);
 
     let currentPackage = null;
     if (subscriptionInfo) {
@@ -1571,6 +1629,56 @@ export default class fmsAccountHdlrImpl {
     return result;
   };
 
+  GetSharedVehiclesLogic = async (accountid) => {
+    try {
+      let sharedVehicles =
+        await this.fmsAccountSvcI.GetSharedVehicles(accountid);
+      return sharedVehicles;
+    } catch (error) {
+      this.logger.error("GetSharedVehiclesLogic error: ", error);
+      throw error;
+    }
+  };
+
+  GetSharedAccountsLogic = async (accountid, vinno) => {
+    try {
+      // First verify that the vehicle belongs to this account
+      let vehicleInfo = await this.fmsAccountSvcI.GetVehicleInfo(
+        accountid,
+        vinno
+      );
+      if (!vehicleInfo) {
+        throw {
+          errcode: "VEHICLE_NOT_FOUND",
+          message: "Vehicle not found in this account",
+        };
+      }
+
+      let sharedAccounts = await this.fmsAccountSvcI.GetSharedAccounts(
+        accountid,
+        vinno
+      );
+      return {
+        vehicleinfo: vehicleInfo,
+        sharedaccounts: sharedAccounts,
+      };
+    } catch (error) {
+      this.logger.error("GetSharedAccountsLogic error: ", error);
+      throw error;
+    }
+  };
+
+  GetVehiclesSharedToMeLogic = async (accountid) => {
+    try {
+      let sharedToMeVehicles =
+        await this.fmsAccountSvcI.GetVehiclesSharedToMe(accountid);
+      return sharedToMeVehicles;
+    } catch (error) {
+      this.logger.error("GetVehiclesSharedToMeLogic error: ", error);
+      throw error;
+    }
+  };
+
   GetMyFleetPermissionsLogic = async (userid, accountid, fleetid) => {
     const fleetInfo = await this.fmsAccountSvcI.GetFleetInfo(
       accountid,
@@ -1597,9 +1705,8 @@ export default class fmsAccountHdlrImpl {
       };
     }
 
-    let accountModules = await this.fmsAccountSvcI.GetAllAccountModules(
-      accountid
-    );
+    let accountModules =
+      await this.fmsAccountSvcI.GetAllAccountModules(accountid);
     if (!accountModules) {
       accountModules = [];
     }
@@ -1610,9 +1717,8 @@ export default class fmsAccountHdlrImpl {
 
     const accountModuleIds = webModules.map((m) => m.moduleid);
 
-    let accountModulePerms = await this.fmsAccountSvcI.GetAllModulePerms(
-      accountModuleIds
-    );
+    let accountModulePerms =
+      await this.fmsAccountSvcI.GetAllModulePerms(accountModuleIds);
     if (!accountModulePerms) {
       accountModulePerms = [];
     }

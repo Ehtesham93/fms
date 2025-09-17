@@ -81,11 +81,57 @@ export default {
     enableSubscribedVehiclesFilter: true,
     enableCreditChecks: false,
   },
+  credit: {
+    accountCreationCredits: 1000,
+  },
   serviceConfig: {
     url: "https://stg-nemo.mahindraelectric.com:2083/api/v1/fms/service/vehicle/onboarding",
     onboardingPath: "/api/v1/fms/service/vehicle/onboarding",
   },
   inMemCache: {
     stdTTL: 3600, // in seconds
+  },
+  rateLimiting: {
+    otp: {
+      perMinute: { windowMs: 60 * 1000, max: 500 },
+      perHour: { windowMs: 60 * 60 * 1000, max: 10000 },
+      perDay: { windowMs: 24 * 60 * 60 * 1000, max: 100000 },
+    },
+    signin: {
+      perMinute: { windowMs: 60 * 1000, max: 500 },
+      perHour: { windowMs: 60 * 60 * 1000, max: 10000 },
+      perDay: { windowMs: 24 * 60 * 60 * 1000, max: 100000 },
+    },
+    passwordReset: {
+      perMinute: { windowMs: 60 * 1000, max: 500 },
+      perHour: { windowMs: 60 * 60 * 1000, max: 5000 },
+      perDay: { windowMs: 24 * 60 * 60 * 1000, max: 25000 },
+    },
+    contactCheck: {
+      perMinute: { windowMs: 60 * 1000, max: 500 },
+    },
+    signup: {
+      perMinute: { windowMs: 60 * 1000, max: 500 },
+    },
+    general: {
+      perMinute: { windowMs: 60 * 1000, max: 1000 },
+    },
+    admin: {
+      perMinute: { windowMs: 60 * 1000, max: 10 },
+      perHour: { windowMs: 60 * 60 * 1000, max: 50 },
+    },
+    testUserToken: {
+      perMinute: { windowMs: 60 * 1000, max: 500 },
+      perHour: { windowMs: 60 * 60 * 1000, max: 1000 },
+      perDay: { windowMs: 24 * 60 * 60 * 1000, max: 2000 },
+    },
+    fleetCreation: {
+      perMinute: { max: 1 },
+      perHour: { max: 50 },
+    },
+    roleCreation: {
+      perMinute: { max: 5 },
+      perHour: { max: 20 },
+    },
   },
 };

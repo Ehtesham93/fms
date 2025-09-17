@@ -238,11 +238,9 @@ export default class UserHdlr {
       let validityMs = req.body.validity;
       let expiresin = TOKEN_EXPIRY_TIME;
 
-      if (
-        userid === "3e086a85-e93a-4ed8-bee0-b33e6e8718ce"
-        // || userid === "0eeae96d-8ede-4b0b-8ce4-66ada24de8d8"
-      ) {
-        expiresin = 10;
+      // TODO: Remove this once we have a proper token verification implementation
+      if (userid === "45f49d41-1180-4fd2-9e24-ae09c18f0f52") {
+        expiresin = 30;
       }
 
       if (validityMs) {

@@ -6,15 +6,16 @@ import PUserSvc from "./user/pusersvc.js";
 import AccountSvc from "./account/accountsvc.js";
 import ModelSvc from "./model/modelsvc.js";
 export default class PlatformSvc {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
+    this.config = config;
     this.platformSvcDB = new PlatformSvcDB(pgPoolI, logger);
     this.moduleSvc = new ModuleSvc(pgPoolI, logger);
     this.roleSvc = new RoleSvc(pgPoolI, logger);
     this.packageSvc = new PackageSvc(pgPoolI, logger);
     this.pUserSvc = new PUserSvc(pgPoolI, logger);
-    this.accountSvc = new AccountSvc(pgPoolI, logger);
+    this.accountSvc = new AccountSvc(pgPoolI, logger, config);
     this.modelSvc = new ModelSvc(pgPoolI, logger);
   }
 

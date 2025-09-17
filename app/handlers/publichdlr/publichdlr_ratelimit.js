@@ -2,8 +2,9 @@ import rateLimit from "express-rate-limit";
 import { APIResponseError } from "../../utils/responseutil.js";
 
 export default class PublicRateLimiter {
-  constructor(logger) {
+  constructor(config, logger) {
     this.logger = logger;
+    this.config = config;
     this.rateLimiters = this.#createRateLimiters();
   }
 
@@ -30,11 +31,13 @@ export default class PublicRateLimiter {
       };
     };
 
+    const rateLimitConfig = this.config.rateLimiting;
+
     return {
       // ⏱️ Per-minute limiter for OTP and sensitive operations
       otpMinuteLimiter: rateLimit({
-        windowMs: 60 * 1000,
-        max: 500,
+        windowMs: rateLimitConfig.otp.perMinute.windowMs,
+        max: rateLimitConfig.otp.perMinute.max,
         message: "Too many OTP requests. Try again later.",
         handler: createLimiterHandler("OTP per-minute"),
         standardHeaders: true,
@@ -43,8 +46,8 @@ export default class PublicRateLimiter {
 
       // ⏱️ Per-hour limiter for OTP
       otpHourLimiter: rateLimit({
-        windowMs: 60 * 60 * 1000,
-        max: 10000,
+        windowMs: rateLimitConfig.otp.perHour.windowMs,
+        max: rateLimitConfig.otp.perHour.max,
         message: "Too many OTP requests. Try again later.",
         handler: createLimiterHandler("OTP per-hour"),
         standardHeaders: true,
@@ -53,8 +56,8 @@ export default class PublicRateLimiter {
 
       // ⏱️ Per-day limiter for OTP
       otpDayLimiter: rateLimit({
-        windowMs: 24 * 60 * 60 * 1000,
-        max: 100000,
+        windowMs: rateLimitConfig.otp.perDay.windowMs,
+        max: rateLimitConfig.otp.perDay.max,
         message: "Too many OTP requests. Try again later.",
         handler: createLimiterHandler("OTP per-day"),
         standardHeaders: true,
@@ -63,8 +66,8 @@ export default class PublicRateLimiter {
 
       // Sign-in attempt limiters
       signinMinuteLimiter: rateLimit({
-        windowMs: 60 * 1000,
-        max: 500,
+        windowMs: rateLimitConfig.signin.perMinute.windowMs,
+        max: rateLimitConfig.signin.perMinute.max,
         message: "Too many sign-in attempts. Try again later.",
         handler: createLimiterHandler("Sign-in per-minute"),
         standardHeaders: true,
@@ -72,8 +75,8 @@ export default class PublicRateLimiter {
       }),
 
       signinHourLimiter: rateLimit({
-        windowMs: 60 * 60 * 1000,
-        max: 10000,
+        windowMs: rateLimitConfig.signin.perHour.windowMs,
+        max: rateLimitConfig.signin.perHour.max,
         message: "Too many sign-in attempts. Try again later.",
         handler: createLimiterHandler("Sign-in per-hour"),
         standardHeaders: true,
@@ -81,8 +84,8 @@ export default class PublicRateLimiter {
       }),
 
       signinDayLimiter: rateLimit({
-        windowMs: 24 * 60 * 60 * 1000,
-        max: 100000,
+        windowMs: rateLimitConfig.signin.perDay.windowMs,
+        max: rateLimitConfig.signin.perDay.max,
         message: "Too many sign-in attempts. Try again later.",
         handler: createLimiterHandler("Sign-in per-day"),
         standardHeaders: true,
@@ -91,8 +94,8 @@ export default class PublicRateLimiter {
 
       // Password reset limiters
       passwordResetMinuteLimiter: rateLimit({
-        windowMs: 60 * 1000,
-        max: 500,
+        windowMs: rateLimitConfig.passwordReset.perMinute.windowMs,
+        max: rateLimitConfig.passwordReset.perMinute.max,
         message: "Too many password reset requests. Try again later.",
         handler: createLimiterHandler("Password reset per-minute"),
         standardHeaders: true,
@@ -100,8 +103,8 @@ export default class PublicRateLimiter {
       }),
 
       passwordResetHourLimiter: rateLimit({
-        windowMs: 60 * 60 * 1000,
-        max: 5000,
+        windowMs: rateLimitConfig.passwordReset.perHour.windowMs,
+        max: rateLimitConfig.passwordReset.perHour.max,
         message: "Too many password reset requests. Try again later.",
         handler: createLimiterHandler("Password reset per-hour"),
         standardHeaders: true,
@@ -109,8 +112,8 @@ export default class PublicRateLimiter {
       }),
 
       passwordResetDayLimiter: rateLimit({
-        windowMs: 24 * 60 * 60 * 1000,
-        max: 25000,
+        windowMs: rateLimitConfig.passwordReset.perDay.windowMs,
+        max: rateLimitConfig.passwordReset.perDay.max,
         message: "Too many password reset requests. Try again later.",
         handler: createLimiterHandler("Password reset per-day"),
         standardHeaders: true,
@@ -119,8 +122,8 @@ export default class PublicRateLimiter {
 
       // Contact/validation limiters
       contactCheckLimiter: rateLimit({
-        windowMs: 60 * 1000,
-        max: 500,
+        windowMs: rateLimitConfig.contactCheck.perMinute.windowMs,
+        max: rateLimitConfig.contactCheck.perMinute.max,
         message: "Too many contact verification requests. Try again later.",
         handler: createLimiterHandler("Contact check per-minute"),
         standardHeaders: true,
@@ -129,8 +132,8 @@ export default class PublicRateLimiter {
 
       // Signup/invite limiters
       signupLimiter: rateLimit({
-        windowMs: 60 * 1000,
-        max: 500,
+        windowMs: rateLimitConfig.signup.perMinute.windowMs,
+        max: rateLimitConfig.signup.perMinute.max,
         message: "Too many signup attempts. Try again later.",
         handler: createLimiterHandler("Signup per-minute"),
         standardHeaders: true,
@@ -139,8 +142,8 @@ export default class PublicRateLimiter {
 
       // General public API limiter
       generalLimiter: rateLimit({
-        windowMs: 60 * 1000,
-        max: 1000,
+        windowMs: rateLimitConfig.general.perMinute.windowMs,
+        max: rateLimitConfig.general.perMinute.max,
         message: "Too many requests. Try again later.",
         handler: createLimiterHandler("General per-minute"),
         standardHeaders: true,
@@ -149,8 +152,8 @@ export default class PublicRateLimiter {
 
       // Admin/superadmin specific limiter
       adminMinuteLimiter: rateLimit({
-        windowMs: 60 * 1000,
-        max: 10,
+        windowMs: rateLimitConfig.admin.perMinute.windowMs,
+        max: rateLimitConfig.admin.perMinute.max,
         message: "Too many admin requests. Try again later.",
         handler: createLimiterHandler("Admin per-minute"),
         standardHeaders: true,
@@ -158,8 +161,8 @@ export default class PublicRateLimiter {
       }),
 
       adminHourLimiter: rateLimit({
-        windowMs: 60 * 60 * 1000,
-        max: 50,
+        windowMs: rateLimitConfig.admin.perHour.windowMs,
+        max: rateLimitConfig.admin.perHour.max,
         message: "Too many admin requests. Try again later.",
         handler: createLimiterHandler("Admin per-hour"),
         standardHeaders: true,
@@ -167,8 +170,8 @@ export default class PublicRateLimiter {
       }),
 
       testUserTokenMinuteLimiter: rateLimit({
-        windowMs: 60 * 1000,
-        max: 500,
+        windowMs: rateLimitConfig.testUserToken.perMinute.windowMs,
+        max: rateLimitConfig.testUserToken.perMinute.max,
         message: "Too many test user token requests. Try again later.",
         handler: createLimiterHandler("Test user token per-minute"),
         standardHeaders: true,
@@ -176,8 +179,8 @@ export default class PublicRateLimiter {
       }),
 
       testUserTokenHourLimiter: rateLimit({
-        windowMs: 60 * 60 * 1000,
-        max: 1000,
+        windowMs: rateLimitConfig.testUserToken.perHour.windowMs,
+        max: rateLimitConfig.testUserToken.perHour.max,
         message: "Too many test user token requests. Try again later.",
         handler: createLimiterHandler("Test user token per-hour"),
         standardHeaders: true,
@@ -185,8 +188,8 @@ export default class PublicRateLimiter {
       }),
 
       testUserTokenDayLimiter: rateLimit({
-        windowMs: 24 * 60 * 60 * 1000,
-        max: 2000,
+        windowMs: rateLimitConfig.testUserToken.perDay.windowMs,
+        max: rateLimitConfig.testUserToken.perDay.max,
         message: "Too many test user token requests. Try again later.",
         handler: createLimiterHandler("Test user token per-day"),
         standardHeaders: true,
@@ -195,6 +198,7 @@ export default class PublicRateLimiter {
     };
   }
 
+  // ... existing getter methods remain the same ...
   getOTPLimiters() {
     return [
       this.rateLimiters.otpMinuteLimiter,
