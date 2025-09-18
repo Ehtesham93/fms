@@ -963,6 +963,7 @@ export default class PUserSvcDB {
           original_status,
           resolution_reason,
           review_data,
+          entrytype,
           reviewed_at,
           reviewed_by,
           createdat,
@@ -970,7 +971,7 @@ export default class PUserSvcDB {
           updatedat,
           updatedby
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
         )
       `;
 
@@ -997,6 +998,7 @@ export default class PUserSvcDB {
         userData.original_status || "APPROVED",
         userData.resolution_reason || "User created successfully",
         userData.review_data || {},
+        userData.entrytype || "onboarding",
         currtime, // reviewed_at
         userData.reviewed_by,
         currtime, // createdat
@@ -1082,8 +1084,7 @@ export default class PUserSvcDB {
     ];
     const result = await this.pgPoolI.Query(query, values);
     return result.rowCount === 1;
-  }
-  catch(error) {
+  } catch(error) {
     this.logger.error(`addReviewPendingUser error: ${error}`);
     throw new Error("Unable to add review pending user");
   }

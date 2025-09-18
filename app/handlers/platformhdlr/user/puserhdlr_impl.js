@@ -28,6 +28,7 @@ export default class PUserHdlrImpl {
     this.platformSvcI = platformSvcI;
     this.accountHdlr = accountHdlr;
     this.logger = logger;
+    this.onboardingType = "onboarding";
   }
 
   CreateUserLogic = async (displayname, email, password, mobile, createdby) => {
@@ -640,7 +641,6 @@ export default class PUserHdlrImpl {
       // Don't throw error here as the main flow should continue
     }
   };
-
   AddAccountToReviewDone = async (
     taskid,
     accountname,
@@ -687,6 +687,7 @@ export default class PUserHdlrImpl {
         reviewed_by: userid,
         createdby: userid,
         updatedby: userid,
+        entrytype: this.onboardingType,
       });
       const deletependingaccount =
         await this.accountSvcI.DeletePendingAccountReviewById(taskid);
@@ -760,6 +761,7 @@ export default class PUserHdlrImpl {
         original_status: "USER_CREATION_SUCCESS",
         resolution_reason: "User onboarded successfully",
         review_data: review_data,
+        entrytype: this.onboardingType,
         reviewed_by: createdby,
         createdby: createdby,
         updatedby: createdby,
@@ -2015,9 +2017,11 @@ export default class PUserHdlrImpl {
     licenseplate,
     vin,
     nemo_user_mobile,
+    type,
     taskid = null,
     accountname = null
   ) => {
+    this.onboardingType = type;
     const processedcustomername = this.preprocessingname(customername);
     const vehiclemobile = this.preprocessingmobile(customercontactmobile);
     const usermobile = this.preprocessingmobile(nemo_user_mobile);
@@ -2215,6 +2219,7 @@ export default class PUserHdlrImpl {
       original_input.licenseplate,
       original_input.vin,
       original_input.nemo_user_mobile,
+      "review",
       taskid,
       accountname
     );
@@ -2281,6 +2286,7 @@ export default class PUserHdlrImpl {
       original_input.licenseplate,
       original_input.vin,
       mobile,
+      "review",
       taskid,
       accountname
     );

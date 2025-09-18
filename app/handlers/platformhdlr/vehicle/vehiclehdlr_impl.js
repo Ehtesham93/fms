@@ -8,6 +8,7 @@ export default class VehicleHdlrImpl {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
     this.logger = logger;
+    this.onboardingType = "onboarding";
   }
 
   CreateVehicleLogic = async (
@@ -340,7 +341,8 @@ export default class VehicleHdlrImpl {
       .trim(); // Trim leading and trailing whitespaces
   };
 
-  OnboardVehicleLogic = async (vehicleData, createdOrUpdatedBy) => {
+  OnboardVehicleLogic = async (vehicleData, entrytype, createdOrUpdatedBy) => {
+    this.onboardingType = entrytype;
     const { vin, vehicleModel, vehicleVariant, ...otherFields } = vehicleData;
     vehicleData.dealer = this.preprocessingText(vehicleData.dealer);
     vehicleData.deliveredDate = this.convertDateFormat(
@@ -869,6 +871,7 @@ export default class VehicleHdlrImpl {
     allFields.resolution_reason = reason;
     allFields.review_data = {};
     allFields.vehicleinfo = {};
+    allFields.entrytype = this.onboardingType;
     return allFields;
   };
 
@@ -1024,7 +1027,7 @@ export default class VehicleHdlrImpl {
         updatedfields.vehicleColour !== original_input.vehicleColour
           ? updatedfields.vehicleColour
           : original_input.vehicleColour;
-      await this.OnboardVehicleLogic(vehicleData, userid);
+      await this.OnboardVehicleLogic(vehicleData, "review", userid);
     } catch (error) {
       this.logger.error("ReviewVehicleOnboardLogic failed", error);
       throw error;

@@ -516,6 +516,7 @@ export default class PlatformSvcDB {
         original_status: fields.original_status,
         resolution_reason: fields.resolution_reason,
         review_data: fields.review_data || {},
+        entrytype: fields.entrytype || "onboarding",
         reviewed_at: currtime,
         reviewed_by: createdBy,
         createdat: currtime,
@@ -906,6 +907,9 @@ export default class PlatformSvcDB {
         totalaccountsreviewsdone,
         totalusersreviewsdone,
         totalvehiclesreviewsdone,
+        totalaccountsonboarded,
+        totalusersonboarded,
+        totalvehiclesonboarded,
       ] = await Promise.all([
         this.pgPoolI.Query("SELECT COUNT(*) FROM vehicle"),
         this.pgPoolI.Query("SELECT COUNT(distinct vinno) FROM fleet_vehicle"),
@@ -934,10 +938,13 @@ export default class PlatformSvcDB {
         this.pgPoolI.Query("SELECT COUNT(*) FROM reviewpendinguser"),
         this.pgPoolI.Query("SELECT COUNT(*) FROM reviewpendingvehicle"),
         this.pgPoolI.Query(
-          "SELECT COUNT(distinct accountid) FROM reviewdoneaccount"
+          "SELECT COUNT(distinct accountid) FROM reviewdoneaccount WHERE entrytype = 'review'"
         ),
-        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdoneuser"),
-        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdonevehicle"),
+        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'review'"),
+        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'review'"),
+        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdoneaccount WHERE entrytype = 'onboarding'"),
+        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'onboarding'"),
+        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'onboarding'"),
       ]);
 
       const totalpendingreviews =
@@ -948,6 +955,10 @@ export default class PlatformSvcDB {
         parseInt(totalaccountsreviewsdone.rows[0].count) +
         parseInt(totalusersreviewsdone.rows[0].count) +
         parseInt(totalvehiclesreviewsdone.rows[0].count);
+      const totalonboarded =
+        parseInt(totalaccountsonboarded.rows[0].count) +
+        parseInt(totalusersonboarded.rows[0].count) +
+        parseInt(totalvehiclesonboarded.rows[0].count);
 
       const result = {
         metrics: [
@@ -993,6 +1004,7 @@ export default class PlatformSvcDB {
           [
             { title: "Reviews Pending", value: totalpendingreviews.toString() },
             { title: "Reviews Done", value: totaldonereviews.toString() },
+            { title: "Onboarded", value: totalonboarded.toString() },
           ],
         ],
       };

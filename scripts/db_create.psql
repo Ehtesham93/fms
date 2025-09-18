@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS
         original_status text NOT NULL, -- What was the original status when moved from pending
         resolution_reason text NOT NULL, -- How the review was resolved
         review_data jsonb NOT NULL, -- Original input data and resolution details
+        entrytype text,
         reviewed_at timestamptz NOT NULL,
         reviewed_by uuid NOT NULL,
         createdat timestamptz NOT NULL,
@@ -166,6 +167,7 @@ CREATE TABLE IF NOT EXISTS
         original_status text NOT NULL, -- What was the original status when moved from pending
         resolution_reason text NOT NULL, -- How the review was resolved
         review_data jsonb NOT NULL, -- Original input data and resolution details
+        entrytype text,
         reviewed_at timestamptz NOT NULL,
         reviewed_by uuid NOT NULL,
         createdat timestamptz NOT NULL,
@@ -562,6 +564,7 @@ CREATE TABLE IF NOT EXISTS
         original_status text NOT NULL, -- What was the original status when moved from pending
         resolution_reason text NOT NULL, -- How the review was resolved
         review_data jsonb NOT NULL, -- Original input data and resolution details
+        entrytype text,
         reviewed_at timestamptz NOT NULL,
         reviewed_by uuid NOT NULL,
         createdat timestamptz NOT NULL,

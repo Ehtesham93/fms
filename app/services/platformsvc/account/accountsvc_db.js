@@ -2446,6 +2446,7 @@ export default class AccountSvcDB {
           original_status,
           resolution_reason,
           review_data,
+          entrytype,
           reviewed_at,
           reviewed_by,
           createdat,
@@ -2453,7 +2454,7 @@ export default class AccountSvcDB {
           updatedat,
           updatedby
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
         )
       `;
 
@@ -2469,6 +2470,7 @@ export default class AccountSvcDB {
         accountData.original_status || "APPROVED",
         accountData.resolution_reason || "Account created successfully",
         accountData.review_data || {},
+        accountData.entrytype || "onboarding",
         currtime, // reviewed_at
         accountData.reviewed_by,
         currtime, // createdat

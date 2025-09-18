@@ -692,6 +692,7 @@ export default class VehicleHdlr {
 
       let result = await this.vehicleHdlrImpl.OnboardVehicleLogic(
         validatedInput,
+        "onboarding",
         createdOrUpdatedBy
       );
 

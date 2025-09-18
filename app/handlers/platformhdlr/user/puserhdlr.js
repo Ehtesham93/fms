@@ -1255,7 +1255,9 @@ export default class PUserHdlr {
           .nullable(),
         customergender: z
           .string({ message: "Customer gender must be a string" })
-          .nonempty({ message: "Customer gender cannot be empty" }),
+          .refine((val) => ["Male", "Female", "Other", ""].includes(val), {
+            message: "Invalid gender format. Must be Male, Female, Other or empty.",
+          }),
         customername: z
           .string({ message: "Customer name must be a string" })
           .nonempty({ message: "Customer name cannot be empty" }),
@@ -1344,7 +1346,8 @@ export default class PUserHdlr {
         customertype,
         licenseplate,
         vin,
-        nemo_user_mobile
+        nemo_user_mobile,
+        "onboarding"
       );
       APIResponseOK(req, res, result, "User onboarded successfully");
     } catch (error) {
