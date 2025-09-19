@@ -120,6 +120,14 @@ export default class PlatformHdlrImpl {
     }
     return platformOverview;
   };
+  GetConsolePlatformOverviewAnalyticsLogic = async () => {
+    let platformOverview = await this.platformSvcI.GetConsolePlatformOverviewAnalytics();
+    if (!platformOverview) {
+      this.logger.error("Platform overview not found");
+      throw new Error("Platform overview not found");
+    }
+    return platformOverview;
+  };
 
   GetConsoleAccountAssignmentHistoryLogic = async (accountid, starttime, endtime) => {
     let history = await this.platformSvcI.GetConsoleAccountAssignmentHistory(accountid, starttime, endtime);

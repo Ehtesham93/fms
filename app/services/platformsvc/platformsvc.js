@@ -192,6 +192,10 @@ export default class PlatformSvc {
     return await this.platformSvcDB.getConsolePlatformOverview();
   }
 
+  async GetConsolePlatformOverviewAnalytics() {
+    return await this.platformSvcDB.getConsolePlatformOverviewAnalytics();
+  }
+
   async GetConsoleAccountAssignmentHistory(accountid, starttime, endtime) {
     return await this.platformSvcDB.getConsoleAccountAssignmentHistory(
       accountid,

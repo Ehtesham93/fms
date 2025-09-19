@@ -134,6 +134,7 @@ export default class PlatformHdlr {
     authRouter.get("/home", this.GetConsoleHomePage);
     authRouter.get("/modules", this.GetConsoleModules);
     authRouter.get("/overview", this.GetConsolePlatformOverview);
+    authRouter.get("/overviewanalytics", this.GetConsolePlatformOverviewAnalytics);
     authRouter.get(
       "/account/:accountid/assignmenthistory",
       this.GetConsoleAccountAssignmentHistory
@@ -315,6 +316,22 @@ export default class PlatformHdlr {
     try {
       let result =
         await this.platformHdlrImpl.GetConsolePlatformOverviewLogic();
+      APIResponseOK(req, res, result, "Platform overview fetched successfully");
+    } catch (e) {
+      APIResponseInternalErr(
+        req,
+        res,
+        "GET_PLATFORM_OVERVIEW_ERR",
+        e.toString(),
+        "Get platform overview failed"
+      );
+    }
+  };
+
+  GetConsolePlatformOverviewAnalytics = async (req, res, next) => {
+    try {
+      let result =
+        await this.platformHdlrImpl.GetConsolePlatformOverviewAnalyticsLogic();
       APIResponseOK(req, res, result, "Platform overview fetched successfully");
     } catch (e) {
       APIResponseInternalErr(

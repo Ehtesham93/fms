@@ -2155,12 +2155,14 @@ export default class AccountHdlr {
           .default({}),
       });
 
+      let processedregno = req.body.vehicleinfo?.regno ? req.body.vehicleinfo.regno.trim() : '';
+
       let { accountid, assignedby, vinno, regno, isowner, accvininfo } =
         validateAllInputs(schema, {
           accountid: req.params.accountid,
           vinno: req.params.vinno,
           assignedby: req.userid,
-          regno: req.body.vehicleinfo?.regno,
+          regno: processedregno,
           isowner: req.body.vehicleinfo?.isowner,
           accvininfo: req.body.vehicleinfo?.accvininfo,
         });

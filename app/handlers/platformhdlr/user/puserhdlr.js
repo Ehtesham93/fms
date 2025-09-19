@@ -1349,7 +1349,7 @@ export default class PUserHdlr {
         nemo_user_mobile,
         "onboarding"
       );
-      APIResponseOK(req, res, result, "User onboarded successfully");
+      APIResponseOK(req, res, result, result.message);
     } catch (error) {
       this.logger.error("OnboardUserAccount error: ", error);
       if (error.errcode === "CONSOLE_ACCESS_DENIED") {
@@ -1521,7 +1521,7 @@ export default class PUserHdlr {
         updatedfields,
       });
 
-      APIResponseOK(req, res, result, "User onboarded successfully");
+      APIResponseOK(req, res, result, result.message);
     } catch (error) {
       this.logger.error("CompositeOnboardAPI error: ", error);
       if (error.errcode === "CONSOLE_ACCESS_DENIED") {

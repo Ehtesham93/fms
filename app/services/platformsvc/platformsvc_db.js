@@ -1,3 +1,5 @@
+import ClickHouseClient from "../../utils/clickhouse.js";
+import clhTripTimeBucketRange from "../modules/tripsinsights/tripsinsightssvc_utils.js";
 export default class PlatformSvcDB {
   /**
    *
@@ -6,6 +8,7 @@ export default class PlatformSvcDB {
   constructor(pgPoolI, logger) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
+    this.clickHouseClient = new ClickHouseClient();
   }
 
   async getUserName(userid) {
@@ -940,11 +943,21 @@ export default class PlatformSvcDB {
         this.pgPoolI.Query(
           "SELECT COUNT(distinct accountid) FROM reviewdoneaccount WHERE entrytype = 'review'"
         ),
-        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'review'"),
-        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'review'"),
-        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdoneaccount WHERE entrytype = 'onboarding'"),
-        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'onboarding'"),
-        this.pgPoolI.Query("SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'onboarding'"),
+        this.pgPoolI.Query(
+          "SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'review'"
+        ),
+        this.pgPoolI.Query(
+          "SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'review'"
+        ),
+        this.pgPoolI.Query(
+          "SELECT COUNT(*) FROM reviewdoneaccount WHERE entrytype = 'onboarding'"
+        ),
+        this.pgPoolI.Query(
+          "SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'onboarding'"
+        ),
+        this.pgPoolI.Query(
+          "SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'onboarding'"
+        ),
       ]);
 
       const totalpendingreviews =
@@ -1016,6 +1029,218 @@ export default class PlatformSvcDB {
       );
     }
   }
+
+
+  async getConnnectedVehicles(vinnos, starttime, endtime) {
+    if (
+      starttime >= endtime ||
+      starttime < 0 ||
+      endtime - starttime > 35 * 24 * 60 * 60 * 1000
+    ) {
+      return new Error("Invalid time range");
+    }
+
+    try {
+      const timeBuckets = clhTripTimeBucketRange(starttime, endtime);
+      if (timeBuckets.length === 0) {
+        return new Error("No valid time buckets found");
+      }
+
+      const bucketPromises = timeBuckets.map(async (bucket) => {
+        const vinPlaceholders = vinnos
+          .map((_, index) => `{vin${index}:String}`)
+          .join(",");
+        
+        const query = `
+          SELECT 
+            vin, utc_day_b, gps_cnt, can_cnt, proctime
+          FROM lmmdata_latest.livenessdata
+          WHERE vin IN (${vinPlaceholders})
+            AND utc_day_b >= {starttime:UInt64} 
+            AND utc_day_b < {endtime:UInt64}
+            AND gps_cnt > 0
+            AND can_cnt > 0`;
+
+        const params = {
+          starttime: starttime,
+          endtime: endtime,
+        };
+
+        vinnos.forEach((vin, index) => {
+          params[`vin${index}`] = vin;
+        });
+
+        try {
+          const result = await this.clickHouseClient.query(query, params);
+          if (!result.success) {
+            this.logger.error("Error executing query:", result.error);
+            return [];
+          }
+          return result.data || [];
+        } catch (error) {
+          this.logger.error("Error executing bucket query:", error);
+          return [];
+        }
+      });
+
+      const bucketResults = await Promise.allSettled(bucketPromises);
+      const allResults = [];
+
+      bucketResults.forEach(({ status, value }) => {
+        if (status === "fulfilled" && Array.isArray(value)) {
+          allResults.push(...value);
+        } else if (status === "rejected") {
+          this.logger.error("Bucket query failed:", value);
+        }
+      });
+
+      allResults.sort((a, b) => a.utc_day_b - b.utc_day_b);
+      return allResults;
+    } catch (error) {
+      this.logger.error("Error fetching connected vehicles data:", error);
+      throw error;
+    }
+  }
+
+  async getConsolePlatformOverviewAnalytics() {
+    try {
+      const total_models = await this.pgPoolI.Query(
+        "SELECT vm.modeldisplayname, COUNT(v.vinno) AS vehicle_count, array_agg(v.vinno) AS vinnos FROM stgfmscoresch.vehicle_model vm JOIN stgfmscoresch.vehicle v ON v.modelcode = vm.modelcode JOIN stgfmscoresch.fleet_vehicle fv ON v.vinno = fv.vinno GROUP BY vm.modeldisplayname ORDER BY vehicle_count DESC"
+      );
+      
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dayBeforeYesterday = new Date(today);
+      dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
+      
+      // Convert to UTC day buckets (similar to how utc_day_b is calculated)
+      const getUtcDayBucket = (date) => {
+        const epoch = new Date('1970-01-01');
+        const diffTime = date.getTime() - epoch.getTime();
+        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays;
+      };
+      
+      const timeRanges = [
+        {
+          name: 'today',
+          start: getUtcDayBucket(today),
+          end: getUtcDayBucket(today) + 1
+        },
+        {
+          name: 'yesterday', 
+          start: getUtcDayBucket(yesterday),
+          end: getUtcDayBucket(yesterday) + 1
+        },
+        {
+          name: 'dayBeforeYesterday',
+          start: getUtcDayBucket(dayBeforeYesterday),
+          end: getUtcDayBucket(dayBeforeYesterday) + 1
+        }
+      ];
+      
+      // Process each model
+      const enhancedResults = await Promise.all(
+        total_models.rows.map(async (model) => {
+          const vinnos = model.vinnos;
+          const connectedVehiclesData = {
+            today: { total: 0, connected: 0, totalcan: 0, totalgps: 0 },
+            yesterday: { total: 0, connected: 0, totalcan: 0, totalgps: 0 },
+            dayBeforeYesterday: { total: 0, connected: 0, totalcan: 0, totalgps: 0 }
+          };
+          
+          // Process each time range
+          for (const timeRange of timeRanges) {
+            try {
+              const connectedData = await this.getConnnectedVehicles(
+                vinnos, 
+                timeRange.start, 
+                timeRange.end
+              );
+              
+              if (connectedData && connectedData.length > 0) {
+                // Get unique VINs that have data
+                const uniqueVins = [...new Set(connectedData.map(item => item.vin))];
+                
+                // Calculate totals
+                const totalcan = connectedData.reduce((sum, item) => sum + (item.can_cnt || 0), 0);
+                const totalgps = connectedData.reduce((sum, item) => sum + (item.gps_cnt || 0), 0);
+                
+                connectedVehiclesData[timeRange.name] = {
+                  total: vinnos.length,
+                  connected: uniqueVins.length,
+                  percentage: vinnos.length > 0 ? Math.round((uniqueVins.length / vinnos.length) * 100) : 0,
+                  totalcan: totalcan,
+                  totalgps: totalgps
+                };
+              } else {
+                connectedVehiclesData[timeRange.name] = {
+                  total: vinnos.length,
+                  connected: 0,
+                  percentage: 0,
+                  totalcan: 0,
+                  totalgps: 0
+                };
+              }
+            } catch (error) {
+              this.logger.error(`Error fetching connected data for model ${model.modeldisplayname}:`, error);
+              connectedVehiclesData[timeRange.name] = {
+                total: vinnos.length,
+                connected: 0,
+                percentage: 0,
+                totalcan: 0,
+                totalgps: 0
+              };
+            }
+          }
+          
+          return {
+            ...model,
+            connectedVehicles: connectedVehiclesData
+          };
+        })
+      );
+      
+      const result = {
+        table1: enhancedResults.map(item => ({
+          model: item.modeldisplayname,
+          vehicle_count: item.vehicle_count,
+          connected_vehicles_today: item.connectedVehicles.today.connected,
+          connected_vehicles_yesterday: item.connectedVehicles.yesterday.connected,
+          connected_vehicles_day_before_yesterday: item.connectedVehicles.dayBeforeYesterday.connected
+        })),
+        table2: enhancedResults.map(item => ({
+          model: item.modeldisplayname,
+          vehicle_count: item.vehicle_count,
+          gps_beacons_yesterday: item.connectedVehicles.yesterday.totalgps,
+          gps_beacons_day_before_yesterday: item.connectedVehicles.dayBeforeYesterday.totalgps,
+          can_beacons_yesterday: item.connectedVehicles.yesterday.totalcan,
+          can_beacons_day_before_yesterday: item.connectedVehicles.dayBeforeYesterday.totalcan
+        }))
+      };
+
+      return result;
+    } catch (error) {
+      throw new Error(
+        `Failed to get console platform overview analytics: ${error.message}`
+      );
+    }
+  }
+
+  //   vehiclemodel,
+  //   total_vehicles,
+  //   connected_vehicles_today,
+  //   connected_vehicles_yesterday,
+  //   connected_vehicles_day_before_yesterday;
+
+  // vehiclemodel,
+  //   total_vehicles,
+  //   gps_beacons_yesterday,
+  //   gps_beacons_day_before_yesterday,
+  //   can_beacons_yesterday,
+  //   can_beacons_day_before_yesterday;
 
   async getConsoleAccountAssignmentHistory(accountid, starttime, endtime) {
     try {
