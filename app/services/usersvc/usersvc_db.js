@@ -2183,6 +2183,17 @@ export default class UserSvcDB {
       result = await txclient.query(query, [userid, EMAIL_PWD_SSO, MOBILE_SSO]);
       const originalSsoData = result.rows;
 
+      // Extract email and mobile for fleet invite updates
+      let userEmail = null;
+      let userMobile = null;
+      for (const ssoRecord of originalSsoData) {
+        if (ssoRecord.ssotype === EMAIL_PWD_SSO) {
+          userEmail = ssoRecord.ssoid;
+        } else if (ssoRecord.ssotype === MOBILE_SSO) {
+          userMobile = ssoRecord.ssoid;
+        }
+      }
+
       // 3. Generate timestamp-based placeholder userid
       const timestamp = Date.now();
       const deletedUserId = `Deleted_User_${timestamp}`;
@@ -2257,6 +2268,71 @@ export default class UserSvcDB {
         }
       }
 
+      // 7. Update fleet invite tables with placeholder contact data
+      let fleetInviteUpdates = 0;
+
+      // Update fleet_invite_pending table
+      if (userEmail) {
+        query = `
+          UPDATE fleet_invite_pending 
+          SET contact = $1, updatedat = $2, updatedby = $3 
+          WHERE contact = $4
+        `;
+        result = await txclient.query(query, [
+          deletedUserId,
+          currtime,
+          deletedby,
+          userEmail,
+        ]);
+        fleetInviteUpdates += result.rowCount;
+      }
+
+      if (userMobile) {
+        query = `
+          UPDATE fleet_invite_pending 
+          SET contact = $1, updatedat = $2, updatedby = $3 
+          WHERE contact = $4
+        `;
+        result = await txclient.query(query, [
+          deletedUserId,
+          currtime,
+          deletedby,
+          userMobile,
+        ]);
+        fleetInviteUpdates += result.rowCount;
+      }
+
+      // Update fleet_invite_done table
+      if (userEmail) {
+        query = `
+          UPDATE fleet_invite_done 
+          SET contact = $1, updatedat = $2, updatedby = $3 
+          WHERE contact = $4
+        `;
+        result = await txclient.query(query, [
+          deletedUserId,
+          currtime,
+          deletedby,
+          userEmail,
+        ]);
+        fleetInviteUpdates += result.rowCount;
+      }
+
+      if (userMobile) {
+        query = `
+          UPDATE fleet_invite_done 
+          SET contact = $1, updatedat = $2, updatedby = $3 
+          WHERE contact = $4
+        `;
+        result = await txclient.query(query, [
+          deletedUserId,
+          currtime,
+          deletedby,
+          userMobile,
+        ]);
+        fleetInviteUpdates += result.rowCount;
+      }
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -2269,6 +2345,7 @@ export default class UserSvcDB {
         deletedat: currtime,
         deletedby: deletedby,
         sso_records_updated: originalSsoData.length,
+        fleet_invite_records_updated: fleetInviteUpdates,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -3240,8 +3317,8 @@ export default class UserSvcDB {
       const query = `
         UPDATE users 
         SET ${setClause}, updatedat = $${
-        Object.keys(fieldsToUpdate).length + 2
-      }, updatedby = $${Object.keys(fieldsToUpdate).length + 3}
+          Object.keys(fieldsToUpdate).length + 2
+        }, updatedby = $${Object.keys(fieldsToUpdate).length + 3}
         WHERE userid = $1 AND isdeleted = false
         RETURNING userid, displayname, isenabled
       `;

@@ -35,8 +35,10 @@ export default class APIServer {
       this.app.use(eachhandler[0], newrouter);
     }
 
-    this.app.use(this.#errornotfound);
-    this.app.use(this.#errorhandler);
+    this.app.use((req, res, next) => this.#errornotfound(req, res, next));
+    this.app.use((err, req, res, next) =>
+      this.#errorhandler(err, req, res, next)
+    );
 
     this.app.listen(port, () => {
       this.logger.info("App listening on port:" + port);

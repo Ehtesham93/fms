@@ -291,8 +291,8 @@ export default class PUserHdlrImpl {
       updatedby === userid
     ) {
       throw {
-        errcode: "CANNOT_REMOVE_SUPER_ADMIN_ROLE",
-        message: "Cannot remove super admin role",
+        errcode: "CANNOT_REMOVE_ADMIN_ROLE",
+        message: "Cannot remove admin role",
       };
     }
     let res = await this.pUserSvcI.RemoveUserPlatformRole(userid, roleid);
@@ -652,9 +652,8 @@ export default class PUserHdlrImpl {
     status = "REVIEWED_SUCCESS"
   ) => {
     try {
-      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
-        taskid
-      );
+      const pendingaccount =
+        await this.accountSvcI.GetPendingAccountReviewById(taskid);
       if (pendingaccount) {
         review_data = {
           accountname: pendingaccount.accountname,
@@ -904,9 +903,8 @@ export default class PUserHdlrImpl {
       return accountRes;
     } catch (error) {
       this.logger.error("Failed to create account task", error);
-      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
-        taskid
-      );
+      const pendingaccount =
+        await this.accountSvcI.GetPendingAccountReviewById(taskid);
       if (pendingaccount) {
         await this.accountSvcI.UpdateReviewPendingAccount(
           pendingaccount.accountid,
@@ -961,9 +959,8 @@ export default class PUserHdlrImpl {
         userid
       );
       if (!user) {
-        const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(
-          taskid
-        );
+        const pendinguser =
+          await this.pUserSvcI.GetPendingUserReviewById(taskid);
         if (pendinguser) {
           await this.pUserSvcI.UpdateReviewPendingUser(
             pendinguser.userid,
@@ -1151,9 +1148,8 @@ export default class PUserHdlrImpl {
       accountid
     );
     if (!adduser) {
-      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
-        taskid
-      );
+      const pendingaccount =
+        await this.accountSvcI.GetPendingAccountReviewById(taskid);
       if (pendingaccount) {
         await this.accountSvcI.UpdateReviewPendingAccount(
           pendingaccount.accountid,
@@ -1366,9 +1362,8 @@ export default class PUserHdlrImpl {
 
       return null; // Success
     } else {
-      const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
-        taskid
-      );
+      const pendingaccount =
+        await this.accountSvcI.GetPendingAccountReviewById(taskid);
       if (pendingaccount) {
         await this.accountSvcI.UpdateReviewPendingAccount(
           pendingaccount.accountid,
@@ -2052,9 +2047,8 @@ export default class PUserHdlrImpl {
 
     if (customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL) {
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
-      const existingaccount = await this.platformSvcI.GetAccountByName(
-        accountname
-      );
+      const existingaccount =
+        await this.platformSvcI.GetAccountByName(accountname);
 
       if (existingaccount === null) {
         return await this.handleIndividualCustomerOnboarding(
@@ -2099,12 +2093,10 @@ export default class PUserHdlrImpl {
       }
     } else if (customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
-      const existingemail = await this.userSvcI.CheckEmailExists(
-        customercontactemail
-      );
-      const existingaccount = await this.platformSvcI.GetAccountByName(
-        accountname
-      );
+      const existingemail =
+        await this.userSvcI.CheckEmailExists(customercontactemail);
+      const existingaccount =
+        await this.platformSvcI.GetAccountByName(accountname);
 
       if (existingaccount === null) {
         return await this.handleCorporateCustomerOnboarding(
@@ -2172,9 +2164,8 @@ export default class PUserHdlrImpl {
           );
         }
       } else if (tasktype === "userreview") {
-        const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(
-          taskid
-        );
+        const pendinguser =
+          await this.pUserSvcI.GetPendingUserReviewById(taskid);
         if (pendinguser) {
           return await this.handleUserReviewError(
             taskid,

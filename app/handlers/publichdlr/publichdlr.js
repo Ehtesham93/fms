@@ -494,7 +494,7 @@ export default class PublicHdlr {
       let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
       // TODO: Remove this once we have a proper OTP verification implementation
-      if (mobile == "8814010926") {
+      if (mobile == "8814010926" || mobile == "7795772862") {
         expiresin = 30;
       }
 
@@ -1141,7 +1141,7 @@ export default class PublicHdlr {
       let expiresin = TOKEN_EXPIRY_TIME;
       let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
-      if (mobile == "8814010926") {
+      if (mobile == "8814010926" || mobile == "7795772862") {
         expiresin = 30;
       }
 

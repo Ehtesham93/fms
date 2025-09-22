@@ -2176,7 +2176,9 @@ export default class AccountSvcDB {
             `;
       let result = await txclient.query(query, [accountid]);
       if (result.rowCount !== 1) {
-        throw new Error("Account not found");
+        const error = new Error("Account not found");
+        error.errcode = "ACCOUNT_NOT_FOUND";
+        throw error;
       }
       const fleetid = result.rows[0].fleetid;
 
@@ -2186,7 +2188,9 @@ export default class AccountSvcDB {
         `;
       result = await txclient.query(query, [vehicleinfo.vinno]);
       if (result.rowCount === 0) {
-        throw new Error("Vehicle not found");
+        const error = new Error("Vehicle not found");
+        error.errcode = "VEHICLE_NOT_FOUND";
+        throw error;
       }
 
       // check if vehicle already belongs to any account/fleet
@@ -2195,7 +2199,9 @@ export default class AccountSvcDB {
         `;
       result = await txclient.query(query, [vehicleinfo.vinno]);
       if (result.rowCount > 0) {
-        throw new Error("Vehicle already belongs to an account");
+        const error = new Error("Vehicle already belongs to an account");
+        error.errcode = "VEHICLE_ALREADY_IN_ACCOUNT";
+        throw error;
       }
 
       query = `
@@ -2585,6 +2591,80 @@ export default class AccountSvcDB {
       return result.rowCount > 0; // Return boolean for success/failure
     } catch (error) {
       this.logger.error("Error in updateReviewPendingAccount:", error);
+      throw error;
+    }
+  }
+
+  async discardAccountReview(createdBy, taskid) {
+    try {
+      const existingAccount = await this.pgPoolI.Query(
+        `SELECT * FROM reviewpendingaccount WHERE accountid = $1`,
+        [taskid]
+      );
+      if (existingAccount.rows.length === 0) {
+        throw new Error("Account review not found");
+      }
+
+      const currtime = new Date();
+
+      const query = `
+        INSERT INTO reviewdoneaccount (
+          accountid,
+          accountname,
+          accounttype,
+          accountinfo,
+          mobile,
+          isenabled,
+          isdeleted,
+          original_input,
+          original_status,
+          resolution_reason,
+          review_data,
+          entrytype,
+          reviewed_at,
+          reviewed_by,
+          createdat,
+          createdby,
+          updatedat,
+          updatedby
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+        )
+      `;
+
+      const values = [
+        existingAccount.rows[0].accountid,
+        existingAccount.rows[0].accountname,
+        existingAccount.rows[0].accounttype,
+        existingAccount.rows[0].accountinfo || {},
+        existingAccount.rows[0].mobile || null,
+        existingAccount.rows[0].isenabled,
+        existingAccount.rows[0].isdeleted || false,
+        existingAccount.rows[0].original_input || {},
+        "REVIEW_DISCARDED_BY_ADMIN",
+        "Review discarded by admin",
+        existingAccount.rows[0] || {},
+        "review",
+        currtime, // reviewed_at
+        createdBy,
+        currtime, // createdat
+        createdBy,
+        currtime, // updatedat
+        createdBy,
+      ];
+
+      let result = await this.pgPoolI.Query(query, values);
+
+      if (result.rowCount > 0) {
+        const deleteQuery = `DELETE FROM reviewpendingaccount WHERE accountid = $1`;
+        const deleteResult = await this.pgPoolI.Query(deleteQuery, [taskid]);
+        if (deleteResult.rowCount > 0) {
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      this.logger.error("Error in discardAccountReview:", error);
       throw error;
     }
   }

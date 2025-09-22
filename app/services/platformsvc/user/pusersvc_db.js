@@ -1,13 +1,15 @@
 import {
   FLEET_INVITE_STATUS,
   FLEET_INVITE_TYPE,
+  PLATFORM_ACCOUNT_ID,
+  PLATFORM_ROLE_TYPE,
 } from "../../../utils/constant.js";
 import { EncryptPassword, Sha256hash } from "../../../utils/eccutil.js";
 import {
   getInviteEmailTemplate,
   isRedundantInvite,
   markInviteAsExpired,
-  updateInviteExpiryAndSendEmail
+  updateInviteExpiryAndSendEmail,
 } from "../../../utils/inviteUtil.js";
 
 export default class PUserSvcDB {
@@ -382,7 +384,18 @@ export default class PUserSvcDB {
       if (result.rowCount === 0) {
         return null;
       } // TODO: resume
-      return result.rows;
+
+      const processedRows = result.rows.map((row) => {
+        if (row.accountid === PLATFORM_ACCOUNT_ID) {
+          return {
+            ...row,
+            roletype: PLATFORM_ROLE_TYPE,
+          };
+        }
+        return row;
+      });
+
+      return processedRows;
     } catch (error) {
       throw new Error("Failed to retrieve user roles");
     }
@@ -1084,7 +1097,8 @@ export default class PUserSvcDB {
     ];
     const result = await this.pgPoolI.Query(query, values);
     return result.rowCount === 1;
-  } catch(error) {
+  }
+  catch(error) {
     this.logger.error(`addReviewPendingUser error: ${error}`);
     throw new Error("Unable to add review pending user");
   }
@@ -1241,6 +1255,103 @@ export default class PUserSvcDB {
       return result.rows.length > 0;
     } catch (error) {
       this.logger.error("Error in checkIsVehicleAddedToAccount:", error);
+      throw error;
+    }
+  }
+
+  async discardUserReview(createdBy, taskid) {
+    try {
+      const existingUser = await this.pgPoolI.Query(
+        `SELECT * FROM reviewpendinguser WHERE userid = $1`,
+        [taskid]
+      );
+      if (existingUser.rows.length === 0) {
+        throw new Error("User review not found");
+      }
+
+      const currtime = new Date();
+
+      const query = `
+        INSERT INTO reviewdoneuser (
+          userid,
+          displayname,
+          usertype,
+          mobile,
+          email,
+          address,
+          city,
+          country,
+          pincode,
+          dateofbirth,
+          gender,
+          vehiclemobile,
+          userinfo,
+          isenabled,
+          isdeleted,
+          isemailverified,
+          ismobileverified,
+          acceptedterms,
+          original_input,
+          original_status,
+          resolution_reason,
+          review_data,
+          entrytype,
+          reviewed_at,
+          reviewed_by,
+          createdat,
+          createdby,
+          updatedat,
+          updatedby
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+        )
+      `;
+
+      const values = [
+        existingUser.rows[0].userid,
+        existingUser.rows[0].displayname,
+        existingUser.rows[0].usertype || null,
+        existingUser.rows[0].mobile,
+        existingUser.rows[0].email,
+        existingUser.rows[0].address,
+        existingUser.rows[0].city,
+        existingUser.rows[0].country,
+        existingUser.rows[0].pincode,
+        existingUser.rows[0].dateofbirth,
+        existingUser.rows[0].gender,
+        existingUser.rows[0].vehiclemobile,
+        existingUser.rows[0].userinfo || {},
+        existingUser.rows[0].isenabled,
+        existingUser.rows[0].isdeleted,
+        existingUser.rows[0].isemailverified,
+        existingUser.rows[0].ismobileverified,
+        existingUser.rows[0].acceptedterms || {},
+        existingUser.rows[0].original_input,
+        "REVIEW_DISCARDED_BY_ADMIN",
+        "User discarded by admin",
+        existingUser.rows[0] || {},
+        "review",
+        currtime, // reviewed_at
+        createdBy,
+        currtime, // createdat
+        createdBy,
+        currtime, // updatedat
+        createdBy,
+      ];
+
+      let result = await this.pgPoolI.Query(query, values);
+
+      if (result.rowCount > 0) {
+        query = `DELETE FROM reviewpendinguser WHERE userid = $1`;
+        result = await this.pgPoolI.Query(query, [taskid]);
+        if (result.rowCount > 0) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error("Error in discardUserReview:", error);
       throw error;
     }
   }

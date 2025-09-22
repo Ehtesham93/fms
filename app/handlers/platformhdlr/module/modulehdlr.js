@@ -203,7 +203,7 @@ export default class ModuleHdlr {
       let schema = z.object({
         moduleid: z
           .string({ message: "Module ID is required" })
-          .uuid({ message: "Module ID must be a valid UUID" })
+          .uuid({ message: "Module ID must be a valid UUID" }),
       });
 
       let { moduleid } = validateAllInputs(schema, {
@@ -269,19 +269,20 @@ export default class ModuleHdlr {
           .optional()
           .default(0),
 
-          moduleinfo: z
+        moduleinfo: z
           .object({
             moduleurl: z
               .string()
               .optional()
               .refine(
                 (url) =>
-                  !url || /^(https?:\/\/)([\w.-]+)(:\d+)?(\/[\w./-]+)$/.test(url),
+                  !url ||
+                  /^(https?:\/\/)([\w.-]+)(:\d+)?(\/[\w./-]+)$/.test(url),
                 {
                   message: "Invalid module URL format",
                 }
               ),
-        
+
             showfleets: z.boolean().optional(),
             showaccounts: z.boolean().optional(),
           })
@@ -291,7 +292,6 @@ export default class ModuleHdlr {
             showfleets: false,
             showaccounts: false,
           }),
-        
 
         isenabled: z
           .preprocess((val) => val === "true" || val === true, z.boolean())
@@ -613,6 +613,11 @@ export default class ModuleHdlr {
     } catch (e) {
       this.logger.error("DeleteModulePerm error: ", e);
       if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "PERMISSION_ASSOCIATED_WITH_ROLES" ||
+        e.errcode === "PERMISSION_NOT_FOUND"
+      ) {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(

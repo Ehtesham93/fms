@@ -336,9 +336,29 @@ export default class ModuleSvcDB {
     }
     try {
       let query = `
+        SELECT COUNT(*) as count FROM role_perm WHERE permid = $1
+      `;
+      let result = await txclient.query(query, [permid]);
+      if (parseInt(result.rows[0].count) > 0) {
+        const error = new Error(
+          "Permission is associated with one or more roles and cannot be deleted"
+        );
+        error.errcode = "PERMISSION_ASSOCIATED_WITH_ROLES";
+        throw error;
+      }
+
+      query = `SELECT COUNT(*) as count FROM module_perm WHERE permid = $1`;
+      result = await txclient.query(query, [permid]);
+      if (parseInt(result.rows[0].count) === 0) {
+        const error = new Error("Permission not found");
+        error.errcode = "PERMISSION_NOT_FOUND";
+        throw error;
+      }
+
+      query = `
                 DELETE FROM module_perm WHERE moduleid = $1 AND permid = $2
             `;
-      let result = await txclient.query(query, [moduleid, permid]);
+      result = await txclient.query(query, [moduleid, permid]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete module permission");
       }

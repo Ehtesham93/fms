@@ -239,7 +239,10 @@ export default class UserHdlr {
       let expiresin = TOKEN_EXPIRY_TIME;
 
       // TODO: Remove this once we have a proper token verification implementation
-      if (userid === "45f49d41-1180-4fd2-9e24-ae09c18f0f52") {
+      if (
+        userid === "45f49d41-1180-4fd2-9e24-ae09c18f0f52" ||
+        userid === "7c8a6d0c-5878-4774-b678-1c779afdb4c5"
+      ) {
         expiresin = 30;
       }
 

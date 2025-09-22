@@ -48,7 +48,7 @@ export default class PlatformHdlrImpl {
   };
 
   UpdatePackageLogic = async (pkgid, updateFields, updatedby) => {
-    const allowedFields = ["pkgname", "pkgtype", "pkginfo", "isenabled"];
+    const allowedFields = ["pkgname", "pkginfo", "isenabled"];
     const filteredFields = {};
 
     for (const [key, value] of Object.entries(updateFields)) {

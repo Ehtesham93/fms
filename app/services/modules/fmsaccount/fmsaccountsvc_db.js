@@ -419,18 +419,24 @@ export default class FmsAccountSvcDB {
             `;
       let result = await txclient.query(query, [accountid, inviteid]);
       if (result.rowCount !== 1) {
-        throw new Error("Invalid invite id");
+        const error = new Error("Invalid invite id");
+        error.errcode = "INVALID_INVITE_ID";
+        throw error;
       }
 
       let invite = result.rows[0];
 
       if (invite.invitestatus !== FLEET_INVITE_STATUS.PENDING) {
-        throw new Error("Invite is not in sent state");
+        const error = new Error("Invite is not in sent state");
+        error.errcode = "INVITE_NOT_IN_SENT_STATE";
+        throw error;
       }
 
       // TODO: temporary condition
       if (invite.invitetype !== FLEET_INVITE_TYPE.EMAIL) {
-        throw new Error("Invite is not an email invite");
+        const error = new Error("Invite is not an email invite");
+        error.errcode = "INVITE_NOT_AN_EMAIL_INVITE";
+        throw error;
       }
 
       if (new Date(invite.expiresat) < currtime) {
@@ -445,7 +451,9 @@ export default class FmsAccountSvcDB {
           FLEET_INVITE_STATUS.EXPIRED,
           txclient
         );
-        throw new Error("Cannot cancel an expired invite");
+        const error = new Error("Cannot cancel an expired invite");
+        error.errcode = "CANNOT_CANCEL_AN_EXPIRED_INVITE";
+        throw error;
       }
 
       query = `
@@ -2170,10 +2178,10 @@ export default class FmsAccountSvcDB {
       if (userid === deassignedby) {
         // Check if user is an account admin
         let adminCheckQuery = `
-          SELECT 1 FROM fleet_user_role fur
-          JOIN account_fleet af ON fur.accountid = af.accountid AND fur.fleetid = af.fleetid
-          WHERE fur.accountid = $1 AND fur.userid = $2 AND fur.roleid = $3 AND af.isroot = true
-        `;
+        SELECT 1 FROM fleet_user_role fur
+        JOIN account_fleet af ON fur.accountid = af.accountid AND fur.fleetid = af.fleetid
+        WHERE fur.accountid = $1 AND fur.userid = $2 AND fur.roleid = $3 AND af.isroot = true
+      `;
         let adminResult = await this.pgPoolI.Query(adminCheckQuery, [
           accountid,
           deassignedby,
@@ -2181,17 +2189,25 @@ export default class FmsAccountSvcDB {
         ]);
 
         if (adminResult.rowCount === 0) {
-          throw new Error("Users cannot deassign roles. Permission denied");
+          const error = new Error(
+            "Users cannot deassign roles. Permission denied"
+          );
+          error.errcode = "PERMISSION_DENIED";
+          throw error;
         }
 
         if (roleid === ADMIN_ROLE_ID) {
-          throw new Error("Account admin cannot remove their own admin role");
+          const error = new Error(
+            "Account admin cannot remove their own admin role"
+          );
+          error.errcode = "ACCOUNT_ADMIN_CANNOT_REMOVE_OWN_ADMIN_ROLE";
+          throw error;
         }
       }
       // Check if the role is assigned to the user
       let query = `
-      SELECT roleid FROM fleet_user_role WHERE accountid = $1 AND fleetid = $2 AND userid = $3 AND roleid = $4
-    `;
+        SELECT roleid FROM fleet_user_role WHERE accountid = $1 AND fleetid = $2 AND userid = $3 AND roleid = $4
+      `;
       let roleAssignmentResult = await this.pgPoolI.Query(query, [
         accountid,
         fleetid,
@@ -2199,13 +2215,34 @@ export default class FmsAccountSvcDB {
         roleid,
       ]);
       if (roleAssignmentResult.rowCount === 0) {
-        throw new Error("Role is not assigned to the user");
+        const error = new Error("Role is not assigned to the user");
+        error.errcode = "ROLE_NOT_ASSIGNED";
+        throw error;
+      }
+
+      // Check if this is the last role for the user in this account-fleet
+      let roleCountQuery = `
+        SELECT COUNT(*) as count FROM fleet_user_role 
+        WHERE accountid = $1 AND fleetid = $2 AND userid = $3
+      `;
+      let roleCountResult = await this.pgPoolI.Query(roleCountQuery, [
+        accountid,
+        fleetid,
+        userid,
+      ]);
+
+      if (parseInt(roleCountResult.rows[0].count) === 1) {
+        const error = new Error(
+          "Cannot remove the last role of a user for this account-fleet"
+        );
+        error.errcode = "CANNOT_REMOVE_LAST_ROLE";
+        throw error;
       }
 
       // Remove the role from the user
       query = `
-      DELETE FROM fleet_user_role WHERE accountid = $1 AND fleetid = $2 AND userid = $3 AND roleid = $4
-    `;
+        DELETE FROM fleet_user_role WHERE accountid = $1 AND fleetid = $2 AND userid = $3 AND roleid = $4
+      `;
       let result = await this.pgPoolI.Query(query, [
         accountid,
         fleetid,
@@ -2214,7 +2251,40 @@ export default class FmsAccountSvcDB {
       ]);
 
       if (result.rowCount !== 1) {
-        throw new Error("Failed to deassign role from user");
+        const error = new Error("Failed to deassign role from user");
+        error.errcode = "ROLE_DEASSIGNMENT_FAILED";
+        throw error;
+      }
+
+      // Check if user has any remaining roles in this fleet
+      query = `
+        SELECT COUNT(*) as count FROM fleet_user_role 
+        WHERE accountid = $1 AND fleetid = $2 AND userid = $3
+      `;
+      let remainingRolesResult = await this.pgPoolI.Query(query, [
+        accountid,
+        fleetid,
+        userid,
+      ]);
+
+      // If no roles remaining, remove user from user_fleet table
+      if (parseInt(remainingRolesResult.rows[0].count) === 0) {
+        query = `
+        DELETE FROM user_fleet 
+        WHERE accountid = $1 AND fleetid = $2 AND userid = $3
+      `;
+        result = await this.pgPoolI.Query(query, [accountid, fleetid, userid]);
+
+        if (result.rowCount !== 1) {
+          this.logger.warn(
+            "No user_fleet record found to delete or failed to delete",
+            {
+              accountid,
+              fleetid,
+              userid,
+            }
+          );
+        }
       }
 
       return {
@@ -2226,7 +2296,7 @@ export default class FmsAccountSvcDB {
         deassignedat: new Date(),
       };
     } catch (error) {
-      throw new Error("Failed to deassign role");
+      throw error;
     }
   }
 

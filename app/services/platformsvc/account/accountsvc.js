@@ -438,4 +438,8 @@ export default class AccountSvc {
       updatedby
     );
   }
+
+  async DiscardAccountReview(createdBy, taskid) {
+    return await this.accountSvcDB.discardAccountReview(createdBy, taskid);
+  }
 }

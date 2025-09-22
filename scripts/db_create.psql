@@ -577,101 +577,7 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (reviewed_by) REFERENCES users (userid),
         FOREIGN KEY (modelcode) REFERENCES vehicle_model (modelcode)
     );
-
-CREATE TABLE IF NOT EXISTS
-    reviewpendinguser (
-        userid uuid NOT NULL,
-        displayname text NOT NULL,
-        usertype text,
-        userinfo jsonb NOT NULL,
-        isenabled boolean NOT NULL,
-        isdeleted boolean NOT NULL,
-        isemailverified boolean NOT NULL,
-        ismobileverified boolean NOT NULL,
-        acceptedterms jsonb DEFAULT '{}'::jsonb NOT NULL,
-        status text NOT NULL, -- 'PENDING_EMAIL_VERIFICATION', 'PENDING_ADMIN_APPROVAL', 'PENDING_CONFLICT_REVIEW', etc.
-        reason text NOT NULL, -- Detailed reason for pending review
-        review_data jsonb NOT NULL, -- Original input data and conflict details
-        createdat timestamptz NOT NULL,
-        createdby uuid NOT NULL,
-        updatedat timestamptz NOT NULL,
-        updatedby uuid NOT NULL,
-        PRIMARY KEY (userid),
-        FOREIGN KEY (createdby) REFERENCES users (userid),
-        FOREIGN KEY (updatedby) REFERENCES users (userid)
-    );
-
-CREATE TABLE IF NOT EXISTS
-    reviewdoneuser (
-        userid uuid NOT NULL,
-        displayname text NOT NULL,
-        usertype text,
-        userinfo jsonb NOT NULL,
-        isenabled boolean NOT NULL,
-        isdeleted boolean NOT NULL,
-        isemailverified boolean NOT NULL,
-        ismobileverified boolean NOT NULL,
-        acceptedterms jsonb DEFAULT '{}'::jsonb NOT NULL,
-        original_status text NOT NULL, -- What was the original status when moved from pending
-        resolution_reason text NOT NULL, -- How the review was resolved
-        review_data jsonb NOT NULL, -- Original input data and resolution details
-        reviewed_at timestamptz NOT NULL,
-        reviewed_by uuid NOT NULL,
-        createdat timestamptz NOT NULL,
-        createdby uuid NOT NULL,
-        updatedat timestamptz NOT NULL,
-        updatedby uuid NOT NULL,
-        PRIMARY KEY (userid, reviewed_at), -- Allow multiple reviews for same user
-        FOREIGN KEY (createdby) REFERENCES users (userid),
-        FOREIGN KEY (updatedby) REFERENCES users (userid),
-        FOREIGN KEY (reviewed_by) REFERENCES users (userid)
-    );
-
-CREATE TABLE IF NOT EXISTS
-    reviewpendingaccount (
-        accountid uuid NOT NULL,
-        accountname text NOT NULL,
-        accounttype text NOT NULL, -- 'Customer', 'Platform', 'Internal'
-        accountinfo jsonb NOT NULL,
-        mobile text DEFAULT '0000000000'::text NOT NULL,
-        isenabled boolean NOT NULL,
-        isdeleted boolean DEFAULT false NOT NULL,
-        status text NOT NULL, -- 'PENDING_NAME_VERIFICATION', 'PENDING_ADMIN_APPROVAL', 'PENDING_CONFLICT_REVIEW', etc.
-        reason text NOT NULL, -- Detailed reason for pending review
-        review_data jsonb NOT NULL, -- Original input data and conflict details
-        createdat timestamptz NOT NULL,
-        createdby uuid NOT NULL,
-        updatedat timestamptz NOT NULL,
-        updatedby uuid NOT NULL,
-        PRIMARY KEY (accountid),
-        FOREIGN KEY (createdby) REFERENCES users (userid),
-        FOREIGN KEY (updatedby) REFERENCES users (userid)
-    );
-
-CREATE TABLE IF NOT EXISTS
-    reviewdoneaccount (
-        accountid uuid NOT NULL,
-        accountname text NOT NULL,
-        accounttype text NOT NULL, -- 'Customer', 'Platform', 'Internal'
-        accountinfo jsonb NOT NULL,
-        mobile text DEFAULT '0000000000'::text NOT NULL,
-        isenabled boolean NOT NULL,
-        isdeleted boolean DEFAULT false NOT NULL,
-        original_status text NOT NULL, -- What was the original status when moved from pending
-        resolution_reason text NOT NULL, -- How the review was resolved
-        review_data jsonb NOT NULL, -- Original input data and resolution details
-        reviewed_at timestamptz NOT NULL,
-        reviewed_by uuid NOT NULL,
-        createdat timestamptz NOT NULL,
-        createdby uuid NOT NULL,
-        updatedat timestamptz NOT NULL,
-        updatedby uuid NOT NULL,
-        PRIMARY KEY (accountid, reviewed_at), -- Allow multiple reviews for same account
-        FOREIGN KEY (createdby) REFERENCES users (userid),
-        FOREIGN KEY (updatedby) REFERENCES users (userid),
-        FOREIGN KEY (reviewed_by) REFERENCES users (userid)
-    );
-
+    
 CREATE TABLE IF NOT EXISTS
     tagged_vehicle (
         srcaccountid uuid NOT NULL,
@@ -1193,16 +1099,6 @@ CREATE TABLE IF NOT EXISTS
         CONSTRAINT user_kconsumer_assignedby_fkey FOREIGN KEY (assignedby) REFERENCES users (userid),
         CONSTRAINT user_kconsumer_kconsumerid_fkey FOREIGN KEY (kconsumerid) REFERENCES kconsumer (kconsumerid) DEFERRABLE INITIALLY DEFERRED,
         CONSTRAINT user_kconsumer_userid_fkey FOREIGN KEY (userid) REFERENCES users (userid)
-    );
-
-CREATE TABLE IF NOT EXISTS
-    user_fleet (
-        userid uuid NOT NULL,
-        accountid uuid NOT NULL,
-        fleetid uuid NOT NULL,
-        PRIMARY KEY (userid, accountid, fleetid),
-        FOREIGN KEY (userid) REFERENCES users (userid), -- todo: why there are no assignedat and assignedby etc..?
-        FOREIGN KEY (accountid, fleetid) REFERENCES account_fleet (accountid, fleetid)
     );
 
 CREATE TABLE IF NOT EXISTS

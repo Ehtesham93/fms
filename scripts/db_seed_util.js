@@ -466,61 +466,61 @@ export async function seedVehicleModelFamily(platformHdlrI, createdby) {
 }
 
 //seed vehicle model with old data
-// export async function seedVehicleModel(platformHdlrI, createdby) {
-//   try {
-//     const jsonFilePath = path.join(
-//       process.cwd(),
-//       "scripts",
-//       "seed_csv_files",
-//       "vehicle_model_data.json"
-//     );
+export async function seedOldVehicleModel(platformHdlrI, createdby) {
+  try {
+    const jsonFilePath = path.join(
+      process.cwd(),
+      "scripts",
+      "seed_csv_files",
+      "vehicle_model_data.json"
+    );
 
-//     console.log(`Reading vehicle models from ${jsonFilePath}`);
+    console.log(`Reading vehicle models from ${jsonFilePath}`);
 
-//     // Check if JSON file exists
-//     if (!fs.existsSync(jsonFilePath)) {
-//       throw new Error(`JSON file not found at ${jsonFilePath}`);
-//     }
-//     // Read JSON file
-//     const jsonContent = fs.readFileSync(jsonFilePath, "utf8");
-//     const vehicleData = JSON.parse(jsonContent);
+    // Check if JSON file exists
+    if (!fs.existsSync(jsonFilePath)) {
+      throw new Error(`JSON file not found at ${jsonFilePath}`);
+    }
+    // Read JSON file
+    const jsonContent = fs.readFileSync(jsonFilePath, "utf8");
+    const vehicleData = JSON.parse(jsonContent);
 
-//     if (!vehicleData || !vehicleData.vehicleModels) {
-//       throw new Error("Invalid JSON structure or missing vehicleModels array");
-//     }
+    if (!vehicleData || !vehicleData.vehicleModels) {
+      throw new Error("Invalid JSON structure or missing vehicleModels array");
+    }
 
-//     console.log(`Found ${vehicleData.vehicleModels.length} vehicle models`);
+    console.log(`Found ${vehicleData.vehicleModels.length} vehicle models`);
 
-//     // Process each vehicle model
-//     for (const vehicle of vehicleData.vehicleModels) {
-//       const {
-//         modelcode,
-//         modelname,
-//         modelvariant,
-//         modelfamilycode,
-//         modelinfo,
-//         isenabled,
-//         modeldisplayname,
-//       } = vehicle;
+    // Process each vehicle model
+    for (const vehicle of vehicleData.vehicleModels) {
+      const {
+        modelcode,
+        modelname,
+        modelvariant,
+        modelfamilycode,
+        modelinfo,
+        isenabled,
+        modeldisplayname,
+      } = vehicle;
 
-//       const result =
-//         await platformHdlrI.modelHdlr.modelHdlrImpl.CreateVehicleModelLogic(
-//           modelcode,
-//           modelname,
-//           modelvariant,
-//           modelfamilycode,
-//           modeldisplayname,
-//           modelinfo || {},
-//           isenabled !== undefined ? isenabled : true,
-//           createdby
-//         );
-//       console.log(`Vehicle model created:`, result);
-//     }
-//   } catch (error) {
-//     console.error(`Error reading CSV file: ${error.message}`);
-//     throw new Error(`Failed to seed vehicle models: ${error.message}`);
-//   }
-// }
+      const result =
+        await platformHdlrI.modelHdlr.modelHdlrImpl.CreateVehicleModelLogic(
+          modelcode,
+          modelname,
+          modelvariant,
+          modelfamilycode,
+          modeldisplayname,
+          modelinfo || {},
+          isenabled !== undefined ? isenabled : true,
+          createdby
+        );
+      console.log(`Vehicle model created:`, result);
+    }
+  } catch (error) {
+    console.error(`Error reading CSV file: ${error.message}`);
+    throw new Error(`Failed to seed vehicle models: ${error.message}`);
+  }
+}
 
 export async function seedVehicleModel(platformHdlrI, createdby, pgPoolTx) {
   try {

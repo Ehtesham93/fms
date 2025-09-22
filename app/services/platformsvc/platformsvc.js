@@ -211,4 +211,8 @@ export default class PlatformSvc {
       endtime
     );
   }
+
+  async DiscardVehicleReview(createdBy, vin) {
+    return await this.platformSvcDB.discardVehicleReview(createdBy, vin);
+  }
 }

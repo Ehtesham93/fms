@@ -1,12 +1,16 @@
 import stagingConfig from "./stg_config.js";
 import developmentConfig from "./dev_config.js";
 import localConfig from "./local_config.js";
+import prodConfig from "./prod_config.js";
 
 let config = {};
 
 console.log("APP_ENV: ", process.env.APP_ENV);
 
-if (process.env.APP_ENV === "STAGING") {
+if (process.env.APP_ENV === "PRODUCTION") {
+  console.log("Using production config");
+  config = prodConfig;
+} else if (process.env.APP_ENV === "STAGING") {
   console.log("Using staging config");
   config = stagingConfig;
 } else if (process.env.APP_ENV === "DEVELOPMENT") {

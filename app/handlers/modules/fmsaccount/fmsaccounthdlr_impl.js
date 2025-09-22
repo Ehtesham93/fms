@@ -1734,7 +1734,7 @@ export default class fmsAccountHdlrImpl {
 
     const isAdmin =
       userPermissions.includes("all.all.all") ||
-      userRoles.some((role) => role.rolename.toLowerCase().includes("admin"));
+      userRoles.some((role) => role.rolename.toLowerCase() === "admin");
 
     if (isAdmin) {
       if (!userPermissions.includes("all.all.all")) {

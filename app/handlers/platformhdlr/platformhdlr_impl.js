@@ -1,9 +1,11 @@
 export default class PlatformHdlrImpl {
-  constructor(platformSvcI, userSvcI, authSvcI, fmsAccountSvcI, logger) {
+  constructor(platformSvcI, userSvcI, authSvcI, fmsAccountSvcI, accountSvcI, pUserSvcI, logger) {
     this.platformSvcI = platformSvcI;
     this.userSvcI = userSvcI;
     this.authSvcI = authSvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
+    this.accountSvcI = accountSvcI;
+    this.pUserSvcI = pUserSvcI;
     this.logger = logger;
   }
 
@@ -143,5 +145,36 @@ export default class PlatformHdlrImpl {
       history = [];
     }
     return history;
+  };
+
+
+  DiscardReviewLogic = async (createdBy, taskid, type) => {
+    try {
+      let result=false;
+      if(type === "account"){
+        result = await this.accountSvcI.DiscardAccountReview(createdBy, taskid);
+      } else if(type === "user"){
+        result = await this.pUserSvcI.DiscardUserReview(createdBy, taskid);
+      } else if(type === "vehicle"){
+        result = await this.platformSvcI.DiscardVehicleReview(createdBy, taskid);
+      } else {
+        throw new Error("Invalid review type");
+      }
+      if(result){
+        return {
+          errcode: `${type.toUpperCase()}_REVIEW_DISCARDED`,
+          status: `${type.toUpperCase()}_REVIEW_DISCARDED`,
+          message: `${type} review discarded successfully`,
+        };
+      }
+      return {
+        errcode: `${type.toUpperCase()}_REVIEW_DISCARDED_FAILED`,
+        status: `${type.toUpperCase()}_REVIEW_DISCARDED_FAILED`,
+        message: `${type} review discarded failed`,
+      };
+    } catch (error) {
+      this.logger.error("DiscardReviewLogic failed", error);
+      throw error;
+    }
   };
 }

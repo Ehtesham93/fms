@@ -136,4 +136,8 @@ export default class PUserSvc {
   async checkIsVehicleAddedToAccount(vinno) {
     return await this.pUserSvcDB.checkIsVehicleAddedToAccount(vinno);
   }
+
+  async DiscardUserReview(createdBy, taskid) {
+    return await this.pUserSvcDB.discardUserReview(createdBy, taskid);
+  }
 }

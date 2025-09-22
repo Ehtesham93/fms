@@ -1,3 +1,5 @@
+import { APIResponseUnauthorized } from "./responseutil.js";
+
 /**
  * Checks if user has the required console permission(s)
  * @param {string[]} userPermissions - Array of permissions assigned to the user (from req.userperms)
@@ -32,3 +34,69 @@ export function CheckUserPerms(
     return requiredPermissions.some((perm) => userPermissions.includes(perm));
   }
 }
+
+export const CheckUserStatusMiddleware = (userSvcI, logger) => {
+  return async (req, res, next) => {
+    try {
+      const userid = req.userid;
+
+      if (!userid) {
+        APIResponseUnauthorized(
+          req,
+          res,
+          "USER_ID_MISSING",
+          {},
+          "User ID is required"
+        );
+        return;
+      }
+
+      const userDetails = await userSvcI.GetUserDetails(userid);
+
+      if (!userDetails) {
+        APIResponseUnauthorized(
+          req,
+          res,
+          "USER_NOT_FOUND",
+          {},
+          "User not found"
+        );
+        return;
+      }
+
+      if (userDetails.isdeleted) {
+        APIResponseUnauthorized(
+          req,
+          res,
+          "USER_DELETED",
+          {},
+          "User account has been deleted"
+        );
+        return;
+      }
+
+      if (!userDetails.isenabled) {
+        APIResponseUnauthorized(
+          req,
+          res,
+          "USER_DISABLED",
+          {},
+          "User account is disabled"
+        );
+        return;
+      }
+
+      req.userDetails = userDetails;
+      next();
+    } catch (error) {
+      logger.error("CheckUserStatusMiddleware error: ", error);
+      APIResponseUnauthorized(
+        req,
+        res,
+        "USER_STATUS_CHECK_FAILED",
+        {},
+        "Failed to verify user status"
+      );
+    }
+  };
+};

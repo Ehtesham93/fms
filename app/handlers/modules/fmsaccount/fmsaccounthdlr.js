@@ -513,6 +513,13 @@ export default class FmsAccountHdlr {
           error.errdata,
           error.message
         );
+      } else if (
+        error.errcode === "INVALID_INVITE_ID" ||
+        error.errcode === "INVITE_NOT_IN_SENT_STATE" ||
+        error.errcode === "INVITE_NOT_AN_EMAIL_INVITE" ||
+        error.errcode === "CANNOT_CANCEL_AN_EXPIRED_INVITE"
+      ) {
+        APIResponseBadRequest(req, res, error.errcode, null, error.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -797,6 +804,26 @@ export default class FmsAccountHdlr {
       let { accountid } = validateAllInputs(schema, {
         accountid: req.accountid,
       });
+
+      // const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+      //   req.userid,
+      //   accountid
+      // );
+
+      // if (
+      //   !CheckUserPerms(userPerms, [
+      //     "account.settings.view",
+      //     "account.settings.admin",
+      //   ])
+      // ) {
+      //   return APIResponseForbidden(
+      //     req,
+      //     res,
+      //     "INSUFFICIENT_PERMISSIONS",
+      //     null,
+      //     "You don't have permission to get account overview."
+      //   );
+      // }
 
       let result =
         await this.fmsAccountHdlrImpl.GetAccountOverviewLogic(accountid);
@@ -2858,15 +2885,14 @@ export default class FmsAccountHdlr {
       } else if (
         error.errcode === "FLEET_NOT_FOUND" ||
         error.errcode === "INVALID_FLEET_ID_FORMAT" ||
-        error.errcode === "ROOT_FLEET_NOT_FOUND"
+        error.errcode === "ROOT_FLEET_NOT_FOUND" ||
+        error.errcode === "PERMISSION_DENIED" ||
+        error.errcode === "ACCOUNT_ADMIN_CANNOT_REMOVE_OWN_ADMIN_ROLE" ||
+        error.errcode === "ROLE_NOT_ASSIGNED" ||
+        error.errcode === "ROLE_DEASSIGNMENT_FAILED" ||
+        error.errcode === "CANNOT_REMOVE_LAST_ROLE"
       ) {
-        APIResponseBadRequest(
-          req,
-          res,
-          error.errcode,
-          error.errdata,
-          "Fleet not found or does not belong to this account"
-        );
+        APIResponseBadRequest(req, res, error.errcode, {}, error.message);
       } else {
         APIResponseInternalErr(req, res, error, "Failed to deassign user role");
       }

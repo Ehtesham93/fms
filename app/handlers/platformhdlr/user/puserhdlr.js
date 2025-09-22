@@ -1,10 +1,10 @@
 import crypto from "crypto";
 import { UAParser } from "ua-parser-js";
 import z from "zod";
-import { 
+import {
   UUID_PATTERN,
   CUSTOMER_TYPE_INDIVIDUAL,
-  CUSTOMER_TYPE_CORPORATE
+  CUSTOMER_TYPE_CORPORATE,
 } from "../../../utils/constant.js";
 import { CheckUserPerms } from "../../../utils/permissionutil.js";
 import {
@@ -335,6 +335,13 @@ export default class PUserHdlr {
       this.logger.error("CancelPlatformInvite error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "INVALID_INVITE_ID" ||
+        e.errcode === "INVITE_NOT_IN_SENT_STATE" ||
+        e.errcode === "INVITE_NOT_AN_EMAIL_INVITE" ||
+        e.errcode === "CANNOT_CANCEL_AN_EXPIRED_INVITE"
+      ) {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -537,9 +544,8 @@ export default class PUserHdlr {
         userid: req.params.userid,
       });
 
-      let result = await this.pUserHdlrImpl.ListAssignableUserRolesLogic(
-        userid
-      );
+      let result =
+        await this.pUserHdlrImpl.ListAssignableUserRolesLogic(userid);
 
       APIResponseOK(
         req,
@@ -796,7 +802,7 @@ export default class PUserHdlr {
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else if (e.errcode === "CANNOT_REMOVE_SUPER_ADMIN_ROLE") {
-        APIResponseForbidden(req, res, e.errcode, null, e.message);
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
         return;
       } else {
         APIResponseInternalErr(
@@ -1147,9 +1153,8 @@ export default class PUserHdlr {
   GetMyConsolePermissions = async (req, res, next) => {
     try {
       const userid = req.userid;
-      const result = await this.pUserHdlrImpl.GetMyConsolePermissionsLogic(
-        userid
-      );
+      const result =
+        await this.pUserHdlrImpl.GetMyConsolePermissionsLogic(userid);
       APIResponseOK(
         req,
         res,
@@ -1256,7 +1261,8 @@ export default class PUserHdlr {
         customergender: z
           .string({ message: "Customer gender must be a string" })
           .refine((val) => ["Male", "Female", "Other", ""].includes(val), {
-            message: "Invalid gender format. Must be Male, Female, Other or empty.",
+            message:
+              "Invalid gender format. Must be Male, Female, Other or empty.",
           }),
         customername: z
           .string({ message: "Customer name must be a string" })
@@ -1281,22 +1287,30 @@ export default class PUserHdlr {
           }),
       });
       let schema;
-      if(req.body.customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE){
+      if (req.body.customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
         schema = baseSchema.extend({
           customercontactemail: z
             .string({ message: "Customer contact email must be a string" })
             .nonempty({ message: "Customer contact email cannot be empty" })
             .email({ message: "Invalid email format" }),
         });
-      }else if(req.body.customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL){
+      } else if (
+        req.body.customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL
+      ) {
         schema = baseSchema.extend({
           customercontactemail: z
             .string({ message: "Customer contact email must be a string" })
             .optional()
             .nullable(),
         });
-      }else{
-        return APIResponseBadRequest(req, res, "INPUT_ERROR", null, "Invalid customer type");
+      } else {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Invalid customer type"
+        );
       }
       const {
         userid,
@@ -1360,8 +1374,14 @@ export default class PUserHdlr {
           null,
           error.message
         );
-      }else if(error.errcode === "INPUT_ERROR"){
-        APIResponseBadRequest(req, res, error.errcode, error.errdata, error.message);
+      } else if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
       } else {
         APIResponseInternalErr(
           req,

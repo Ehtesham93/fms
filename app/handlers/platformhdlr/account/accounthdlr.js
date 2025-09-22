@@ -277,9 +277,8 @@ export default class AccountHdlr {
       const { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
       });
-      let result = await this.accountHdlrImpl.GetAccountOverviewLogic(
-        accountid
-      );
+      let result =
+        await this.accountHdlrImpl.GetAccountOverviewLogic(accountid);
       APIResponseOK(req, res, result, "Account overview fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountOverview error: ", error);
@@ -592,9 +591,8 @@ export default class AccountHdlr {
         accountid: req.params.accountid,
       });
 
-      let result = await this.accountHdlrImpl.ListInvitesOfAccountLogic(
-        accountid
-      );
+      let result =
+        await this.accountHdlrImpl.ListInvitesOfAccountLogic(accountid);
 
       APIResponseOK(req, res, result, "Account invites fetched successfully");
     } catch (e) {
@@ -785,9 +783,8 @@ export default class AccountHdlr {
       let { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
       });
-      let result = await this.accountHdlrImpl.GetUnassignedCustomPkgsLogic(
-        accountid
-      );
+      let result =
+        await this.accountHdlrImpl.GetUnassignedCustomPkgsLogic(accountid);
       APIResponseOK(
         req,
         res,
@@ -1154,9 +1151,8 @@ export default class AccountHdlr {
       const { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
       });
-      let result = await this.accountHdlrImpl.ListPackagesForSubscriptionLogic(
-        accountid
-      );
+      let result =
+        await this.accountHdlrImpl.ListPackagesForSubscriptionLogic(accountid);
       APIResponseOK(
         req,
         res,
@@ -1760,9 +1756,8 @@ export default class AccountHdlr {
         accountid: req.params.accountid,
       });
 
-      let result = await this.accountHdlrImpl.ListAccountVehiclesLogic(
-        accountid
-      );
+      let result =
+        await this.accountHdlrImpl.ListAccountVehiclesLogic(accountid);
 
       APIResponseOK(req, res, result, "Account vehicles fetched successfully");
     } catch (e) {
@@ -2052,9 +2047,8 @@ export default class AccountHdlr {
       let { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
       });
-      let result = await this.accountHdlrImpl.GetSubscriptionHistoryLogic(
-        accountid
-      );
+      let result =
+        await this.accountHdlrImpl.GetSubscriptionHistoryLogic(accountid);
 
       APIResponseOK(
         req,
@@ -2155,7 +2149,9 @@ export default class AccountHdlr {
           .default({}),
       });
 
-      let processedregno = req.body.vehicleinfo?.regno ? req.body.vehicleinfo.regno.trim() : '';
+      let processedregno = req.body.vehicleinfo?.regno
+        ? req.body.vehicleinfo.regno.trim()
+        : "";
 
       let { accountid, assignedby, vinno, regno, isowner, accvininfo } =
         validateAllInputs(schema, {
@@ -2180,6 +2176,12 @@ export default class AccountHdlr {
       this.logger.error("AddVehicleToAccount error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "VEHICLE_NOT_FOUND" ||
+        e.errcode === "VEHICLE_ALREADY_IN_ACCOUNT" ||
+        e.errcode === "ACCOUNT_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -2288,9 +2290,8 @@ export default class AccountHdlr {
         accountid: req.params.accountid,
       });
 
-      let result = await this.accountHdlrImpl.ListAssignableVehiclesLogic(
-        accountid
-      );
+      let result =
+        await this.accountHdlrImpl.ListAssignableVehiclesLogic(accountid);
       APIResponseOK(
         req,
         res,

@@ -950,7 +950,7 @@ export default class PlatformSvcDB {
           "SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'review'"
         ),
         this.pgPoolI.Query(
-          "SELECT COUNT(*) FROM reviewdoneaccount WHERE entrytype = 'onboarding'"
+          "SELECT COUNT(DISTINCT accountid) FROM reviewdoneaccount WHERE entrytype = 'onboarding' AND original_status='ACCOUNT_CREATION_SUCCESS'"
         ),
         this.pgPoolI.Query(
           "SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'onboarding'"
@@ -960,18 +960,6 @@ export default class PlatformSvcDB {
         ),
       ]);
 
-      const totalpendingreviews =
-        parseInt(totalaccountsreviewspending.rows[0].count) +
-        parseInt(totalusersreviewspending.rows[0].count) +
-        parseInt(totalvehiclesreviewspending.rows[0].count);
-      const totaldonereviews =
-        parseInt(totalaccountsreviewsdone.rows[0].count) +
-        parseInt(totalusersreviewsdone.rows[0].count) +
-        parseInt(totalvehiclesreviewsdone.rows[0].count);
-      const totalonboarded =
-        parseInt(totalaccountsonboarded.rows[0].count) +
-        parseInt(totalusersonboarded.rows[0].count) +
-        parseInt(totalvehiclesonboarded.rows[0].count);
 
       const result = {
         metrics: [
@@ -1007,17 +995,27 @@ export default class PlatformSvcDB {
             },
           ],
           [
+            { title: "Vehicle Reviews Pending", value: totalvehiclesreviewspending.rows[0].count },
+            { title: "Vehicle Reviews Done", value: totalvehiclesreviewsdone.rows[0].count },
+            { title: "Vehicles Onboarded", value: totalvehiclesonboarded.rows[0].count },
+          ],
+          [
+            { title: "Account Reviews Pending", value: totalaccountsreviewspending.rows[0].count },
+            { title: "Account Reviews Done", value: totalaccountsreviewsdone.rows[0].count },
+            { title: "Accounts Onboarded", value: totalaccountsonboarded.rows[0].count },
+          ],
+          [
+            { title: "User Reviews Pending", value: totalusersreviewspending.rows[0].count },
+            { title: "User Reviews Done", value: totalusersreviewsdone.rows[0].count },
+            { title: "Users Onboarded", value: totalusersonboarded.rows[0].count },
+          ],
+          [
             { title: "Modules", value: totalmodules.rows[0].count },
             { title: "Packages", value: totalpackages.rows[0].count },
             {
               title: "Platform Admins",
               value: totalplatformadmins.rows[0].count,
             },
-          ],
-          [
-            { title: "Reviews Pending", value: totalpendingreviews.toString() },
-            { title: "Reviews Done", value: totaldonereviews.toString() },
-            { title: "Onboarded", value: totalonboarded.toString() },
           ],
         ],
       };
@@ -1229,19 +1227,6 @@ export default class PlatformSvcDB {
     }
   }
 
-  //   vehiclemodel,
-  //   total_vehicles,
-  //   connected_vehicles_today,
-  //   connected_vehicles_yesterday,
-  //   connected_vehicles_day_before_yesterday;
-
-  // vehiclemodel,
-  //   total_vehicles,
-  //   gps_beacons_yesterday,
-  //   gps_beacons_day_before_yesterday,
-  //   can_beacons_yesterday,
-  //   can_beacons_day_before_yesterday;
-
   async getConsoleAccountAssignmentHistory(accountid, starttime, endtime) {
     try {
       const result = await this.pgPoolI.Query(
@@ -1267,6 +1252,73 @@ export default class PlatformSvcDB {
       throw new Error(
         `Failed to get console vehicle assignment history: ${error.message}`
       );
+    }
+  }
+
+  async discardVehicleReview(createdBy, vin) {
+    try {
+      let existingVehicle = await this.pgPoolI.Query(
+        "SELECT * FROM reviewpendingvehicle WHERE vinno = $1",
+        [vin]
+      );
+      if (!existingVehicle.rows.length) {
+        throw new Error("Vehicle review not found");
+      }
+      let currtime = new Date();
+      
+      const insertFields = {
+        vinno: vin,
+        modelcode: existingVehicle.rows[0].modelcode,
+        vehicleinfo: existingVehicle.rows[0].vehicleinfo || {},
+        vehiclevariant: existingVehicle.rows[0].vehiclevariant || null,
+        vehiclemodel: existingVehicle.rows[0].vehiclemodel || null,
+        mobile: existingVehicle.rows[0].mobile || null,
+        license_plate: existingVehicle.rows[0].license_plate || null,
+        color: existingVehicle.rows[0].color || null,
+        vehicle_city: existingVehicle.rows[0].vehicle_city || null,
+        dealer: existingVehicle.rows[0].dealer || null,
+        delivered: existingVehicle.rows[0].delivered || false,
+        delivered_date: existingVehicle.rows[0].delivered_date || null,
+        data_freq: existingVehicle.rows[0].data_freq || null,
+        tgu_model: existingVehicle.rows[0].tgu_model || null,
+        tgu_sw_version: existingVehicle.rows[0].tgu_sw_version || null,
+        tgu_phone_no: existingVehicle.rows[0].tgu_phone_no || null,
+        tgu_imei_no: existingVehicle.rows[0].tgu_imei_no || null,
+        engineno: existingVehicle.rows[0].engineno || null,
+        fueltype: existingVehicle.rows[0].fueltype || null,
+        retailssaledate: existingVehicle.rows[0].retailssaledate || null,
+        original_status: "REVIEW_DISCARDED_BY_ADMIN",
+        resolution_reason: "Review discarded by admin",
+        review_data: existingVehicle.rows[0] || {},
+        entrytype: "review",
+        reviewed_at: currtime,
+        reviewed_by: createdBy,
+        createdat: currtime,
+        createdby: createdBy,
+        updatedat: currtime,
+        updatedby: createdBy,
+        original_input: existingVehicle.rows[0].original_input || {},
+      };
+
+      const columns = Object.keys(insertFields);
+      const placeholders = columns
+        .map((_, index) => `$${index + 1}`)
+        .join(", ");
+
+      let query = `INSERT INTO reviewdonevehicle (${columns.join(
+        ", "
+      )}) VALUES (${placeholders})`;
+      let result = await this.pgPoolI.Query(query, Object.values(insertFields));
+      if(result.rowCount > 0){
+        query = `DELETE FROM reviewpendingvehicle WHERE vinno = $1`;
+        result = await this.pgPoolI.Query(query, [vin]);
+        if(result.rowCount > 0){
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      throw new Error(`Failed to discard vehicle review: ${error.message}`);
     }
   }
 }

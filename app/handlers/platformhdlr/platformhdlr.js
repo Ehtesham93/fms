@@ -16,6 +16,8 @@ import PlatformHdlrImpl from "./platformhdlr_impl.js";
 import RoleHdlr from "./role/rolehdlr.js";
 import PUserHdlr from "./user/puserhdlr.js";
 import VehicleHdlr from "./vehicle/vehiclehdlr.js";
+import { CheckUserPerms } from "../../utils/permissionutil.js";
+import { CheckUserStatusMiddleware } from "../../utils/permissionutil.js";
 export default class PlatformHdlr {
   constructor(
     platformSvcI,
@@ -40,6 +42,8 @@ export default class PlatformHdlr {
       userSvcI,
       authSvcI,
       fmsAccountSvcI,
+      platformSvcI.getAccountSvc(),
+      platformSvcI.getPUserSvc(),
       logger
     );
     this.moduleHdlr = new ModuleHdlr(
@@ -116,6 +120,7 @@ export default class PlatformHdlr {
   RegisterRoutes(router) {
     let modelRouter = promiserouter();
     modelRouter.use(AuthenticateUserTokenFromCookie);
+    modelRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.modelHdlr.RegisterNoPermsRoutes(modelRouter);
 
     modelRouter.use(this.GetUserPermsHelper);
@@ -124,17 +129,22 @@ export default class PlatformHdlr {
 
     const authRouter = promiserouter();
     authRouter.use(AuthenticateUserTokenFromCookie);
+    authRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     // this api does not need console permission check
     authRouter.get("/apikey", this.GetAPIKey);
 
     authRouter.use(this.GetUserPermsHelper);
+    authRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     router.use("/", authRouter);
 
     // console
     authRouter.get("/home", this.GetConsoleHomePage);
     authRouter.get("/modules", this.GetConsoleModules);
     authRouter.get("/overview", this.GetConsolePlatformOverview);
-    authRouter.get("/overviewanalytics", this.GetConsolePlatformOverviewAnalytics);
+    authRouter.get(
+      "/overviewanalytics",
+      this.GetConsolePlatformOverviewAnalytics
+    );
     authRouter.get(
       "/account/:accountid/assignmenthistory",
       this.GetConsoleAccountAssignmentHistory
@@ -143,40 +153,46 @@ export default class PlatformHdlr {
       "/vehicle/:vinno/assignmenthistory",
       this.GetConsoleVehicleAssignmentHistory
     );
-
+    router.post("/review/discard", this.DiscardReview);
     // module
     let moduleRouter = promiserouter();
     moduleRouter.use(AuthenticateUserTokenFromCookie);
+    moduleRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.moduleHdlr.RegisterRoutes(moduleRouter);
     router.use("/module", moduleRouter);
 
     // packages
     let packageRouter = promiserouter();
     packageRouter.use(AuthenticateUserTokenFromCookie);
+    packageRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.packageHdlr.RegisterRoutes(packageRouter);
     router.use("/pkg", packageRouter);
 
     //roles
     let roleRouter = promiserouter();
     roleRouter.use(AuthenticateUserTokenFromCookie);
+    roleRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.roleHdlr.RegisterRoutes(roleRouter);
     router.use("/role", roleRouter);
 
     // users
     let pUserRouter = promiserouter();
     pUserRouter.use(AuthenticateUserTokenFromCookie);
+    pUserRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.pUserHdlr.RegisterRoutes(pUserRouter);
     router.use("/user", pUserRouter);
 
     // accounts
     let accountRouter = promiserouter();
     accountRouter.use(AuthenticateUserTokenFromCookie);
+    accountRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.accountHdlr.RegisterRoutes(accountRouter);
     router.use("/account", accountRouter);
 
     // vehicles
     let vehicleRouter = promiserouter();
     vehicleRouter.use(AuthenticateUserTokenFromCookie);
+    vehicleRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.vehicleHdlr.RegisterRoutes(vehicleRouter);
     router.use("/vehicle", vehicleRouter);
   }
@@ -213,9 +229,8 @@ export default class PlatformHdlr {
         userid: req.userid,
       });
 
-      let result = await this.platformHdlrImpl.GetConsolePermissionsLogic(
-        userid
-      );
+      let result =
+        await this.platformHdlrImpl.GetConsolePermissionsLogic(userid);
       APIResponseOK(req, res, result, "Console home page fetched successfully");
     } catch (e) {
       this.logger.error("GetConsoleHomePage error: ", e);
@@ -328,7 +343,7 @@ export default class PlatformHdlr {
     }
   };
 
-  GetConsolePlatformOverviewAnalytics = async (req, res, next) => {
+  GetConsolePlatformOverviewAnalytics = async (req, res) => {
     try {
       let result =
         await this.platformHdlrImpl.GetConsolePlatformOverviewAnalyticsLogic();
@@ -471,6 +486,51 @@ export default class PlatformHdlr {
         e.toString(),
         "Get account assignment history failed"
       );
+    }
+  };
+
+  DiscardReview = async (req, res) => {
+    try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.platform.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to discard review."
+        );
+      }
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        taskid: z
+          .string({ message: "Invalid Task ID format" })
+          .uuid({ message: "Invalid Task ID format" }),
+        type: z.enum(["account", "user", "vehicle"], {
+          errorMap: () => ({
+            message: "Type must be one of: account, user, vehicle",
+          }),
+        }),
+      });
+      let { userid, taskid, type } = validateAllInputs(schema, {
+        userid: req.userid,
+        taskid: req.body.taskid,
+        type: req.body.type,
+      });
+      let result = await this.platformHdlrImpl.DiscardReviewLogic(
+        userid,
+        taskid,
+        type
+      );
+      APIResponseOK(req, res, result, result.message);
+    } catch (e) {
+      this.logger.error("DiscardReview error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(req, res, e.errcode, e.errdata, e.message);
+      }
     }
   };
 }
