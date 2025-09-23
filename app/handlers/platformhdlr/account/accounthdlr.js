@@ -1116,24 +1116,20 @@ export default class AccountHdlr {
           "Too many resend attempts for this invite. Please try after an hour."
         );
       } else if (
-        e.message === "INVALID_INVITE_ID" ||
-        e.message === "INVITE_IS_NOT_IN_SENT_STATE" ||
-        e.message === "INVITE_IS_NOT_AN_EMAIL_INVITE" ||
-        e.message === "CANNOT_RESEND_AN_EXPIRED_INVITE"
+        e.errcode === "INVALID_INVITE_ID" ||
+        e.errcode === "INVITE_NOT_IN_SENT_STATE" ||
+        e.errcode === "INVITE_NOT_AN_EMAIL_INVITE" ||
+        e.errcode === "CANNOT_RESEND_AN_EXPIRED_INVITE" ||
+        e.errcode === "ACCOUNT_NOT_FOUND" ||
+        e.errcode === "FLEET_NOT_FOUND"
       ) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          e.message,
-          {},
-          "Failed to resend invite"
-        );
+        return APIResponseBadRequest(req, res, e.errcode, null, e.message);
       } else {
-        return APIResponseInternalErr(
+        APIResponseInternalErr(
           req,
           res,
           "RESEND_INVITE_ERR",
-          e.toString(),
+          e.errdata,
           "Resend invite failed"
         );
       }

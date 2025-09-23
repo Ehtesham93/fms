@@ -3,6 +3,7 @@ import {
   ACCOUNT_CREATION_CREDITS,
   ACCOUNT_VEHICLE_SUBSCRIPTION_STATE,
   ADMIN_ROLE_ID,
+  FLEET_INVITE_EXPIRY_TIME,
   FLEET_INVITE_STATUS,
   FLEET_INVITE_TYPE,
   VEHICLE_ACTION,
@@ -547,7 +548,7 @@ export default class AccountSvcDB {
         `accountsvc_db.triggerEmailInviteToRootFleet: Sending new invite. accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteid}, email: ${email}, roleids: ${roleids}, invitedby: ${invitedby}, headerReferer: ${headerReferer}`
       );
 
-      let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
+      let expiresat = new Date(currtime.getTime() + FLEET_INVITE_EXPIRY_TIME);
 
       // Insert invites for each role (since new schema stores one role per row)
       for (const roleid of roleids) {
@@ -811,18 +812,24 @@ export default class AccountSvcDB {
                 `;
       let result = await txclient.query(query, [inviteid]);
       if (result.rowCount !== 1) {
-        throw new Error("INVALID_INVITE_ID");
+        const error = new Error("Invalid invite id");
+        error.errcode = "INVALID_INVITE_ID";
+        throw error;
       }
 
       let invite = result.rows[0];
 
       if (invite.invitestatus !== FLEET_INVITE_STATUS.PENDING) {
-        throw new Error("INVITE_IS_NOT_IN_SENT_STATE");
+        const error = new Error("Invite is not in sent state");
+        error.errcode = "INVITE_NOT_IN_SENT_STATE";
+        throw error;
       }
 
       // TODO: temporary condition
       if (invite.invitetype !== FLEET_INVITE_TYPE.EMAIL) {
-        throw new Error("INVITE_IS_NOT_AN_EMAIL_INVITE");
+        const error = new Error("Invite is not an email invite");
+        error.errcode = "INVITE_NOT_AN_EMAIL_INVITE";
+        throw error;
       }
 
       if (new Date(invite.expiresat) < currtime) {
@@ -837,10 +844,12 @@ export default class AccountSvcDB {
           FLEET_INVITE_STATUS.EXPIRED,
           txclient
         );
-        throw new Error("CANNOT_RESEND_AN_EXPIRED_INVITE");
+        const error = new Error("Cannot resend an expired invite");
+        error.errcode = "CANNOT_RESEND_AN_EXPIRED_INVITE";
+        throw error;
       }
 
-      let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
+      let expiresat = new Date(currtime.getTime() + FLEET_INVITE_EXPIRY_TIME);
 
       // Update expiry in fleet_invite_pending
       query = `
@@ -862,7 +871,9 @@ export default class AccountSvcDB {
                 `;
       result = await txclient.query(query, [invite.accountid]);
       if (result.rowCount !== 1) {
-        throw new Error("Account not found");
+        const error = new Error("Account not found");
+        error.errcode = "ACCOUNT_NOT_FOUND";
+        throw error;
       }
       const accountname = result.rows[0].accountname;
 
@@ -871,7 +882,9 @@ export default class AccountSvcDB {
                 `;
       result = await txclient.query(query, [invite.accountid, invite.fleetid]);
       if (result.rowCount !== 1) {
-        throw new Error("Fleet not found");
+        const error = new Error("Fleet not found");
+        error.errcode = "FLEET_NOT_FOUND";
+        throw error;
       }
       const fleetname = result.rows[0].name;
 

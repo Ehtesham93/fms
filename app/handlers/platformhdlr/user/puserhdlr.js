@@ -407,12 +407,21 @@ export default class PUserHdlr {
           null,
           "Too many platform invites sent to this contact with these roles. Please try after an hour."
         );
+      } else if (
+        e.errcode === "INVALID_INVITE_ID" ||
+        e.errcode === "INVITE_NOT_IN_SENT_STATE" ||
+        e.errcode === "INVITE_NOT_AN_EMAIL_INVITE" ||
+        e.errcode === "CANNOT_RESEND_AN_EXPIRED_INVITE" ||
+        e.errcode === "ACCOUNT_NOT_FOUND" ||
+        e.errcode === "FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(req, res, e.errcode, null, e.message);
       } else {
         APIResponseInternalErr(
           req,
           res,
           "RESEND_PLATFORM_INVITE_ERR",
-          e.toString(),
+          e.errdata,
           "Resend platform invite failed"
         );
       }

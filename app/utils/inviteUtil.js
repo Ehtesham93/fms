@@ -1,3 +1,5 @@
+import { FLEET_INVITE_EXPIRY_TIME } from "./constant.js";
+
 export function shouldUpdateExistingInvite(existingInviteRoles, targetRoles) {
   // check if any of the target roles are not in the existing invite roles
   for (const roleid of targetRoles) {
@@ -18,7 +20,7 @@ export async function updateInviteExpiryAndSendEmail(
   email,
   txclient
 ) {
-  let expiresat = new Date(currtime.getTime() + 7 * 24 * 60 * 60 * 1000);
+  let expiresat = new Date(currtime.getTime() + FLEET_INVITE_EXPIRY_TIME);
 
   // Update expiry in fleet_invite_pending (primary source of truth now)
   let query = `

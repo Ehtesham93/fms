@@ -140,6 +140,8 @@ export default class ModelHdlr {
       this.logger.error("CreateParamFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "PARAM_FAMILY_CODE_ALREADY_EXISTS") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -224,6 +226,8 @@ export default class ModelHdlr {
       this.logger.error("UpdateParamFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "PARAM_FAMILY_CODE_NOT_FOUND") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -280,6 +284,11 @@ export default class ModelHdlr {
       this.logger.error("DeleteParamFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "PARAM_FAMILY_CODE_NOT_FOUND" ||
+        e.errcode === "PARAM_FAMILY_CODE_IN_USE"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -310,9 +319,10 @@ export default class ModelHdlr {
         paramfamilycode: req.params.paramfamilycode,
       });
 
-      let result = await this.modelHdlrImpl.IsParamFamilyCodeAvailableLogic(
-        paramfamilycode
-      );
+      let result =
+        await this.modelHdlrImpl.IsParamFamilyCodeAvailableLogic(
+          paramfamilycode
+        );
       APIResponseOK(
         req,
         res,
@@ -406,6 +416,11 @@ export default class ModelHdlr {
       this.logger.error("CreateModelParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "PARAM_CODE_ALREADY_EXISTS" ||
+        e.errcode === "PARAM_FAMILY_CODE_NOT_FOUND"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -453,9 +468,8 @@ export default class ModelHdlr {
         paramfamilycode: req.params.paramfamilycode,
       });
 
-      let result = await this.modelHdlrImpl.ListModelParamsByFamilyLogic(
-        paramfamilycode
-      );
+      let result =
+        await this.modelHdlrImpl.ListModelParamsByFamilyLogic(paramfamilycode);
       APIResponseOK(req, res, result, "Model parameters fetched successfully");
     } catch (e) {
       this.logger.error("ListModelParamsByFamily error: ", e);
@@ -543,6 +557,8 @@ export default class ModelHdlr {
       this.logger.error("UpdateModelParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "PARAM_CODE_NOT_FOUND") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -607,6 +623,11 @@ export default class ModelHdlr {
     } catch (e) {
       this.logger.error("DeleteModelParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "PARAM_CODE_NOT_FOUND" ||
+        e.errcode === "PARAM_CODE_IN_USE"
+      ) {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         APIResponseInternalErr(
@@ -740,6 +761,8 @@ export default class ModelHdlr {
       this.logger.error("CreateModelFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "FAMILY_CODE_ALREADY_EXISTS") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -834,6 +857,8 @@ export default class ModelHdlr {
       this.logger.error("UpdateModelFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "FAMILY_CODE_NOT_FOUND") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -883,6 +908,11 @@ export default class ModelHdlr {
       this.logger.error("DeleteModelFamily error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "FAMILY_CODE_NOT_FOUND" ||
+        e.errcode === "FAMILY_CODE_IN_USE"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -912,9 +942,8 @@ export default class ModelHdlr {
         familycode: req.params.familycode,
       });
 
-      let result = await this.modelHdlrImpl.IsFamilyCodeAvailableLogic(
-        familycode
-      );
+      let result =
+        await this.modelHdlrImpl.IsFamilyCodeAvailableLogic(familycode);
 
       APIResponseOK(
         req,
@@ -984,54 +1013,24 @@ export default class ModelHdlr {
                   message:
                     "Param Code can only contain letters, numbers, spaces, hyphens, and underscores",
                 }),
-              paramvalue: z.any(),
+              paramvalue: z
+                .any()
+                .refine((val) => val !== undefined && val !== null, {
+                  message: "Param value cannot be undefined or null",
+                }),
             })
           )
-          .optional(),
+          .optional()
+          .default([]),
       });
 
-      validateAllInputs(schema, {
-        createdby: req.userid,
-        familycode: req.body.familycode,
-        paramfamilycode: req.body.paramfamilycode,
-        params: req.body.params,
-      });
-
-      let createdby = req.userid;
-      let familycode = req.body.familycode;
-      let paramfamilycode = req.body.paramfamilycode;
-      let params = req.body.params || [];
-
-      // Validate input
-      if (!familycode) {
-        APIResponseBadRequest(
-          req,
-          res,
-          "FAMILY_CODE_REQUIRED",
-          "Family code is required"
-        );
-        return;
-      }
-
-      if (!paramfamilycode) {
-        APIResponseBadRequest(
-          req,
-          res,
-          "PARAM_FAMILY_CODE_REQUIRED",
-          "Param family code is required"
-        );
-        return;
-      }
-
-      if (!Array.isArray(params)) {
-        APIResponseBadRequest(
-          req,
-          res,
-          "PARAMS_INVALID",
-          "Params must be an array"
-        );
-        return;
-      }
+      let { createdby, familycode, paramfamilycode, params } =
+        validateAllInputs(schema, {
+          createdby: req.userid,
+          familycode: req.body.familycode,
+          paramfamilycode: req.body.paramfamilycode,
+          params: req.body.params,
+        });
 
       // Handle empty params array - delete all parameters for this familycode and paramfamilycode
       if (params.length === 0) {
@@ -1104,25 +1103,6 @@ export default class ModelHdlr {
         }
       }
 
-      // Original logic for non-empty params array
-      // Validate each parameter in the array
-      for (let i = 0; i < params.length; i++) {
-        const param = params[i];
-        if (
-          !param.paramcode ||
-          param.paramvalue === undefined ||
-          param.paramvalue === null
-        ) {
-          APIResponseBadRequest(
-            req,
-            res,
-            "INVALID_PARAM",
-            `Parameter at index ${i} must have paramcode and paramvalue`
-          );
-          return;
-        }
-      }
-
       // Filter out duplicates based on paramcode
       const uniqueParams = [];
       const seenParamCodes = new Set();
@@ -1183,6 +1163,12 @@ export default class ModelHdlr {
     } catch (e) {
       this.logger.error("CreateModelFamilyParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "FAMILY_CODE_NOT_FOUND" ||
+        e.errcode === "PARAM_FAMILY_CODE_NOT_FOUND" ||
+        e.errcode === "PARAM_CODE_NOT_FOUND"
+      ) {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
@@ -1318,6 +1304,12 @@ export default class ModelHdlr {
     } catch (e) {
       this.logger.error("DeleteModelFamilyParam error: ", e);
       if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "FAMILY_CODE_NOT_FOUND" ||
+        e.errcode === "PARAM_FAMILY_CODE_NOT_FOUND" ||
+        e.errcode === "PARAM_CODE_NOT_FOUND"
+      ) {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
@@ -1489,6 +1481,12 @@ export default class ModelHdlr {
       this.logger.error("CreateVehicleModel error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "MODEL_CODE_ALREADY_EXISTS" ||
+        e.errcode === "FAMILY_CODE_NOT_FOUND" ||
+        e.errcode === "MODEL_NAME_VARIANT_ALREADY_EXISTS"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -1654,6 +1652,12 @@ export default class ModelHdlr {
       this.logger.error("UpdateVehicleModel error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "MODEL_CODE_NOT_FOUND" ||
+        e.errcode === "FAMILY_CODE_NOT_FOUND" ||
+        e.errcode === "MODEL_NAME_VARIANT_ALREADY_EXISTS"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -1704,6 +1708,11 @@ export default class ModelHdlr {
       this.logger.error("DeleteVehicleModel error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (
+        e.errcode === "MODEL_CODE_NOT_FOUND" ||
+        e.errcode === "MODEL_CODE_IN_USE"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -1732,9 +1741,8 @@ export default class ModelHdlr {
       let { modelcode } = validateAllInputs(schema, {
         modelcode: req.params.modelcode,
       });
-      let result = await this.modelHdlrImpl.IsModelCodeAvailableLogic(
-        modelcode
-      );
+      let result =
+        await this.modelHdlrImpl.IsModelCodeAvailableLogic(modelcode);
       APIResponseOK(
         req,
         res,

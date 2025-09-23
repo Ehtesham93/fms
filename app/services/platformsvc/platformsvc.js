@@ -13,7 +13,7 @@ export default class PlatformSvc {
     this.platformSvcDB = new PlatformSvcDB(pgPoolI, logger);
     this.moduleSvc = new ModuleSvc(pgPoolI, logger);
     this.roleSvc = new RoleSvc(pgPoolI, logger);
-    this.packageSvc = new PackageSvc(pgPoolI, logger);
+    this.packageSvc = new PackageSvc(pgPoolI, logger, config);
     this.pUserSvc = new PUserSvc(pgPoolI, logger);
     this.accountSvc = new AccountSvc(pgPoolI, logger, config);
     this.modelSvc = new ModelSvc(pgPoolI, logger);

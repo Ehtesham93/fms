@@ -65,8 +65,7 @@ export default class APIServer {
       // List of allowed origins (can include specific ports or use regex for localhost)
       const allowedOrigins = [
         /^https:\/\/localhost:\d+$/, // any port on localhost
-        /^https:\/\/.*\.mahindraelectric\.com:\d+$/, // any subdomain and port
-        /^https:\/\/.*\.mahindralastmilemobility\.com:\d+$/,
+        /^https:\/\/.*\.mahindralastmilemobility\.com(:\d+)?$/, // optional :port
       ];
 
       if (!origin) return callback(null, true); // allow non-browser requests like curl or Postman
@@ -102,6 +101,7 @@ export default class APIServer {
   }
 
   #errorhandler(err, req, res, next) {
+    this.logger.error("APIServer Error: ", { error: err });
     let errstr = JSON.stringify(err);
 
     if ("toString" in err) {

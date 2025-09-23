@@ -82,6 +82,11 @@ export default {
   credit: {
     accountCreationCredits: 1000,
   },
+  packageDefaults: {
+    graceperiod: 30,
+    creditfactor: 1,
+    vehiclecount: 10,
+  },
   serviceConfig: {
     url: "http://stg-nemo3-api-service-svc.intellicar-frontend1:10004",
     onboardingPath: "/api/v1/fms/service/vehicle/onboarding",

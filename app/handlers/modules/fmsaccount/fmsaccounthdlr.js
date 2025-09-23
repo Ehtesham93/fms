@@ -721,18 +721,14 @@ export default class FmsAccountHdlr {
           error.message
         );
       } else if (
-        error.message === "INVALID_INVITE_ID" ||
-        error.message === "INVITE_IS_NOT_IN_SENT_STATE" ||
-        error.message === "INVITE_IS_NOT_AN_EMAIL_INVITE" ||
-        error.message === "CANNOT_RESEND_AN_EXPIRED_INVITE"
+        error.errcode === "INVALID_INVITE_ID" ||
+        error.errcode === "INVITE_NOT_IN_SENT_STATE" ||
+        error.errcode === "INVITE_NOT_AN_EMAIL_INVITE" ||
+        error.errcode === "CANNOT_RESEND_AN_EXPIRED_INVITE" ||
+        error.errcode === "ACCOUNT_NOT_FOUND" ||
+        error.errcode === "FLEET_NOT_FOUND"
       ) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          error.message,
-          {},
-          "Failed to resend invite"
-        );
+        APIResponseBadRequest(req, res, error.errcode, null, error.message);
       } else if (error.errcode === "RATE_LIMIT_EXCEEDED") {
         APIResponseError(
           req,
@@ -746,7 +742,8 @@ export default class FmsAccountHdlr {
         APIResponseInternalErr(
           req,
           res,
-          error,
+          error.errcode,
+          null,
           "Failed to resend email invite"
         );
       }

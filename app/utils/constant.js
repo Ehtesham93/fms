@@ -62,3 +62,11 @@ export const PASSWORD_EXPIRE_TIME = 90; // in days
 export const INVITE_RATE_LIMIT_PER_HOUR = 3;
 
 export const PARAM_FAMILY_CODE_REGULAR_DATA = "regulardata";
+
+export const DEFAULT_PACKAGE_INFO = {
+  graceperiod: 30,
+  creditfactor: 1,
+  vehiclecount: 10,
+};
+
+export const FLEET_INVITE_EXPIRY_TIME = 7 * 24 * 60 * 60 * 1000;

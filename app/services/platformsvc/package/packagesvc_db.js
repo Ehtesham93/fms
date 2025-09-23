@@ -1,11 +1,14 @@
+import { DEFAULT_PACKAGE_INFO } from "../../../utils/constant.js";
+
 export default class PackageSvcDB {
   /**
    *
    * @param {PgPool} pgPoolI
    */
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
+    this.config = config;
   }
 
   async getUserName(userid) {
@@ -65,14 +68,40 @@ export default class PackageSvcDB {
   async createPackage(pkg, createdby) {
     try {
       let currtime = new Date();
+      let pkginfo = { ...DEFAULT_PACKAGE_INFO };
+      if (this.config?.packageDefaults) {
+        pkginfo = {
+          graceperiod:
+            this.config.packageDefaults.graceperiod ||
+            DEFAULT_PACKAGE_INFO.graceperiod,
+          creditfactor:
+            this.config.packageDefaults.creditfactor ||
+            DEFAULT_PACKAGE_INFO.creditfactor,
+          vehiclecount:
+            this.config.packageDefaults.vehiclecount ||
+            DEFAULT_PACKAGE_INFO.vehiclecount,
+        };
+      }
+
+      // check if pkgname already exists
       let query = `
+        SELECT pkgid FROM package WHERE pkgname = $1
+      `;
+      let result = await this.pgPoolI.Query(query, [pkg.pkgname]);
+      if (result.rowCount !== 0) {
+        const error = new Error("Package name already exists");
+        error.errcode = "PACKAGE_NAME_ALREADY_EXISTS";
+        throw error;
+      }
+
+      query = `
             INSERT INTO package (pkgid, pkgname, pkgtype, pkginfo, isenabled, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         `;
-      let result = await this.pgPoolI.Query(query, [
+      result = await this.pgPoolI.Query(query, [
         pkg.pkgid,
         pkg.pkgname,
         pkg.pkgtype,
-        pkg.pkginfo,
+        pkginfo,
         pkg.isenabled,
         currtime,
         createdby,
@@ -84,7 +113,7 @@ export default class PackageSvcDB {
       }
       return true;
     } catch (error) {
-      throw new Error("Failed to create package");
+      throw error;
     }
   }
 

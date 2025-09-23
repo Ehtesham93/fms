@@ -1583,6 +1583,13 @@ export default class fmsAccountHdlrImpl {
       };
     }
 
+    await publishVehicleUpdate(
+      dstaccountid,
+      "tagged",
+      this.redisSvc,
+      this.logger
+    );
+
     return result;
   };
 
@@ -1625,6 +1632,13 @@ export default class fmsAccountHdlrImpl {
         },
       };
     }
+
+    await publishVehicleUpdate(
+      dstaccountid,
+      "untagged",
+      this.redisSvc,
+      this.logger
+    );
 
     return result;
   };

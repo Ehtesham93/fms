@@ -84,6 +84,11 @@ export default {
   credit: {
     accountCreationCredits: 1000,
   },
+  packageDefaults: {
+    graceperiod: 30,
+    creditfactor: 1,
+    vehiclecount: 10,
+  },
   serviceConfig: {
     url: "https://stg-nemo.mahindraelectric.com:2083/api/v1/fms/service/vehicle/onboarding",
     onboardingPath: "/api/v1/fms/service/vehicle/onboarding",

@@ -160,6 +160,8 @@ export default class PackageHdlr {
       this.logger.error("CreatePackage error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, "INPUT_ERROR", e.errdata, e.message);
+      } else if (e.errcode === "PACKAGE_NAME_ALREADY_EXISTS") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         APIResponseInternalErr(
           req,

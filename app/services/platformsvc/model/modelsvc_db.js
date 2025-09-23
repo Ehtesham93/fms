@@ -18,11 +18,15 @@ export default class ModelSvcDB {
   ) {
     try {
       // Check if paramfamilycode already exists
-      const existingParamFamily = await this.isParamFamilyCodeAvailable(
-        paramfamilycode
-      );
+      const existingParamFamily =
+        await this.isParamFamilyCodeAvailable(paramfamilycode);
       if (!existingParamFamily.isavailable) {
-        throw new Error("Param family code already exists");
+        const error = new Error("Param family code already exists");
+        error.errcode = "PARAM_FAMILY_CODE_ALREADY_EXISTS";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+        };
+        throw error;
       }
 
       let currtime = new Date();
@@ -76,7 +80,12 @@ export default class ModelSvcDB {
     try {
       const existing = await this.isParamFamilyCodeAvailable(paramfamilycode);
       if (existing.isavailable) {
-        throw new Error("Param family code does not exist");
+        const error = new Error("Param family code does not exist");
+        error.errcode = "PARAM_FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+        };
+        throw error;
       }
 
       let currtime = new Date();
@@ -89,10 +98,10 @@ export default class ModelSvcDB {
         .join(", ");
 
       let query = `
-      UPDATE paramfamily
-      SET ${setClause}
-      WHERE paramfamilycode = $1
-    `;
+        UPDATE paramfamily
+        SET ${setClause}
+        WHERE paramfamilycode = $1
+      `;
 
       let params = [paramfamilycode, ...Object.values(updateFields)];
 
@@ -114,11 +123,15 @@ export default class ModelSvcDB {
   async deleteParamFamily(paramfamilycode) {
     try {
       // Check if paramfamilycode exists
-      const existingParamFamily = await this.isParamFamilyCodeAvailable(
-        paramfamilycode
-      );
+      const existingParamFamily =
+        await this.isParamFamilyCodeAvailable(paramfamilycode);
       if (existingParamFamily.isavailable) {
-        throw new Error("Param family code does not exist");
+        const error = new Error("Param family code does not exist");
+        error.errcode = "PARAM_FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+        };
+        throw error;
       }
 
       // check if the paramfamilycode is used in any paramfamily_param
@@ -127,10 +140,16 @@ export default class ModelSvcDB {
           `;
       let result = await this.pgPoolI.Query(query, [paramfamilycode]);
       if (result.rowCount > 0) {
-        throw new Error(
+        const error = new Error(
           "Param family code is used in some vehicle parameters: " +
             result.rows.map((row) => row.paramcode).join(", ")
         );
+        error.errcode = "PARAM_FAMILY_CODE_IN_USE";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+          paramcodes: result.rows.map((row) => row.paramcode),
+        };
+        throw error;
       }
 
       query = `
@@ -188,11 +207,15 @@ export default class ModelSvcDB {
 
     try {
       // Check if paramfamilycode exists
-      const existingParamFamily = await this.isParamFamilyCodeAvailable(
-        paramfamilycode
-      );
+      const existingParamFamily =
+        await this.isParamFamilyCodeAvailable(paramfamilycode);
       if (existingParamFamily.isavailable) {
-        throw new Error("Param family code does not exist");
+        const error = new Error("Param family code does not exist");
+        error.errcode = "PARAM_FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+        };
+        throw error;
       }
 
       // Check if paramcode already exists within the family
@@ -201,7 +224,13 @@ export default class ModelSvcDB {
         paramcode
       );
       if (!existingParam.isavailable) {
-        throw new Error("Param code already exists in this family");
+        const error = new Error("Param code already exists in this family");
+        error.errcode = "PARAM_CODE_ALREADY_EXISTS";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+          paramcode: paramcode,
+        };
+        throw error;
       }
 
       let currtime = new Date();
@@ -316,7 +345,13 @@ export default class ModelSvcDB {
         paramcode
       );
       if (existingParam.isavailable) {
-        throw new Error("Param code does not exist in this family");
+        const error = new Error("Param code does not exist in this family");
+        error.errcode = "PARAM_CODE_NOT_FOUND";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+          paramcode: paramcode,
+        };
+        throw error;
       }
 
       let currtime = new Date();
@@ -328,11 +363,11 @@ export default class ModelSvcDB {
       let values = [...Object.values(fields)];
 
       let query = `
-      UPDATE paramfamily_param
-      SET ${setClause}
-      WHERE paramfamilycode = $${values.length + 1}
-        AND paramcode = $${values.length + 2}
-    `;
+        UPDATE paramfamily_param
+        SET ${setClause}
+        WHERE paramfamilycode = $${values.length + 1}
+          AND paramcode = $${values.length + 2}
+      `;
 
       values.push(paramfamilycode, paramcode);
 
@@ -362,7 +397,13 @@ export default class ModelSvcDB {
         paramcode
       );
       if (existingParam.isavailable) {
-        throw new Error("Param code does not exist in this family");
+        const error = new Error("Param code does not exist in this family");
+        error.errcode = "PARAM_CODE_NOT_FOUND";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+          paramcode: paramcode,
+        };
+        throw error;
       }
 
       // check if the param is used in any model family
@@ -375,10 +416,17 @@ export default class ModelSvcDB {
         paramcode,
       ]);
       if (result.rowCount > 0) {
-        throw new Error(
+        const error = new Error(
           "Param is used in some model families: " +
             result.rows.map((row) => row.modelfamilycode).join(", ")
         );
+        error.errcode = "PARAM_CODE_IN_USE";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+          paramcode: paramcode,
+          modelfamilycodes: result.rows.map((row) => row.modelfamilycode),
+        };
+        throw error;
       }
 
       query = `
@@ -444,7 +492,12 @@ export default class ModelSvcDB {
       // Check if familycode already exists
       const existingFamily = await this.isFamilyCodeAvailable(familycode);
       if (!existingFamily.isavailable) {
-        throw new Error("Family code already exists");
+        const error = new Error("Family code already exists");
+        error.errcode = "FAMILY_CODE_ALREADY_EXISTS";
+        error.errdata = {
+          familycode: familycode,
+        };
+        throw error;
       }
 
       let currtime = new Date();
@@ -577,7 +630,12 @@ export default class ModelSvcDB {
       // Check if familycode exists
       const existingFamily = await this.isFamilyCodeAvailable(familycode);
       if (existingFamily.isavailable) {
-        throw new Error("Family code does not exist");
+        const error = new Error("Family code does not exist");
+        error.errcode = "FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          familycode: familycode,
+        };
+        throw error;
       }
 
       let currtime = new Date();
@@ -587,10 +645,10 @@ export default class ModelSvcDB {
       let values = Object.values(fields);
 
       let query = `
-      UPDATE vehicle_modelfamily
-      SET ${setClause}
-      WHERE modelfamilycode = $${values.length + 1}
-    `;
+        UPDATE vehicle_modelfamily
+        SET ${setClause}
+        WHERE modelfamilycode = $${values.length + 1}
+      `;
 
       values.push(familycode);
       const result = await this.pgPoolI.Query(query, values);
@@ -622,7 +680,12 @@ export default class ModelSvcDB {
           `;
       let result = await txclient.query(query, [familycode]);
       if (result.rowCount === 0) {
-        throw new Error("Model family does not exist");
+        const error = new Error("Model family does not exist");
+        error.errcode = "FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          familycode: familycode,
+        };
+        throw error;
       }
 
       // Check if the family is used in any vehicle models
@@ -631,10 +694,16 @@ export default class ModelSvcDB {
           `;
       result = await txclient.query(query, [familycode]);
       if (result.rowCount > 0) {
-        throw new Error(
+        const error = new Error(
           "Cannot delete model family. It is used by vehicle models: " +
             result.rows.map((row) => row.modelcode).join(", ")
         );
+        error.errcode = "FAMILY_CODE_IN_USE";
+        error.errdata = {
+          familycode: familycode,
+          modelcodes: result.rows.map((row) => row.modelcode),
+        };
+        throw error;
       }
 
       // delete all the model family params
@@ -706,7 +775,12 @@ export default class ModelSvcDB {
       `;
       let result = await txclient.query(query, [familycode]);
       if (result.rowCount === 0) {
-        throw new Error("Family code does not exist");
+        const error = new Error("Family code does not exist");
+        error.errcode = "FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          familycode: familycode,
+        };
+        throw error;
       }
 
       // Check if param family code exists
@@ -715,7 +789,12 @@ export default class ModelSvcDB {
       `;
       result = await txclient.query(query, [paramfamilycode]);
       if (result.rowCount === 0) {
-        throw new Error("Param family code does not exist");
+        const error = new Error("Param family code does not exist");
+        error.errcode = "PARAM_FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+        };
+        throw error;
       }
 
       // Validate all param codes exist in the specified param family
@@ -729,11 +808,17 @@ export default class ModelSvcDB {
         const missingCodes = paramcodes.filter(
           (code) => !existingCodes.includes(code)
         );
-        throw new Error(
+        const error = new Error(
           `Param codes do not exist in param family ${paramfamilycode}: ${missingCodes.join(
             ", "
           )}`
         );
+        error.errcode = "PARAM_CODE_NOT_FOUND";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+          paramcodes: missingCodes,
+        };
+        throw error;
       }
 
       // Delete all existing family-param mappings for this family and param family combination
@@ -943,7 +1028,12 @@ export default class ModelSvcDB {
       `;
       let result = await this.pgPoolI.Query(query, [familycode]);
       if (result.rowCount === 0) {
-        throw new Error("Family code does not exist");
+        const error = new Error("Family code does not exist");
+        error.errcode = "FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          familycode: familycode,
+        };
+        throw error;
       }
 
       // Check if the param exists in the param family
@@ -953,9 +1043,15 @@ export default class ModelSvcDB {
       `;
       result = await this.pgPoolI.Query(query, [paramfamilycode, paramcode]);
       if (result.rowCount === 0) {
-        throw new Error(
+        const error = new Error(
           `Param code ${paramcode} does not exist in param family ${paramfamilycode}`
         );
+        error.errcode = "PARAM_CODE_NOT_FOUND";
+        error.errdata = {
+          paramfamilycode: paramfamilycode,
+          paramcode: paramcode,
+        };
+        throw error;
       }
 
       // Delete the specific parameter from the model family
@@ -1000,13 +1096,23 @@ export default class ModelSvcDB {
       // Check if modelcode already exists
       const existingModel = await this.isModelCodeAvailable(modelcode);
       if (!existingModel.isavailable) {
-        throw new Error("Model code already exists");
+        const error = new Error("Model code already exists");
+        error.errcode = "MODEL_CODE_ALREADY_EXISTS";
+        error.errdata = {
+          modelcode: modelcode,
+        };
+        throw error;
       }
 
       // Check if the model family exists
       const existingFamily = await this.isFamilyCodeAvailable(modelfamilycode);
       if (existingFamily.isavailable) {
-        throw new Error("Model family code does not exist");
+        const error = new Error("Model family code does not exist");
+        error.errcode = "FAMILY_CODE_NOT_FOUND";
+        error.errdata = {
+          modelfamilycode: modelfamilycode,
+        };
+        throw error;
       }
 
       // Check if modelname and modelvariant combination already exists
@@ -1015,7 +1121,15 @@ export default class ModelSvcDB {
         modelvariant
       );
       if (!existingNameVariant.isavailable) {
-        throw new Error("Model name and variant combination already exists");
+        const error = new Error(
+          "Model name and variant combination already exists"
+        );
+        error.errcode = "MODEL_NAME_VARIANT_ALREADY_EXISTS";
+        error.errdata = {
+          modelname: modelname,
+          modelvariant: modelvariant,
+        };
+        throw error;
       }
 
       let currtime = new Date();
@@ -1078,7 +1192,12 @@ export default class ModelSvcDB {
     try {
       const existingModel = await this.isModelCodeAvailable(modelcode);
       if (existingModel.isavailable) {
-        throw new Error("Model code does not exist");
+        const error = new Error("Model code does not exist");
+        error.errcode = "MODEL_CODE_NOT_FOUND";
+        error.errdata = {
+          modelcode: modelcode,
+        };
+        throw error;
       }
 
       if (updateFields.modelfamilycode) {
@@ -1086,7 +1205,12 @@ export default class ModelSvcDB {
           updateFields.modelfamilycode
         );
         if (existingFamily.isavailable) {
-          throw new Error("Model family code does not exist");
+          const error = new Error("Model family code does not exist");
+          error.errcode = "FAMILY_CODE_NOT_FOUND";
+          error.errdata = {
+            modelfamilycode: updateFields.modelfamilycode,
+          };
+          throw error;
         }
       }
 
@@ -1098,7 +1222,15 @@ export default class ModelSvcDB {
             modelcode
           );
         if (!existingNameVariant.isavailable) {
-          throw new Error("Model name and variant combination already exists");
+          const error = new Error(
+            "Model name and variant combination already exists"
+          );
+          error.errcode = "MODEL_NAME_VARIANT_ALREADY_EXISTS";
+          error.errdata = {
+            modelname: updateFields.modelname,
+            modelvariant: updateFields.modelvariant,
+          };
+          throw error;
         }
       }
 
@@ -1110,10 +1242,10 @@ export default class ModelSvcDB {
       let values = Object.values(fields);
 
       let query = `
-      UPDATE vehicle_model
-      SET ${setClause}
-      WHERE modelcode = $${values.length + 1}
-    `;
+        UPDATE vehicle_model
+        SET ${setClause}
+        WHERE modelcode = $${values.length + 1}
+      `;
 
       values.push(modelcode);
 
@@ -1146,7 +1278,12 @@ export default class ModelSvcDB {
         `;
       let result = await txclient.query(query, [modelcode]);
       if (result.rowCount === 0) {
-        throw new Error("Vehicle model does not exist");
+        const error = new Error("Vehicle model does not exist");
+        error.errcode = "MODEL_CODE_NOT_FOUND";
+        error.errdata = {
+          modelcode: modelcode,
+        };
+        throw error;
       }
 
       // Check if the model is used in any vehicles
@@ -1155,10 +1292,16 @@ export default class ModelSvcDB {
         `;
       result = await txclient.query(query, [modelcode]);
       if (result.rowCount > 0) {
-        throw new Error(
+        const error = new Error(
           "Cannot delete vehicle model. It is used by vehicles: " +
             result.rows.map((row) => row.vinno).join(", ")
         );
+        error.errcode = "MODEL_CODE_IN_USE";
+        error.errdata = {
+          modelcode: modelcode,
+          vinno: result.rows.map((row) => row.vinno),
+        };
+        throw error;
       }
 
       // Check if the model is used in any vehicle_model_alert_dst
@@ -1167,9 +1310,15 @@ export default class ModelSvcDB {
         `;
       result = await txclient.query(query, [modelcode]);
       if (result.rowCount > 0) {
-        throw new Error(
+        const error = new Error(
           "Cannot delete vehicle model. It has alert configurations. Please delete alert configurations first."
         );
+        error.errcode = "MODEL_CODE_IN_USE";
+        error.errdata = {
+          modelcode: modelcode,
+          modelcode: result.rows.map((row) => row.modelcode),
+        };
+        throw error;
       }
 
       // delete the vehicle model

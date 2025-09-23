@@ -1,10 +1,11 @@
 import PackageSvcDB from "./packagesvc_db.js";
 
 export default class PackageSvc {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
-    this.packageSvcDB = new PackageSvcDB(pgPoolI, logger);
+    this.config = config;
+    this.packageSvcDB = new PackageSvcDB(pgPoolI, logger, config);
   }
 
   async CreatePackageType(pkgtype, createdby) {
