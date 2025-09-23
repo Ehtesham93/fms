@@ -72,8 +72,7 @@ export default {
   },
   logToConsole: false,
   seedConfig: {
-    BASE_URL: "https://stg-nemo.mahindralastmilemobility.com",
-    PORT: "8443",
+    BASE_URL: "https://stg-nemo.mahindralastmilemobility.com:8443",
   },
   fmsFeatures: {
     enableSubscribedVehiclesFilter: false,

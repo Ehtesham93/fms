@@ -73,7 +73,6 @@ export default {
   logToConsole: true,
   seedConfig: {
     BASE_URL: "https://nemo.mahindralastmilemobility.com",
-    PORT: "443",
   },
   fmsFeatures: {
     enableSubscribedVehiclesFilter: false,

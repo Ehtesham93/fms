@@ -5,7 +5,7 @@
     "moduletype": "web",
     "modulecode": "immobilize",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/immobilize/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/immobilize/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -27,7 +27,7 @@
     "moduletype": "web",
     "modulecode": "tripinsights",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/tripinsights/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/tripinsights/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -50,7 +50,7 @@
     "moduletype": "web",
     "modulecode": "alerts",
     "moduleinfo": {
-      "moduleurl": "https://localhost:10004/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/alerts/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -69,7 +69,7 @@
     "moduletype": "web",
     "modulecode": "service",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/service/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/service/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -108,7 +108,7 @@
     "moduletype": "web",
     "modulecode": "chargeinsights",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/chargeinsights/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/chargeinsights/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -131,7 +131,7 @@
     "moduletype": "web",
     "modulecode": "chargingstations",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/chargingstations/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/chargingstations/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -152,7 +152,7 @@
     "moduletype": "web",
     "modulecode": "geofence",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/geofence/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/geofence/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -177,7 +177,7 @@
     "moduletype": "web",
     "modulecode": "account",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/account/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/account/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -205,7 +205,7 @@
     "moduletype": "web",
     "modulecode": "livetracking",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/livetracking/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/livetracking/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
@@ -227,7 +227,7 @@
     "moduletype": "platform",
     "modulecode": "consolemgmt",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/consolemgmt/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/consolemgmt/remoteEntry.js",
       "showfleets": false,
       "showaccounts": false
     },
@@ -268,7 +268,7 @@
     "moduletype": "web",
     "modulecode": "fleetinsights",
     "moduleinfo": {
-      "moduleurl": "{{BASE_URL}}:{{PORT}}/uimodules/fleetinsights/remoteEntry.js",
+      "moduleurl": "{{BASE_URL}}/uimodules/fleetinsights/remoteEntry.js",
       "showfleets": true,
       "showaccounts": true
     },
