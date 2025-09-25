@@ -70,7 +70,7 @@ export default {
     password:
       "69f9f7c745883a32502dc7d9d67b16aaa09ea9d0b19de202555cf8e1b42be693",
   },
-  logToConsole: true,
+  logToConsole: false,
   seedConfig: {
     BASE_URL: "https://stg-nemo.mahindralastmilemobility.com:2083",
   },
