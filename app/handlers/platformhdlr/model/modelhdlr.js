@@ -1,13 +1,13 @@
 import z from "zod";
+import { CheckUserPerms } from "../../../utils/permissionutil.js";
 import {
-  APIResponseForbidden,
   APIResponseBadRequest,
+  APIResponseForbidden,
   APIResponseInternalErr,
   APIResponseOK,
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import ModelHdlrImpl from "./modelhdlr_impl.js";
-import { CheckUserPerms } from "../../../utils/permissionutil.js";
 
 export default class ModelHdlr {
   constructor(modelSvcI, userSvcI, logger) {
@@ -32,7 +32,6 @@ export default class ModelHdlr {
     router.post("/family", this.CreateModelFamily);
     router.put(`/family/:familycode`, this.UpdateModelFamily);
     router.delete(`/family/:familycode`, this.DeleteModelFamily);
-
     router.post("/family/param", this.CreateModelFamilyParam);
     router.delete(
       "/family/param/:familycode/:paramfamilycode/:paramcode",
@@ -46,11 +45,14 @@ export default class ModelHdlr {
   }
 
   RegisterNoPermsRoutes(router) {
+    // param family
     router.get("/paramfamily/list", this.ListParamFamilies);
     router.get(
       "/isparamfamilycodeavailable/:paramfamilycode",
       this.IsParamFamilyCodeAvailable
     );
+
+    // parameter
     router.get(
       "/isparamcodeavailable/:paramfamilycode/:paramcode",
       this.IsParamCodeAvailable
@@ -59,6 +61,7 @@ export default class ModelHdlr {
     router.get("/param/list", this.ListModelParams);
     router.get("/param/list/:paramfamilycode", this.ListModelParamsByFamily);
 
+    // family
     router.get("/family/list", this.ListModelFamilies);
     router.get(
       "/isfamilycodeavailable/:familycode",
@@ -69,6 +72,7 @@ export default class ModelHdlr {
       this.ListModelFamilyParams
     );
 
+    // vehicle model
     router.get("/list", this.ListVehicleModels);
     router.get("/ismodelcodeavailable/:modelcode", this.IsModelCodeAvailable);
     router.get(

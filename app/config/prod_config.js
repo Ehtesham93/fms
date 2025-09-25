@@ -1,7 +1,7 @@
 export default {
   pgdb: {
-    host: "mahindra-tunnel.intellicar.io",
-    port: 22053,
+    host: "nemo-rds-cluster.cluster-crxro9saq2rc.ap-south-1.rds.amazonaws.com",
+    port: 5432,
     database: "lmm_intellicar_nemo3",
     schema: "prodfmscoresch",
     user: "lmmintellicar_admin",
@@ -70,7 +70,7 @@ export default {
     password:
       "69f9f7c745883a32502dc7d9d67b16aaa09ea9d0b19de202555cf8e1b42be693",
   },
-  logToConsole: true,
+  logToConsole: false,
   seedConfig: {
     BASE_URL: "https://nemo.mahindralastmilemobility.com",
   },

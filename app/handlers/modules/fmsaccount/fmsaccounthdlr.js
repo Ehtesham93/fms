@@ -1283,6 +1283,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           "NO_UPDATE_FIELDS",
+          null,
           "No fields provided for update"
         );
         return;
@@ -1556,6 +1557,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to get subscribed vehicles"
         );
       }
@@ -2456,6 +2458,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to remove vehicle from fleet"
         );
       }
@@ -2547,6 +2550,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to list moveable fleets"
         );
       }
@@ -2715,6 +2719,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to get assignable roles"
         );
       }
@@ -3735,6 +3740,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to unsubscribe vehicles"
         );
       }
@@ -4118,6 +4124,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to get account vehicle credits history"
         );
       }
@@ -4228,6 +4235,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to get account fleet credits history"
         );
       }
@@ -4342,7 +4350,7 @@ export default class FmsAccountHdlr {
           "Fleet not found or does not belong to this account"
         );
       } else {
-        APIResponseInternalErr(req, res, error, "Failed to tag vehicles");
+        APIResponseInternalErr(req, res, error, null, "Failed to tag vehicles");
       }
     }
   };
@@ -4441,7 +4449,13 @@ export default class FmsAccountHdlr {
           "Fleet not found or does not belong to this account"
         );
       } else {
-        APIResponseInternalErr(req, res, error, "Failed to untag vehicles");
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          null,
+          "Failed to untag vehicles"
+        );
       }
     }
   };
@@ -4496,6 +4510,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to get shared vehicles"
         );
       }
@@ -4563,6 +4578,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to get shared accounts"
         );
       }
@@ -4624,6 +4640,7 @@ export default class FmsAccountHdlr {
           req,
           res,
           error,
+          null,
           "Failed to get vehicles shared to account"
         );
       }

@@ -4063,12 +4063,16 @@ export default class FmsAccountSvcDB {
       const fleet = result.rows[0];
 
       if (hasConstraints) {
+        const timestamp = Date.now();
+        const deletedFleetName = `Deleted_Fleet_${timestamp}`;
+        
         query = `
           UPDATE fleet_tree 
-          SET isdeleted = true, updatedat = $1, updatedby = $2
-          WHERE accountid = $3 AND fleetid = $4
+          SET isdeleted = true, name = $1, updatedat = $2, updatedby = $3
+          WHERE accountid = $4 AND fleetid = $5
         `;
         result = await txclient.query(query, [
+          deletedFleetName,
           new Date(),
           deletedby,
           accountid,

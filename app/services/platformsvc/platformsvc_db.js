@@ -1,5 +1,4 @@
 import ClickHouseClient from "../../utils/clickhouse.js";
-import clhTripTimeBucketRange from "../modules/tripsinsights/tripsinsightssvc_utils.js";
 export default class PlatformSvcDB {
   /**
    *
@@ -960,7 +959,6 @@ export default class PlatformSvcDB {
         ),
       ]);
 
-
       const result = {
         metrics: [
           [
@@ -995,19 +993,46 @@ export default class PlatformSvcDB {
             },
           ],
           [
-            { title: "Vehicle Reviews Pending", value: totalvehiclesreviewspending.rows[0].count },
-            { title: "Vehicle Reviews Done", value: totalvehiclesreviewsdone.rows[0].count },
-            { title: "Vehicles Onboarded", value: totalvehiclesonboarded.rows[0].count },
+            {
+              title: "Vehicle Reviews Pending",
+              value: totalvehiclesreviewspending.rows[0].count,
+            },
+            {
+              title: "Vehicle Reviews Done",
+              value: totalvehiclesreviewsdone.rows[0].count,
+            },
+            {
+              title: "Vehicles Onboarded",
+              value: totalvehiclesonboarded.rows[0].count,
+            },
           ],
           [
-            { title: "Account Reviews Pending", value: totalaccountsreviewspending.rows[0].count },
-            { title: "Account Reviews Done", value: totalaccountsreviewsdone.rows[0].count },
-            { title: "Accounts Onboarded", value: totalaccountsonboarded.rows[0].count },
+            {
+              title: "Account Reviews Pending",
+              value: totalaccountsreviewspending.rows[0].count,
+            },
+            {
+              title: "Account Reviews Done",
+              value: totalaccountsreviewsdone.rows[0].count,
+            },
+            {
+              title: "Accounts Onboarded",
+              value: totalaccountsonboarded.rows[0].count,
+            },
           ],
           [
-            { title: "User Reviews Pending", value: totalusersreviewspending.rows[0].count },
-            { title: "User Reviews Done", value: totalusersreviewsdone.rows[0].count },
-            { title: "Users Onboarded", value: totalusersonboarded.rows[0].count },
+            {
+              title: "User Reviews Pending",
+              value: totalusersreviewspending.rows[0].count,
+            },
+            {
+              title: "User Reviews Done",
+              value: totalusersreviewsdone.rows[0].count,
+            },
+            {
+              title: "Users Onboarded",
+              value: totalusersonboarded.rows[0].count,
+            },
           ],
           [
             { title: "Modules", value: totalmodules.rows[0].count },
@@ -1028,43 +1053,49 @@ export default class PlatformSvcDB {
     }
   }
 
-
-  async getConnnectedVehicles(vinnos, starttime, endtime) {
+  async getConnnectedVehiclesCount(vinnos, starttime, endtime) {
     if (
       starttime >= endtime ||
       starttime < 0 ||
       endtime - starttime > 35 * 24 * 60 * 60 * 1000
     ) {
-      return new Error("Invalid time range");
+      return { connected: 0, totalgps: 0, totalcan: 0 };
     }
 
     try {
-      const timeBuckets = clhTripTimeBucketRange(starttime, endtime);
-      if (timeBuckets.length === 0) {
-        return new Error("No valid time buckets found");
+      const batchSize = 1000;
+      const vinBatches = [];
+      for (let i = 0; i < vinnos.length; i += batchSize) {
+        vinBatches.push(vinnos.slice(i, i + batchSize));
       }
 
-      const bucketPromises = timeBuckets.map(async (bucket) => {
-        const vinPlaceholders = vinnos
+      let totalConnected = 0;
+      let totalGps = 0;
+      let totalCan = 0;
+
+      const batchPromises = vinBatches.map(async (vinBatch) => {
+        const vinPlaceholders = vinBatch
           .map((_, index) => `{vin${index}:String}`)
           .join(",");
-        
+
         const query = `
           SELECT 
-            vin, utc_day_b, gps_cnt, can_cnt, proctime
+            COUNT(DISTINCT vin) as connected_vehicles,
+            SUM(gps_cnt) as total_gps,
+            SUM(can_cnt) as total_can
           FROM lmmdata_latest.livenessdata
           WHERE vin IN (${vinPlaceholders})
-            AND utc_day_b >= {starttime:UInt64} 
-            AND utc_day_b < {endtime:UInt64}
-            AND gps_cnt > 0
-            AND can_cnt > 0`;
+          AND utc_day_b >= {starttime:UInt64} 
+          AND utc_day_b < {endtime:UInt64}
+          AND gps_cnt > 0 
+          AND can_cnt > 0`;
 
         const params = {
           starttime: starttime,
           endtime: endtime,
         };
 
-        vinnos.forEach((vin, index) => {
+        vinBatch.forEach((vin, index) => {
           params[`vin${index}`] = vin;
         });
 
@@ -1072,151 +1103,153 @@ export default class PlatformSvcDB {
           const result = await this.clickHouseClient.query(query, params);
           if (!result.success) {
             this.logger.error("Error executing query:", result.error);
-            return [];
+            return { connected: 0, totalgps: 0, totalcan: 0 };
           }
-          return result.data || [];
+
+          const data = result.data || [];
+          if (data.length > 0) {
+            return {
+              connected: parseInt(data[0].connected_vehicles) || 0,
+              totalgps: parseInt(data[0].total_gps) || 0,
+              totalcan: parseInt(data[0].total_can) || 0,
+            };
+          }
+          return { connected: 0, totalgps: 0, totalcan: 0 };
         } catch (error) {
-          this.logger.error("Error executing bucket query:", error);
-          return [];
+          this.logger.error("Error executing batch query:", error);
+          return { connected: 0, totalgps: 0, totalcan: 0 };
         }
       });
 
-      const bucketResults = await Promise.allSettled(bucketPromises);
-      const allResults = [];
-
-      bucketResults.forEach(({ status, value }) => {
-        if (status === "fulfilled" && Array.isArray(value)) {
-          allResults.push(...value);
+      const batchResults = await Promise.allSettled(batchPromises);
+      batchResults.forEach(({ status, value }) => {
+        if (status === "fulfilled" && value) {
+          totalConnected += value.connected;
+          totalGps += value.totalgps;
+          totalCan += value.totalcan;
         } else if (status === "rejected") {
-          this.logger.error("Bucket query failed:", value);
+          this.logger.error("Batch query failed:", value);
         }
       });
 
-      allResults.sort((a, b) => a.utc_day_b - b.utc_day_b);
-      return allResults;
+      return {
+        connected: totalConnected,
+        totalgps: totalGps,
+        totalcan: totalCan,
+      };
     } catch (error) {
-      this.logger.error("Error fetching connected vehicles data:", error);
-      throw error;
+      this.logger.error("Error fetching connected vehicles count:", error);
+      return { connected: 0, totalgps: 0, totalcan: 0 };
     }
   }
 
   async getConsolePlatformOverviewAnalytics() {
     try {
       const total_models = await this.pgPoolI.Query(
-        "SELECT vm.modeldisplayname, COUNT(v.vinno) AS vehicle_count, array_agg(v.vinno) AS vinnos FROM stgfmscoresch.vehicle_model vm JOIN stgfmscoresch.vehicle v ON v.modelcode = vm.modelcode JOIN stgfmscoresch.fleet_vehicle fv ON v.vinno = fv.vinno GROUP BY vm.modeldisplayname ORDER BY vehicle_count DESC"
+        "SELECT vm.modeldisplayname, COUNT(v.vinno) AS vehicle_count, array_agg(v.vinno) AS vinnos FROM vehicle_model vm JOIN vehicle v ON v.modelcode = vm.modelcode GROUP BY vm.modeldisplayname ORDER BY vehicle_count DESC"
       );
-      
+
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
       const dayBeforeYesterday = new Date(today);
       dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
-      
-      // Convert to UTC day buckets (similar to how utc_day_b is calculated)
+
       const getUtcDayBucket = (date) => {
-        const epoch = new Date('1970-01-01');
+        const epoch = new Date("1970-01-01");
         const diffTime = date.getTime() - epoch.getTime();
         const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
         return diffDays;
       };
-      
+
       const timeRanges = [
         {
-          name: 'today',
+          name: "today",
           start: getUtcDayBucket(today),
-          end: getUtcDayBucket(today) + 1
+          end: getUtcDayBucket(today) + 1,
         },
         {
-          name: 'yesterday', 
+          name: "yesterday",
           start: getUtcDayBucket(yesterday),
-          end: getUtcDayBucket(yesterday) + 1
+          end: getUtcDayBucket(yesterday) + 1,
         },
         {
-          name: 'dayBeforeYesterday',
+          name: "dayBeforeYesterday",
           start: getUtcDayBucket(dayBeforeYesterday),
-          end: getUtcDayBucket(dayBeforeYesterday) + 1
-        }
+          end: getUtcDayBucket(dayBeforeYesterday) + 1,
+        },
       ];
-      
-      // Process each model
+
       const enhancedResults = await Promise.all(
         total_models.rows.map(async (model) => {
           const vinnos = model.vinnos;
           const connectedVehiclesData = {
             today: { total: 0, connected: 0, totalcan: 0, totalgps: 0 },
             yesterday: { total: 0, connected: 0, totalcan: 0, totalgps: 0 },
-            dayBeforeYesterday: { total: 0, connected: 0, totalcan: 0, totalgps: 0 }
+            dayBeforeYesterday: {
+              total: 0,
+              connected: 0,
+              totalcan: 0,
+              totalgps: 0,
+            },
           };
-          
-          // Process each time range
+
           for (const timeRange of timeRanges) {
             try {
-              const connectedData = await this.getConnnectedVehicles(
-                vinnos, 
-                timeRange.start, 
+              const counts = await this.getConnnectedVehiclesCount(
+                vinnos,
+                timeRange.start,
                 timeRange.end
               );
-              
-              if (connectedData && connectedData.length > 0) {
-                // Get unique VINs that have data
-                const uniqueVins = [...new Set(connectedData.map(item => item.vin))];
-                
-                // Calculate totals
-                const totalcan = connectedData.reduce((sum, item) => sum + (item.can_cnt || 0), 0);
-                const totalgps = connectedData.reduce((sum, item) => sum + (item.gps_cnt || 0), 0);
-                
-                connectedVehiclesData[timeRange.name] = {
-                  total: vinnos.length,
-                  connected: uniqueVins.length,
-                  percentage: vinnos.length > 0 ? Math.round((uniqueVins.length / vinnos.length) * 100) : 0,
-                  totalcan: totalcan,
-                  totalgps: totalgps
-                };
-              } else {
-                connectedVehiclesData[timeRange.name] = {
-                  total: vinnos.length,
-                  connected: 0,
-                  percentage: 0,
-                  totalcan: 0,
-                  totalgps: 0
-                };
-              }
+
+              connectedVehiclesData[timeRange.name] = {
+                total: vinnos.length,
+                connected: counts.connected,
+                totalcan: counts.totalcan,
+                totalgps: counts.totalgps,
+              };
             } catch (error) {
-              this.logger.error(`Error fetching connected data for model ${model.modeldisplayname}:`, error);
+              this.logger.error(
+                `Error fetching connected data for model ${model.modeldisplayname}:`,
+                error
+              );
               connectedVehiclesData[timeRange.name] = {
                 total: vinnos.length,
                 connected: 0,
-                percentage: 0,
                 totalcan: 0,
-                totalgps: 0
+                totalgps: 0,
               };
             }
           }
-          
+
           return {
             ...model,
-            connectedVehicles: connectedVehiclesData
+            connectedVehicles: connectedVehiclesData,
           };
         })
       );
-      
+
       const result = {
-        table1: enhancedResults.map(item => ({
+        table1: enhancedResults.map((item) => ({
           model: item.modeldisplayname,
           vehicle_count: item.vehicle_count,
           connected_vehicles_today: item.connectedVehicles.today.connected,
-          connected_vehicles_yesterday: item.connectedVehicles.yesterday.connected,
-          connected_vehicles_day_before_yesterday: item.connectedVehicles.dayBeforeYesterday.connected
+          connected_vehicles_yesterday:
+            item.connectedVehicles.yesterday.connected,
+          connected_vehicles_day_before_yesterday:
+            item.connectedVehicles.dayBeforeYesterday.connected,
         })),
-        table2: enhancedResults.map(item => ({
+        table2: enhancedResults.map((item) => ({
           model: item.modeldisplayname,
           vehicle_count: item.vehicle_count,
           gps_beacons_yesterday: item.connectedVehicles.yesterday.totalgps,
-          gps_beacons_day_before_yesterday: item.connectedVehicles.dayBeforeYesterday.totalgps,
+          gps_beacons_day_before_yesterday:
+            item.connectedVehicles.dayBeforeYesterday.totalgps,
           can_beacons_yesterday: item.connectedVehicles.yesterday.totalcan,
-          can_beacons_day_before_yesterday: item.connectedVehicles.dayBeforeYesterday.totalcan
-        }))
+          can_beacons_day_before_yesterday:
+            item.connectedVehicles.dayBeforeYesterday.totalcan,
+        })),
       };
 
       return result;
@@ -1265,7 +1298,7 @@ export default class PlatformSvcDB {
         throw new Error("Vehicle review not found");
       }
       let currtime = new Date();
-      
+
       const insertFields = {
         vinno: vin,
         modelcode: existingVehicle.rows[0].modelcode,
@@ -1309,10 +1342,10 @@ export default class PlatformSvcDB {
         ", "
       )}) VALUES (${placeholders})`;
       let result = await this.pgPoolI.Query(query, Object.values(insertFields));
-      if(result.rowCount > 0){
+      if (result.rowCount > 0) {
         query = `DELETE FROM reviewpendingvehicle WHERE vinno = $1`;
         result = await this.pgPoolI.Query(query, [vin]);
-        if(result.rowCount > 0){
+        if (result.rowCount > 0) {
           return true;
         }
       }

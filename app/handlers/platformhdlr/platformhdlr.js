@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import promiserouter from "express-promise-router";
 import z from "zod";
 import { validateAllInputs } from "../../../app/utils/validationutil.js";
@@ -327,7 +328,7 @@ export default class PlatformHdlr {
     }
   };
 
-  GetConsolePlatformOverview = async (req, res, next) => {
+  GetConsolePlatformOverview = async (req, res) => {
     try {
       let result =
         await this.platformHdlrImpl.GetConsolePlatformOverviewLogic();
@@ -345,8 +346,49 @@ export default class PlatformHdlr {
 
   GetConsolePlatformOverviewAnalytics = async (req, res) => {
     try {
-      let result =
+      let result;
+      const url = req.protocol + "://" + req.get("host") + req.originalUrl;
+      const fullUrl = `${url}`;
+      const redisKey = crypto
+        .createHash("sha256")
+        .update(JSON.stringify(fullUrl))
+        .digest("hex");
+      const redisSvc = this.redisSvc;
+      try {
+        const [cachedData, redisError] = await redisSvc.get(redisKey);
+        if (redisError) {
+          this.logger.error("Redis error:", redisError);
+        } else if (cachedData !== null) {
+          result = JSON.parse(cachedData);
+          APIResponseOK(req, res, result, "SUCCESS");
+          return;
+        }
+      } catch (redisErr) {
+        this.logger.error("Redis connection error:", redisErr);
+      }
+
+      result =
         await this.platformHdlrImpl.GetConsolePlatformOverviewAnalyticsLogic();
+
+      if (result instanceof Error) {
+        result = [];
+      }
+      if (result && Object.keys(result).length > 0) {
+        try {
+          const [setResult, setError] = await redisSvc.set(
+            redisKey,
+            JSON.stringify(result),
+            1800
+          );
+          if (setError) {
+            this.logger.error("Failed to cache data:", setError);
+          } else {
+            this.logger.info("Data cached successfully", setResult);
+          }
+        } catch (cacheErr) {
+          this.logger.error("Failed to cache data:", cacheErr);
+        }
+      }
       APIResponseOK(req, res, result, "Platform overview fetched successfully");
     } catch (e) {
       APIResponseInternalErr(
