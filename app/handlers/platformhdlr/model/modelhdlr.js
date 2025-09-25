@@ -1402,7 +1402,7 @@ export default class ModelHdlr {
                   message: "ModelImage must be at most 255 characters",
                 })
                 .regex(
-                  /^https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*$/i,
+                  /^(https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*)?$/i,
                   { message: "Invalid ModelImage URL format" }
                 )
                 .optional(),
@@ -1413,7 +1413,7 @@ export default class ModelHdlr {
                   message: "ModelIcon must be at most 255 characters",
                 })
                 .regex(
-                  /^https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*$/i,
+                  /^(https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*)?$/i,
                   { message: "Invalid ModelIcon URL format" }
                 )
                 .optional(),
@@ -1424,7 +1424,7 @@ export default class ModelHdlr {
                   message: "ModelManual must be at most 255 characters",
                 })
                 .regex(
-                  /^https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*$/i,
+                  /^(https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*)?$/i,
                   { message: "Invalid ModelManual URL format" }
                 )
                 .optional(),
@@ -1592,7 +1592,7 @@ export default class ModelHdlr {
                   message: "ModelImage must be at most 255 characters",
                 })
                 .regex(
-                  /^https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*$/i,
+                  /^(https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*)?$/i,
                   { message: "Invalid Modelimage URL format" }
                 )
                 .optional(),
@@ -1603,7 +1603,7 @@ export default class ModelHdlr {
                   message: "ModelIcon must be at most 255 characters",
                 })
                 .regex(
-                  /^https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*$/i,
+                  /^(https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*)?$/i,
                   { message: "Invalid ModelIcon URL format" }
                 )
                 .optional(),
@@ -1614,7 +1614,7 @@ export default class ModelHdlr {
                   message: "modelManual must be at most 255 characters",
                 })
                 .regex(
-                  /^https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*$/i,
+                  /^(https?:\/\/([a-z0-9\-]+)\.([a-z0-9\-]+)\.([a-z]+).*)?$/i,
                   { message: "Invalid ModelManual URL format" }
                 )
                 .optional(),
