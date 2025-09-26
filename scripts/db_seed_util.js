@@ -558,7 +558,8 @@ export async function seedVehicleModel(platformHdlrI, createdby, pgPoolTx) {
       const range = columns[6].trim();
       const battery_capacity = columns[7].trim();
       const co2_emission_factor = columns[8].trim();
-      const modelicon = columns[9].trim();
+      const fuel_price_factor = columns[9].trim();
+      const modelicon = columns[10].trim();
 
       if (vehiclecolour === "/") {
         vehiclecolour = "WHITE";
@@ -608,6 +609,7 @@ export async function seedVehicleModel(platformHdlrI, createdby, pgPoolTx) {
                 range: range,
                 battery_capacity: battery_capacity,
                 co2_emission_factor: co2_emission_factor,
+                fuel_price_factor: fuel_price_factor,
               },
             }, //modelinfo,
             false,

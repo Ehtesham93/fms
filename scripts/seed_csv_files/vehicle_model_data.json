@@ -13,7 +13,8 @@
         "brochurespecs": {
           "range": "136",
           "battery_capacity": "8.34",
-          "co2_emission_factor": "94.82"
+          "co2_emission_factor": "94.82",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -35,7 +36,8 @@
         "brochurespecs": {
           "range": "80",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -57,7 +59,8 @@
         "brochurespecs": {
           "range": "80",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -79,7 +82,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -101,7 +105,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -123,7 +128,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -145,7 +151,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -167,7 +174,8 @@
         "brochurespecs": {
           "range": "100",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -189,7 +197,8 @@
         "brochurespecs": {
           "range": "100",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -211,7 +220,8 @@
         "brochurespecs": {
           "range": "243",
           "battery_capacity": "11.77",
-          "co2_emission_factor": "94.82"
+          "co2_emission_factor": "94.82",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -233,7 +243,8 @@
         "brochurespecs": {
           "range": "243",
           "battery_capacity": "11.77",
-          "co2_emission_factor": "94.82"
+          "co2_emission_factor": "94.82",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -255,7 +266,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -277,7 +289,8 @@
         "brochurespecs": {
           "range": "85",
           "battery_capacity": "3.685",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -299,7 +312,8 @@
         "brochurespecs": {
           "range": "85",
           "battery_capacity": "3.685",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -321,7 +335,8 @@
         "brochurespecs": {
           "range": "80",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -343,7 +358,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -365,7 +381,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -387,7 +404,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -409,7 +427,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -431,7 +450,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -453,7 +473,8 @@
         "brochurespecs": {
           "range": "150",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -475,7 +496,8 @@
         "brochurespecs": {
           "range": "150",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -497,7 +519,8 @@
         "brochurespecs": {
           "range": "232",
           "battery_capacity": "21.3",
-          "co2_emission_factor": "129"
+          "co2_emission_factor": "129",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -519,7 +542,8 @@
         "brochurespecs": {
           "range": "232",
           "battery_capacity": "21.3",
-          "co2_emission_factor": "129"
+          "co2_emission_factor": "129",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -541,7 +565,8 @@
         "brochurespecs": {
           "range": "232",
           "battery_capacity": "21.3",
-          "co2_emission_factor": "129"
+          "co2_emission_factor": "129",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -563,7 +588,8 @@
         "brochurespecs": {
           "range": "80",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -585,7 +611,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -607,7 +634,8 @@
         "brochurespecs": {
           "range": "85",
           "battery_capacity": "3.685",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -629,7 +657,8 @@
         "brochurespecs": {
           "range": "85",
           "battery_capacity": "3.685",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -651,7 +680,8 @@
         "brochurespecs": {
           "range": "85",
           "battery_capacity": "3.685",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -673,7 +703,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -695,7 +726,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -717,7 +749,8 @@
         "brochurespecs": {
           "range": "100",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -739,7 +772,8 @@
         "brochurespecs": {
           "range": "100",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -761,7 +795,8 @@
         "brochurespecs": {
           "range": "100",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -783,7 +818,8 @@
         "brochurespecs": {
           "range": "232",
           "battery_capacity": "21.3",
-          "co2_emission_factor": "129"
+          "co2_emission_factor": "129",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -805,7 +841,8 @@
         "brochurespecs": {
           "range": "232",
           "battery_capacity": "21.3",
-          "co2_emission_factor": "129"
+          "co2_emission_factor": "129",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -827,7 +864,8 @@
         "brochurespecs": {
           "range": "136",
           "battery_capacity": "8.34",
-          "co2_emission_factor": "94.82"
+          "co2_emission_factor": "94.82",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -849,7 +887,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -871,7 +910,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -893,7 +933,8 @@
         "brochurespecs": {
           "range": "110",
           "battery_capacity": "7.37",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -915,7 +956,8 @@
         "brochurespecs": {
           "range": "150",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -937,7 +979,8 @@
         "brochurespecs": {
           "range": "150",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "73.8"
+          "co2_emission_factor": "73.8",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -959,7 +1002,8 @@
         "brochurespecs": {
           "range": "100",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -981,7 +1025,8 @@
         "brochurespecs": {
           "range": "100",
           "battery_capacity": "10.24",
-          "co2_emission_factor": "131.61"
+          "co2_emission_factor": "131.61",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -1003,7 +1048,8 @@
         "brochurespecs": {
           "range": "232",
           "battery_capacity": "21.3",
-          "co2_emission_factor": "129"
+          "co2_emission_factor": "129",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -1025,7 +1071,8 @@
         "brochurespecs": {
           "range": "232",
           "battery_capacity": "21.3",
-          "co2_emission_factor": "129"
+          "co2_emission_factor": "129",
+          "fuel_price_factor": "91.0"
         }
       },
       "isenabled": false,
@@ -1047,7 +1094,8 @@
         "brochurespecs": {
           "range": "136",
           "battery_capacity": "8.34",
-          "co2_emission_factor": "94.82"
+          "co2_emission_factor": "94.82",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -1069,7 +1117,8 @@
         "brochurespecs": {
           "range": "136",
           "battery_capacity": "8.34",
-          "co2_emission_factor": "94.82"
+          "co2_emission_factor": "94.82",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
@@ -1091,7 +1140,8 @@
         "brochurespecs": {
           "range": "136",
           "battery_capacity": "8.34",
-          "co2_emission_factor": "94.82"
+          "co2_emission_factor": "94.82",
+          "fuel_price_factor": "102.0"
         }
       },
       "isenabled": false,
