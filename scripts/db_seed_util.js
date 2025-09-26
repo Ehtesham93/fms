@@ -777,14 +777,16 @@ export async function seedVehicleModelFamilyParam(pgPoolTx, createdby) {
       const paramcode = columns[2].trim();
       const paramvalue = columns[3].trim();
       const isenabled = columns[4].trim();
+      const odozeroprocessing = true;
       if (modelfamilycode) {
-        let stmt = `INSERT INTO vehicle_modelfamily_param (modelfamilycode, paramfamilycode, paramcode, paramvalue, isenabled, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (modelfamilycode, paramfamilycode, paramcode) DO NOTHING`;
+        let stmt = `INSERT INTO vehicle_modelfamily_param (modelfamilycode, paramfamilycode, paramcode, paramvalue, isenabled, odozeroprocessing, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (modelfamilycode, paramfamilycode, paramcode) DO NOTHING`;
         let res = await pgPoolTx.query(stmt, [
           modelfamilycode,
           paramfamilycode,
           paramcode,
           paramvalue,
           isenabled,
+          odozeroprocessing,
           currtime,
           createdby,
           currtime,

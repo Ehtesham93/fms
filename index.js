@@ -42,8 +42,8 @@ const myFormat = winston.format.printf(
 const logger = new Logger({
   environment: process.env.APP_ENV || "LOCAL",
   service: "nemo3-api-fms-svc",
-  instance: process.env.INSTANCE || "localhost",
-  ip: process.env.IP || "127.0.0.1",
+  instance: process.env.TASK_ARN || "localhost",
+  ip: process.env.TASK_IP || "127.0.0.1",
   loglevel: "info",
   logToConsole: config.logToConsole || false,
   maxSizeBytes: 10 * 1024 * 1024, // 10MB
