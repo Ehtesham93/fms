@@ -578,7 +578,7 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (reviewed_by) REFERENCES users (userid),
         FOREIGN KEY (modelcode) REFERENCES vehicle_model (modelcode)
     );
-    
+
 CREATE TABLE IF NOT EXISTS
     tagged_vehicle (
         srcaccountid uuid NOT NULL,
@@ -1158,10 +1158,7 @@ CREATE TABLE IF NOT EXISTS
     );
 
 CREATE TABLE IF NOT EXISTS
-    tgu_model (
-        tgu_model text NOT NULL,
-        PRIMARY KEY (tgu_model)
-    );
+    tgu_model (tgu_model text NOT NULL, PRIMARY KEY (tgu_model));
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_deleteduser_userid ON deleteduser (deleteduser_id);

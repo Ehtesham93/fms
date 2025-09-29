@@ -52,8 +52,8 @@ async function main() {
   const logger = new Logger({
     environment: process.env.APP_ENV || "LOCAL",
     service: "nemo3-api-fms-svc",
-    instance: process.env.INSTANCE || "localhost",
-    ip: process.env.IP || "127.0.0.1",
+    instance: process.env.TASK_ARN || "localhost",
+    ip: process.env.TASK_IP || "127.0.0.1",
     loglevel: "info",
     logToConsole: true,
     maxSizeBytes: 10 * 1024 * 1024, // 10MB
@@ -64,7 +64,7 @@ async function main() {
   });
 
   // pgpool config
-let pgDBCfg = config.pgdb;
+  let pgDBCfg = config.pgdb;
 
   if (process.env.TEST_SCHEMA) {
     pgDBCfg = { ...pgDBCfg, schema: process.env.TEST_SCHEMA };
@@ -72,29 +72,29 @@ let pgDBCfg = config.pgdb;
   }
 
   // Initialize services like in index.js
-let servicelogger = logger;
-let pgPoolI = new PgPool(config.pgdb, servicelogger);
-let inMemCacheI = new NodeCache(config.inMemCache);
-let redisSvc = new RedisSvc(config.redis, servicelogger);
+  let servicelogger = logger;
+  let pgPoolI = new PgPool(config.pgdb, servicelogger);
+  let inMemCacheI = new NodeCache(config.inMemCache);
+  let redisSvc = new RedisSvc(config.redis, servicelogger);
 
-let authSvcI = new AuthSvc(config, servicelogger);
-let userSvcI = new UserSvc(pgPoolI, config, servicelogger);
-let platformSvcI = new PlatformSvc(pgPoolI, servicelogger, config);
-let fmsAccountSvcI = new FmsAccountSvc(pgPoolI, servicelogger, config);
-let historyDataSvcI = new HistoryDataSvc(pgPoolI, servicelogger);
-let emailSvcI = new EmailSvc(pgPoolI, config, servicelogger);
-emailSvcI.Start();
+  let authSvcI = new AuthSvc(config, servicelogger);
+  let userSvcI = new UserSvc(pgPoolI, config, servicelogger);
+  let platformSvcI = new PlatformSvc(pgPoolI, servicelogger, config);
+  let fmsAccountSvcI = new FmsAccountSvc(pgPoolI, servicelogger, config);
+  let historyDataSvcI = new HistoryDataSvc(pgPoolI, servicelogger);
+  let emailSvcI = new EmailSvc(pgPoolI, config, servicelogger);
+  emailSvcI.Start();
 
-let platformHdlrI = new PlatformHdlr(
-  platformSvcI,
-  userSvcI,
-  authSvcI,
-  fmsAccountSvcI,
-  historyDataSvcI,
-  inMemCacheI,
-  redisSvc,
-  servicelogger
-);
+  let platformHdlrI = new PlatformHdlr(
+    platformSvcI,
+    userSvcI,
+    authSvcI,
+    fmsAccountSvcI,
+    historyDataSvcI,
+    inMemCacheI,
+    redisSvc,
+    servicelogger
+  );
 
   // should we first clear the database?
   let clearDB = process.env.CLEAR_DB === "true";

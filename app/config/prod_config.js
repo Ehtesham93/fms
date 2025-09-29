@@ -49,7 +49,7 @@ export default {
       "http://10.100.19.61:8123",
     ],
     username: "default",
-    password: "",
+    password: "lmm@nemo",
     database: "lmmdata",
     maxBatchDataSize: 25000,
     maxParallelRequests: 100000,

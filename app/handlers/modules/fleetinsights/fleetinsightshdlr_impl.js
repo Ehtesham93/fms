@@ -1657,7 +1657,7 @@ export default class FleetInsightsHdlrImpl {
             canCO2EmissionsSaved =
               (iceco2emission - electricco2emission) / 1000000;
             canTreesSaved = (canCO2EmissionsSaved * 1000) / 21.77;
-            canFuelCostSaved = canDistance / milageoficevehicle;
+            canFuelCostSaved = (canDistance / milageoficevehicle) * canmodelinfo.fuel_price_factor;
             vehiclecontribution.push({
               vin,
               fuelsaved: `₹${this.rupeeToFormattedString(canFuelCostSaved)}`,
@@ -1717,7 +1717,7 @@ export default class FleetInsightsHdlrImpl {
             canCO2EmissionsSaved =
               (iceco2emission - electricco2emission) / 1000000;
             canTreesSaved = (canCO2EmissionsSaved * 1000) / 21.77;
-            canFuelCostSaved = canDistance / milageoficevehicle;
+            canFuelCostSaved = (canDistance / milageoficevehicle) * canmodelinfo.fuel_price_factor;
 
             fuelcostsaved += canFuelCostSaved;
             treesaved += canTreesSaved;
