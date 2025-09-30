@@ -502,6 +502,9 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (createdby) REFERENCES users (userid),
         FOREIGN KEY (updatedby) REFERENCES users (userid),
         FOREIGN KEY (modelcode) REFERENCES vehicle_model (modelcode) ON UPDATE CASCADE ON DELETE RESTRICT
+        FOREIGN KEY (color) REFERENCES color (colorname) ON UPDATE CASCADE ON DELETE RESTRICT
+        FOREIGN KEY (vehicle_city) REFERENCES city (cityname) ON UPDATE CASCADE ON DELETE RESTRICT
+        FOREIGN KEY (dealer) REFERENCES dealer (dealername) ON UPDATE CASCADE ON DELETE RESTRICT
     );
 
 CREATE TABLE IF NOT EXISTS

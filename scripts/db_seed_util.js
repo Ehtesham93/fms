@@ -3,7 +3,6 @@
 import fs from "fs";
 import path from "path";
 import config from "../app/config/config.js";
-import { query } from "express";
 
 function parseCSVLine(line) {
   const result = [];
@@ -781,7 +780,7 @@ export async function seedVehicleModelFamilyParam(pgPoolTx, createdby) {
       const isenabled = columns[4].trim();
       const odozeroprocessing = true;
       if (modelfamilycode) {
-        let stmt = `INSERT INTO vehicle_modelfamily_param (modelfamilycode, paramfamilycode, paramcode, paramvalue, isenabled, odozeroprocessing, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (modelfamilycode, paramfamilycode, paramcode) DO NOTHING`;
+        let stmt = `INSERT INTO vehicle_modelfamily_param (modelfamilycode, paramfamilycode, paramcode, paramvalue, isenabled, odozeroprocessing, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (modelfamilycode, paramfamilycode, paramcode) DO NOTHING`;
         let res = await pgPoolTx.query(stmt, [
           modelfamilycode,
           paramfamilycode,
@@ -1358,91 +1357,5 @@ export async function seedTGUSwVersion(pgPoolTx) {
   } catch (error) {
     console.error(`Error seeding TGU software version: ${error.message}`);
     throw new Error(`Failed to seed TGU software version: ${error.message}`);
-  }
-}
-
-export async function testOnboardVehicle(platformHdlrI, pgPoolTx, createdby) {
-  try {
-    const query = `SELECT vin, customercontactmobile, vehiclecity, dealer, delivereddate, engineno, fueltype, licenseplate, vehiclecolour, vehiclemodel, vehiclevariant, retailssaledate FROM nemo2.dms_data where customertype = 'Individual'`;
-    const result = await pgPoolTx.query(query);
-    console.log(`Found ${result.rows.length} vehicles to onboard`);
-    for (const vehicle of result.rows) {
-      try {
-        const vehicleData = {
-          vin: vehicle.vin,
-          vehicleModel: vehicle.vehiclemodel || "TREO",
-          vehicleVariant: vehicle.vehiclevariant || "hrt",
-          mobileNo: vehicle.customercontactmobile,
-          dealer: vehicle.dealer,
-          deliveredDate: vehicle.delivereddate,
-          engineNo: vehicle.engineno,
-          fuelType: vehicle.fueltype,
-          licensePlate: vehicle.licenseplate,
-          retailsSaleDate: vehicle.retailssaledate,
-          vehicleCity: vehicle.vehiclecity,
-          vehicleColour: vehicle.vehiclecolour,
-        };
-
-        // Call the OnboardVehicleLogic directly
-        const onboardResult =
-          await platformHdlrI.vehicleHdlr.vehicleHdlrImpl.OnboardVehicleLogic(
-            vehicleData,
-            createdby
-          );
-
-        console.log(
-          `Successfully onboarded vehicle: ${vehicle.vin}`,
-          onboardResult
-        );
-      } catch (error) {
-        console.error(
-          `Failed to onboard vehicle ${vehicle.vin}:`,
-          error.message
-        );
-        // Continue with next vehicle instead of stopping
-      }
-    }
-  } catch (error) {
-    console.error(`Error executing query: ${error.message}`);
-    throw new Error(`Failed to execute query: ${error.message}`);
-  }
-}
-
-export async function testOnboardUserAccount(
-  platformHdlrI,
-  pgPoolTx,
-  createdby
-) {
-  try {
-    const query = `SELECT corporatetype, customeraddress, customeraddresscity, customeraddresscountry, customeraddresspincode, customercontactemail, customercontactmobile, customerdateofbirth, customergender, customername, customertype, nemo_user_mobile, licenseplate, vin FROM nemo2.dms_data where customertype = 'Individual'`;
-    const result = await pgPoolTx.query(query);
-    console.log(`Found ${result.rows.length} data to onboard`);
-    for (const data of result.rows) {
-      const onboardResult =
-        await platformHdlrI.pUserHdlr.pUserHdlrImpl.OnboardUserAccountLogic(
-          createdby,
-          data.corporatetype,
-          data.customeraddress,
-          data.customeraddresscity,
-          data.customeraddresscountry,
-          data.customeraddresspincode,
-          data.customercontactemail,
-          data.customercontactmobile,
-          data.customerdateofbirth,
-          data.customergender,
-          data.customername,
-          data.customertype,
-          data.licenseplate,
-          data.vin,
-          data.nemo_user_mobile
-        );
-      console.log(
-        `Successfully onboarded user account: ${data.nemo_user_mobile}`,
-        onboardResult
-      );
-    }
-  } catch (error) {
-    console.error(`Error executing query: ${error.message}`);
-    throw new Error(`Failed to execute query: ${error.message}`);
   }
 }

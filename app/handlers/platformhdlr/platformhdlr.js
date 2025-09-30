@@ -17,6 +17,7 @@ import PlatformHdlrImpl from "./platformhdlr_impl.js";
 import RoleHdlr from "./role/rolehdlr.js";
 import PUserHdlr from "./user/puserhdlr.js";
 import VehicleHdlr from "./vehicle/vehiclehdlr.js";
+import MetaHdlr from "./meta/metahdlr.js";
 import { CheckUserPerms } from "../../utils/permissionutil.js";
 import { CheckUserStatusMiddleware } from "../../utils/permissionutil.js";
 export default class PlatformHdlr {
@@ -81,6 +82,7 @@ export default class PlatformHdlr {
       logger
     );
     this.vehicleHdlr = new VehicleHdlr(platformSvcI, historyDataSvcI, logger);
+    this.metaHdlr = new MetaHdlr(platformSvcI.getMetaSvc(), logger);
   }
 
   GetUserPermsHelper = async (req, res, next) => {
@@ -127,6 +129,12 @@ export default class PlatformHdlr {
     modelRouter.use(this.GetUserPermsHelper);
     this.modelHdlr.RegisterRoutes(modelRouter);
     router.use("/model", modelRouter);
+
+    let metaRouter = promiserouter();
+    metaRouter.use(AuthenticateUserTokenFromCookie);
+    metaRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
+    this.metaHdlr.RegisterRoutes(metaRouter);
+    router.use("/meta", metaRouter);
 
     const authRouter = promiserouter();
     authRouter.use(AuthenticateUserTokenFromCookie);
@@ -230,8 +238,9 @@ export default class PlatformHdlr {
         userid: req.userid,
       });
 
-      let result =
-        await this.platformHdlrImpl.GetConsolePermissionsLogic(userid);
+      let result = await this.platformHdlrImpl.GetConsolePermissionsLogic(
+        userid
+      );
       APIResponseOK(req, res, result, "Console home page fetched successfully");
     } catch (e) {
       this.logger.error("GetConsoleHomePage error: ", e);

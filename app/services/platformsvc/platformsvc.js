@@ -5,6 +5,7 @@ import PackageSvc from "./package/packagesvc.js";
 import PUserSvc from "./user/pusersvc.js";
 import AccountSvc from "./account/accountsvc.js";
 import ModelSvc from "./model/modelsvc.js";
+import MetaSvc from "./meta/metasvc.js";
 export default class PlatformSvc {
   constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
@@ -17,6 +18,7 @@ export default class PlatformSvc {
     this.pUserSvc = new PUserSvc(pgPoolI, logger);
     this.accountSvc = new AccountSvc(pgPoolI, logger, config);
     this.modelSvc = new ModelSvc(pgPoolI, logger);
+    this.metaSvc = new MetaSvc(pgPoolI, logger);
   }
 
   async GetAllPlatformModulesInfo() {
@@ -45,6 +47,10 @@ export default class PlatformSvc {
 
   getModelSvc() {
     return this.modelSvc;
+  }
+
+  getMetaSvc() {
+    return this.metaSvc;
   }
 
   async CreateVehicle(vinno, modelcode, vehicleinfo, mobileno, assignedby) {

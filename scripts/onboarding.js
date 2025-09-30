@@ -2,8 +2,7 @@
 import NodeCache from "node-cache";
 import configdata from "../app/config/config.js";
 import PgPool from "../app/utils/pgpool.js";
-import RedisSvc from "../app/utils/redissvc.js";
-import { testOnboardVehicle, testOnboardUserAccount } from "./db_seed_util.js";
+import { testInternalOnboardVehicle, testInternalOnboardUserAccount, testOnboardUserAccount, testOnboardVehicle , updateVehicleModelVariant} from "./testOnboardingapis.js";
 import HealthHdlr from "../app/handlers/healthhdlr/healthhdlr.js";
 import ChargeInsightHdlr from "../app/handlers/modules/chargeinsights/chargeinsightshdlr.js";
 import FleetInsightHdlr from "../app/handlers/modules/fleetinsights/fleetinsightshdlr.js";
@@ -15,7 +14,6 @@ import PlatformHdlr from "../app/handlers/platformhdlr/platformhdlr.js";
 import PublicHdlr from "../app/handlers/publichdlr/publichdlr.js";
 import UserHdlr from "../app/handlers/userhdlr/userhdlr.js";
 import AuthSvc from "../app/services/external/authsvc/authsvc.js";
-import EmailSvc from "../app/services/external/emailsvc/emailsvc.js";
 import FmsSvc from "../app/services/fmssvc/fmssvc.js";
 import HealthSvc from "../app/services/healthsvc/healthsvc.js";
 import ChargeInsightSvc from "../app/services/modules/chargeinsights/chargeinsightssvc.js";
@@ -53,22 +51,12 @@ async function main() {
   let servicelogger = logger;
   let pgPool = new PgPool(pgDBCfg, servicelogger);
   let inMemCacheI = new NodeCache(configdata.inMemCache);
-  let redisSvc = new RedisSvc(configdata.redis, servicelogger);
-
-  let healthSvcI = new HealthSvc();
   let authSvcI = new AuthSvc(configdata, servicelogger);
   let userSvcI = new UserSvc(pgPool, configdata, servicelogger);
   let platformSvcI = new PlatformSvc(pgPool, servicelogger);
-  let fmsSvcI = new FmsSvc(pgPool, servicelogger);
   let fmsAccountSvcI = new FmsAccountSvc(pgPool, servicelogger);
   let historyDataSvcI = new HistoryDataSvc(pgPool, servicelogger);
-  let livetrackingSvcI = new LivetrackingSvc(pgPool, servicelogger);
-  let tripsInsightSvcI = new TripsInsightSvc(pgPool, servicelogger);
-  let chargeInsightSvcI = new ChargeInsightSvc(pgPool, servicelogger);
-  let fleetInsightSvcI = new FleetInsightSvc(pgPool, servicelogger);
 
-  // Initialize handlers like in index.js
-  let healthHdlrI = new HealthHdlr(healthSvcI);
   let platformHdlrI = new PlatformHdlr(
     platformSvcI,
     userSvcI,
@@ -78,61 +66,7 @@ async function main() {
     inMemCacheI,
     servicelogger
   );
-  let userHdlrI = new UserHdlr(
-    userSvcI,
-    authSvcI,
-    fmsSvcI,
-    platformSvcI,
-    configdata,
-    servicelogger
-  );
-  let fmsAccountHdlrI = new FmsAccountHdlr(
-    fmsAccountSvcI,
-    userSvcI,
-    servicelogger,
-    platformSvcI,
-    inMemCacheI
-  );
-  let historyDataHdlrI = new HistoryDataHdlr(
-    historyDataSvcI,
-    fmsAccountSvcI,
-    servicelogger
-  );
-  let livetrackingHdlrI = new LivetrackingHdlr(
-    livetrackingSvcI,
-    fmsAccountSvcI,
-    userSvcI,
-    servicelogger
-  );
-  let tripsInsightHdlrI = new TripsInsightHdlr(
-    tripsInsightSvcI,
-    fmsAccountSvcI,
-    userSvcI,
-    servicelogger
-  );
-  let chargeInsightHdlrI = new ChargeInsightHdlr(
-    chargeInsightSvcI,
-    fmsAccountSvcI,
-    tripsInsightSvcI,
-    userSvcI,
-    servicelogger
-  );
-  let fleetInsightHdlrI = new FleetInsightHdlr(
-    fleetInsightSvcI,
-    fmsAccountSvcI,
-    userSvcI,
-    servicelogger
-  );
 
-  let publicHdlrI = new PublicHdlr(
-    userSvcI,
-    authSvcI,
-    fmsSvcI,
-    platformSvcI,
-    inMemCacheI,
-    configdata,
-    servicelogger
-  );
 
   try {
     let userid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
@@ -147,6 +81,9 @@ async function main() {
       // ✅ FIX: Execute operations within transaction
       await testOnboardVehicle(platformHdlrI, tx, userid);
       await testOnboardUserAccount(platformHdlrI, tx, userid);
+      await testInternalOnboardVehicle(platformHdlrI, tx, userid);
+      await testInternalOnboardUserAccount(platformHdlrI, tx, userid);
+      await updateVehicleModelVariant(tx);
 
       // ✅ FIX: Commit transaction - don't destructure
       let commitResult = await pgPool.TxCommit(tx);

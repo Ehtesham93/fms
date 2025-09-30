@@ -341,10 +341,20 @@ export default class VehicleHdlrImpl {
       .trim(); // Trim leading and trailing whitespaces
   };
 
+  preprocessingDealer = (name) => {
+    if (!name || typeof name !== "string") {
+      return ""; // Return empty string for undefined, null, or non-string values
+    }
+    return name
+      .toUpperCase() // Convert to uppercase
+      .replace(/\s+/g, " ") // Replace multiple whitespaces with single space
+      .trim(); // Trim leading and trailing whitespaces
+  };
+
   OnboardVehicleLogic = async (vehicleData, entrytype, createdOrUpdatedBy) => {
     this.onboardingType = entrytype;
     const { vin, vehicleModel, vehicleVariant, ...otherFields } = vehicleData;
-    vehicleData.dealer = this.preprocessingText(vehicleData.dealer);
+    vehicleData.dealer = this.preprocessingDealer(vehicleData.dealer);
     vehicleData.deliveredDate = this.convertDateFormat(
       vehicleData.deliveredDate
     );
@@ -354,19 +364,16 @@ export default class VehicleHdlrImpl {
     vehicleData.vehicleColour = this.preprocessingText(
       vehicleData.vehicleColour
     );
-    try {
-      // Case 1: Vehicle already exists - just return
-      let vehicleExists = await this.platformSvcI.CheckVehicleExists(vin);
+    // Case 1: Vehicle already exists - just return
+    let vehicleExists = await this.platformSvcI.CheckVehicleExists(vin);
+    if (vehicleExists) {
       if (vehicleExists) {
-        return {
-          action: "already_exists",
-          vinno: vin,
-          modelcode: vehicleExists.modelcode,
-          vehicleinfo: vehicleExists.vehicleinfo,
-          message: "Vehicle already exists",
-        };
+        let error = new Error(`Vehicle with vinno: ${vin} and vehiclemodel: ${vehicleExists.vehiclemodel} already exists`);
+        error.errcode = "VEHICLE_ALREADY_EXISTS";
+        throw error;
       }
-
+    }
+    try {
       // Case 2: Check if pending table entry exists
       let pendingCheck = await this.platformSvcI.CheckVehicleInPending(vin);
 
