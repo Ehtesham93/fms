@@ -59,25 +59,23 @@ export default class PlatformSvcDB {
       }
 
       // get model details
-      query = `
-            SELECT modeldisplayname, modelname, modelvariant FROM vehicle_model WHERE modelcode = $1
-        `;
-      result = await this.pgPoolI.Query(query, [modelcode]);
-      if (result.rowCount === 0) {
-        throw new Error("Model not found");
-      }
-      let modelname = result.rows[0].modelname;
-      let modelvariant = result.rows[0].modelvariant;
+      // query = `
+      //       SELECT modeldisplayname, modelname, modelvariant FROM vehicle_model WHERE modelcode = $1
+      //   `;
+      // result = await this.pgPoolI.Query(query, [modelcode]);
+      // if (result.rowCount === 0) {
+      //   throw new Error("Model not found");
+      // }
+      // let modelname = result.rows[0].modelname;
+      // let modelvariant = result.rows[0].modelvariant;
 
       query = `
-            INSERT INTO vehicle (vinno, modelcode, mobile, vehiclevariant, vehiclemodel, vehicleinfo, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO vehicle (vinno, modelcode, mobile, vehicleinfo, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
         `;
       result = await this.pgPoolI.Query(query, [
         vinno,
         modelcode,
         mobileno,
-        modelvariant,
-        modelname,
         vehicleinfo,
         currtime,
         assignedby,
@@ -374,7 +372,7 @@ export default class PlatformSvcDB {
 
   async getVehicleInfo(vinno) {
     let query = `
-      SELECT v.vinno, v.vehiclevariant as modelvariant, v.vehiclemodel as modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, v.mobile, COALESCE(v.license_plate, v.vinno) as regno, v.color, v.vehicle_city, v.dealer, v.delivered, v.delivered_date, v.data_freq, v.tgu_model, v.tgu_sw_version, v.tgu_phone_no, v.tgu_imei_no, v.createdat, u1.displayname as createdby, v.updatedat, u2.displayname as updatedby
+      SELECT v.vinno, vm.modelvariant, vm.modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, v.mobile, COALESCE(v.license_plate, v.vinno) as regno, v.color, v.vehicle_city, v.dealer, v.delivered, v.delivered_date, v.data_freq, v.tgu_model, v.tgu_sw_version, v.tgu_phone_no, v.tgu_imei_no, v.createdat, u1.displayname as createdby, v.updatedat, u2.displayname as updatedby
       FROM vehicle v
       JOIN users u1 ON v.createdby = u1.userid
       JOIN users u2 ON v.updatedby = u2.userid
@@ -1263,7 +1261,7 @@ export default class PlatformSvcDB {
   async getConsoleAccountAssignmentHistory(accountid, starttime, endtime) {
     try {
       const result = await this.pgPoolI.Query(
-        "SELECT fvh.vinno, COALESCE(NULLIF(v.license_plate, ''), fvh.vinno) AS regno, v.vehiclemodel, fvh.isowner, fvh.accvininfo, fvh.assignedat, u2.displayname as assignedby, fvh.updatedat, u1.displayname as updatedby, fvh.action FROM fleet_vehicle_history as fvh JOIN users u1 ON fvh.updatedby = u1.userid JOIN users u2 ON fvh.assignedby = u2.userid JOIN vehicle v ON fvh.vinno = v.vinno WHERE fvh.accountid = $1 AND fvh.updatedat >= ($2) AND fvh.updatedat <= ($3)",
+        "SELECT fvh.vinno, COALESCE(NULLIF(v.license_plate, ''), fvh.vinno) AS regno, vm.modelname as vehiclemodel, fvh.isowner, fvh.accvininfo, fvh.assignedat, u2.displayname as assignedby, fvh.updatedat, u1.displayname as updatedby, fvh.action FROM fleet_vehicle_history as fvh JOIN users u1 ON fvh.updatedby = u1.userid JOIN users u2 ON fvh.assignedby = u2.userid JOIN vehicle v ON fvh.vinno = v.vinno JOIN vehicle_model vm ON v.modelcode = vm.modelcode WHERE fvh.accountid = $1 AND fvh.updatedat >= ($2) AND fvh.updatedat <= ($3)",
         [accountid, new Date(starttime), new Date(endtime)]
       );
       return result.rows;

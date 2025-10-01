@@ -54,4 +54,14 @@ export default class MetaHdlrImpl {
   DeleteVehicleColorLogic = async (colorcode) => {
     return await this.metaSvcI.DeleteVehicleColor(colorcode);
   };
+
+  IsColorNameAvailableLogic = async (colorname) => {
+    return await this.metaSvcI.IsColorNameAvailable(colorname);
+  };
+  IsDealerNameAvailableLogic = async (dealername) => {
+    return await this.metaSvcI.IsDealerNameAvailable(dealername);
+  };
+  IsCityNameAvailableLogic = async (cityname) => {
+    return await this.metaSvcI.IsCityNameAvailable(cityname);
+  };
 }

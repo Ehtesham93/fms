@@ -1477,7 +1477,7 @@ export default class FmsAccountSvcDB {
           )
           SELECT fv.accountid, fv.fleetid, fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, 
                  fv.assignedat, fv.updatedat, u1.displayname as assignedby, u2.displayname as updatedby,
-                 v.vehiclevariant, v.vehiclemodel, v.modelcode, v.vehicleinfo, v.delivered_date, v.vehicle_city, vm.modeldisplayname, af.isroot
+                 vm.modelvariant as vehiclevariant, vm.modelname as vehiclemodel, v.modelcode, v.vehicleinfo, v.delivered_date, v.vehicle_city, vm.modeldisplayname, af.isroot
           FROM fleet_vehicle fv
           JOIN vehicle v ON fv.vinno = v.vinno
           JOIN users u1 ON fv.assignedby = u1.userid
@@ -1491,7 +1491,7 @@ export default class FmsAccountSvcDB {
         query = `
           SELECT fv.accountid, fv.fleetid, fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, 
                  fv.assignedat, fv.updatedat, u1.displayname as assignedby, u2.displayname as updatedby,
-                 v.vehiclevariant, v.vehiclemodel, v.modelcode, vm.modeldisplayname, v.vehicleinfo, v.delivered_date, v.vehicle_city, af.isroot
+                 vm.modelvariant as vehiclevariant, vm.modelname as vehiclemodel, v.modelcode, vm.modeldisplayname, v.vehicleinfo, v.delivered_date, v.vehicle_city, af.isroot
           FROM fleet_vehicle fv
           JOIN vehicle v ON fv.vinno = v.vinno
           JOIN users u1 ON fv.assignedby = u1.userid
@@ -4297,9 +4297,10 @@ export default class FmsAccountSvcDB {
 
       // Check if all vehicles exist and belong to source account
       query = `
-        SELECT fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.accvininfo, v.vehiclevariant, v.vehiclemodel, v.vehicleinfo
+        SELECT fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.accvininfo, vm.modelvariant as vehiclevariant, vm.modelname as vehiclemodel, v.vehicleinfo
         FROM fleet_vehicle fv
         JOIN vehicle v ON fv.vinno = v.vinno
+        JOIN vehicle_model vm ON v.modelcode = vm.modelcode
         WHERE fv.accountid = $1 AND fv.vinno IN (${vinList})
       `;
       result = await txclient.query(query, [srcaccountid]);
@@ -4745,9 +4746,10 @@ export default class FmsAccountSvcDB {
 
       // Check which vehicles are currently tagged
       query = `
-        SELECT tv.vinno, tv.isactive, tv.allow_retag, tv.taggedat, v.vehiclevariant, v.vehiclemodel
+        SELECT tv.vinno, tv.isactive, tv.allow_retag, tv.taggedat, vm.modelvariant as vehiclevariant, vm.modelname as vehiclemodel
         FROM tagged_vehicle tv
         JOIN vehicle v ON tv.vinno = v.vinno
+        JOIN vehicle_model vm ON v.modelcode = vm.modelcode
         WHERE tv.srcaccountid = $1 AND tv.dstaccountid = $2 AND tv.vinno IN (${vinList})
       `;
       result = await txclient.query(query, [srcaccountid, dstaccountid]);
@@ -5519,8 +5521,8 @@ export default class FmsAccountSvcDB {
         fv.accvininfo,
         fv.assignedat,
         fv.updatedat,
-        v.vehiclevariant,
-        v.vehiclemodel,
+        vm.modelvariant as vehiclevariant,
+        vm.modelname as vehiclemodel,
         v.modelcode,
         vm.modeldisplayname,
         v.vehicleinfo,

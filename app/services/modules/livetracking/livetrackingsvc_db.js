@@ -24,7 +24,7 @@ export default class LivetrackingsvcDB {
             )
             SELECT fv.accountid, fv.fleetid, fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, 
                    fv.assignedat, fv.updatedat, u1.displayname as assignedby, u2.displayname as updatedby,
-                   v.vehiclevariant as modelvariant, v.vehiclemodel as modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, af.isroot
+                   vm.modelvariant as modelvariant, vm.modelname as modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, af.isroot
             FROM fleet_vehicle fv
             JOIN vehicle v ON fv.vinno = v.vinno
             JOIN users u1 ON fv.assignedby = u1.userid
@@ -38,7 +38,7 @@ export default class LivetrackingsvcDB {
         query = `
             SELECT fv.accountid, fv.fleetid, fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, 
                    fv.assignedat, fv.updatedat, u1.displayname as assignedby, u2.displayname as updatedby,
-                   v.vehiclevariant as modelvariant, v.vehiclemodel as modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, af.isroot
+                   vm.modelvariant as modelvariant, vm.modelname as modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, af.isroot
             FROM fleet_vehicle fv
             JOIN vehicle v ON fv.vinno = v.vinno
             JOIN users u1 ON fv.assignedby = u1.userid
@@ -106,7 +106,7 @@ export default class LivetrackingsvcDB {
     // TODO: check if vinno is valid and with in the account and fleet
 
     let query = `
-      SELECT v.vinno, v.vehiclevariant as modelvariant, v.vehiclemodel as modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, v.mobile, COALESCE(v.license_plate, v.vinno) as license_plate, v.color, v.vehicle_city, v.dealer, v.delivered, v.delivered_date, v.data_freq, v.tgu_model, v.tgu_sw_version, v.tgu_phone_no, v.tgu_imei_no, v.createdat, u1.displayname as createdby, v.updatedat, u2.displayname as updatedby
+      SELECT v.vinno, vm.modelvariant, vm.modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, v.mobile, COALESCE(v.license_plate, v.vinno) as license_plate, v.color, v.vehicle_city, v.dealer, v.delivered, v.delivered_date, v.data_freq, v.tgu_model, v.tgu_sw_version, v.tgu_phone_no, v.tgu_imei_no, v.createdat, u1.displayname as createdby, v.updatedat, u2.displayname as updatedby
       FROM vehicle v
       JOIN users u1 ON v.createdby = u1.userid
       JOIN users u2 ON v.updatedby = u2.userid

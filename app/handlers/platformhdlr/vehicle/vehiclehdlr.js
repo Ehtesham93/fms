@@ -80,7 +80,7 @@ export default class VehicleHdlr {
           .string({ message: "Invalid VIN format" })
           .nonempty({ message: "VIN cannot be empty" })
           .length(17, { message: "VIN must be exactly 17 characters" })
-          .regex(/^MA[A-HJ-NPR-Z0-9]{15}$/, {
+          .regex(/^M[AB][A-HJ-NPR-Z0-9]{15}$/, {
             message: "Please enter a valid Indian VIN number starting with MA",
           }),
         modelcode: z

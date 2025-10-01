@@ -937,24 +937,25 @@ export default class PUserSvcDB {
         tgu_modelResult,
         tgu_sw_versionResult,
       ] = await Promise.all([
-        this.pgPoolI.Query("SELECT cityname FROM city"),
-        this.pgPoolI.Query("SELECT dealername FROM dealer"),
-        this.pgPoolI.Query("SELECT colorname from color"),
-        this.pgPoolI.Query("SELECT fueltypename FROM fueltype"),
-        this.pgPoolI.Query("SELECT tgu_model FROM tgu_model"),
-        this.pgPoolI.Query("SELECT tgu_sw_version FROM tgu_sw_version"),
+        this.pgPoolI.Query("SELECT citycode, cityname FROM city"),
+        this.pgPoolI.Query("SELECT dealercode, dealername FROM dealer"),
+        this.pgPoolI.Query("SELECT colorcode, colorname from color"),
+        this.pgPoolI.Query("SELECT fueltypecode, fueltypename FROM fueltype"),
+        this.pgPoolI.Query("SELECT tgu_model_code, tgu_model_name FROM tgu_model"),
+        this.pgPoolI.Query("SELECT tgu_sw_version_code, tgu_sw_version_name FROM tgu_sw_version"),
       ]);
 
       return {
-        city: cityResult.rows.map((row) => row.cityname),
-        dealer: dealerResult.rows.map((row) => row.dealername),
-        colour: colourResult.rows.map((row) => row.colorname),
-        fueltype: fueltypeResult.rows.map((row) => row.fueltypename),
-        tgu_model: tgu_modelResult.rows.map((row) => row.tgu_model),
+        city: cityResult.rows.map((row) => ({"citycode": row.citycode, "cityname": row.cityname})),
+        dealer: dealerResult.rows.map((row) => ({"dealercode": row.dealercode, "dealername": row.dealername})),
+        colour: colourResult.rows.map((row) => ({"colorcode": row.colorcode, "colorname": row.colorname})),
+        fueltype: fueltypeResult.rows.map((row) => ({"fueltypecode": row.fueltypecode, "fueltypename": row.fueltypename})),
+        tgu_model: tgu_modelResult.rows.map((row) => ({"tgu_model_code":row.tgu_model_code, "tgu_model_name":row.tgu_model_name})),
         tgu_sw_version: tgu_sw_versionResult.rows.map(
-          (row) => row.tgu_sw_version
+          (row) => ({"tgu_sw_version_code":row.tgu_sw_version_code
+          , "tgu_sw_version_name":row.tgu_sw_version_name})
         ),
-        gender: ["Male", "Female", "Other"],
+        gender: [{"gender_code": "Male", "gender_name": "Male"}, {"gender_code": "Female", "gender_name": "Female"}, {"gender_code": "Other", "gender_name": "Other"}],
       };
     } catch (error) {
       throw new Error("Failed to get vehicle metadata options");

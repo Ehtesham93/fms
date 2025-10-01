@@ -72,6 +72,17 @@ export default class MetaSvcDB {
   }
   async updateVehicleCity(citycode, cityname) {
     try {
+      // Check if cityname already exists
+      const existingCityName = await this.isCityNameAvailable(cityname);
+      if (!existingCityName.isavailable) {
+        const error = new Error("City name already exists");
+        error.errcode = "CITY_NAME_ALREADY_EXISTS";
+        error.errdata = {
+          cityname: cityname,
+        };
+        throw error;
+      }
+
       let query = `UPDATE city SET cityname = $1 WHERE citycode = $2`;
       let result = await this.pgPoolI.Query(query, [cityname.toUpperCase(), citycode.toUpperCase()]);
 
@@ -167,6 +178,17 @@ export default class MetaSvcDB {
 
   async updateVehicleDealer(dealercode, dealername) {
     try {
+      // Check if dealername already exists
+      const existingDealerName = await this.isDealerNameAvailable(dealername);
+      if (!existingDealerName.isavailable) {
+        const error = new Error("Dealer name already exists");
+        error.errcode = "DEALER_NAME_ALREADY_EXISTS";
+        error.errdata = {
+          dealername: dealername,
+        };
+        throw error;
+      }
+
       let query = `UPDATE dealer SET dealername = $1 WHERE dealercode = $2`;
       let result = await this.pgPoolI.Query(query, [dealername.toUpperCase(), dealercode.toUpperCase()]);
 
@@ -302,6 +324,17 @@ export default class MetaSvcDB {
 
   async updateVehicleColor(colorcode, colorname) {
     try {
+      // Check if colorname already exists
+      const existingColorName = await this.isColorNameAvailable(colorname);
+      if (!existingColorName.isavailable) {
+        const error = new Error("Color name already exists");
+        error.errcode = "COLOR_NAME_ALREADY_EXISTS";
+        error.errdata = {
+          colorname: colorname,
+        };
+        throw error;
+      }
+
       let query = `UPDATE color SET colorname = $1 WHERE colorcode = $2`;
       let result = await this.pgPoolI.Query(query, [colorname.toUpperCase(), colorcode.toUpperCase()]);
       if (result.rowCount !== 1) {

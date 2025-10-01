@@ -474,8 +474,6 @@ CREATE TABLE IF NOT EXISTS
 CREATE TABLE IF NOT EXISTS
     vehicle (
         vinno text NOT NULL,
-        vehiclevariant text NOT NULL,
-        vehiclemodel text NOT NULL,
         vehicleinfo jsonb NOT NULL,
         createdat timestamp with time zone NOT NULL,
         createdby uuid NOT NULL,
@@ -1156,12 +1154,19 @@ CREATE TABLE IF NOT EXISTS
 
 CREATE TABLE IF NOT EXISTS
     tgu_sw_version (
-        tgu_sw_version text NOT NULL,
-        PRIMARY KEY (tgu_sw_version)
+        tgu_sw_version_code text NOT NULL,
+        tgu_sw_version_name text NOT NULL,
+        PRIMARY KEY (tgu_sw_version_code),
+        UNIQUE (tgu_sw_version_name)
     );
 
 CREATE TABLE IF NOT EXISTS
-    tgu_model (tgu_model text NOT NULL, PRIMARY KEY (tgu_model));
+    tgu_model (
+        tgu_model_code text NOT NULL,
+        tgu_model_name text NOT NULL,
+        PRIMARY KEY (tgu_model_code),
+        UNIQUE (tgu_model_name)
+    );
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_deleteduser_userid ON deleteduser (deleteduser_id);

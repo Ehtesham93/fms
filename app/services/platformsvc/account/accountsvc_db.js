@@ -1408,7 +1408,7 @@ export default class AccountSvcDB {
   async getAccountVehicles(accountid) {
     try {
       let query = `
-            SELECT fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, v.vehiclevariant, v.vehiclemodel, v.modelcode, vm.modeldisplayname, v.vehicleinfo, 
+            SELECT fv.vinno, COALESCE(v.license_plate, v.vinno) as regno, fv.isowner, fv.accvininfo, vm.modelvariant as vehiclevariant, vm.modelname as vehiclemodel, v.modelcode, vm.modeldisplayname, v.vehicleinfo, 
             fv.assignedat, COALESCE(uab.displayname, 'Unknown User') as assignedby, fv.updatedat, COALESCE(uub.displayname, 'Unknown User') as updatedby, avs.startsat as subscriptionstartsat, avs.endsat as subscriptionendsat, avs.subscriptioninfo, 
             avs.state as subscriptionstate, avs.createdat as subscriptioncreatedat, avs.createdby as subscriptioncreatedby, 
             avs.updatedat as subscriptionupdatedat, avs.updatedby as subscriptionupdatedby

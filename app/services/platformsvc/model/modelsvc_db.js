@@ -1422,10 +1422,10 @@ export default class ModelSvcDB {
   async getAllModelsWithFamily() {
     try {
       let query = `
-        SELECT DISTINCT vehiclemodel as model, vehiclevariant as variant 
-        FROM vehicle 
-        GROUP BY vehiclemodel, vehiclevariant 
-        ORDER BY vehiclemodel
+        SELECT DISTINCT modelname as model, modelvariant as variant 
+        FROM vehicle_model
+        GROUP BY modelname, modelvariant 
+        ORDER BY modelname
       `;
 
       let result = await this.pgPoolI.Query(query);

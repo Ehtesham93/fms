@@ -51,4 +51,14 @@ export default class MetaSvc {
   DeleteVehicleColor = async (colorcode) => {
     return await this.metaSvcDB.deleteVehicleColor(colorcode);
   };
+
+  IsColorNameAvailable = async (colorname) => {
+    return await this.metaSvcDB.isColorNameAvailable(colorname);
+  };
+  IsDealerNameAvailable = async (dealername) => {
+    return await this.metaSvcDB.isDealerNameAvailable(dealername);
+  };
+  IsCityNameAvailable = async (cityname) => {
+    return await this.metaSvcDB.isCityNameAvailable(cityname);
+  };
 }

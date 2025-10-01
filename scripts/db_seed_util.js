@@ -1314,11 +1314,11 @@ export async function seedTGUModel(pgPoolTx) {
     
     for (const model of tguModels) {
       const insertQuery = `
-        INSERT INTO tgu_model (tgu_model) 
-        VALUES ($1) 
-        ON CONFLICT (tgu_model) DO NOTHING
+        INSERT INTO tgu_model (tgu_model_code, tgu_model_name) 
+        VALUES ($1, $2) 
+        ON CONFLICT (tgu_model_code, tgu_model_name) DO NOTHING
       `;
-      await pgPoolTx.query(insertQuery, [model]);
+      await pgPoolTx.query(insertQuery, [model, model]);
     }
     
     console.log(`Successfully seeded ${tguModels.length} TGU models`);
@@ -1346,11 +1346,11 @@ export async function seedTGUSwVersion(pgPoolTx) {
     
     for (const version of tguSwVersions) {
       const insertQuery = `
-        INSERT INTO tgu_sw_version (tgu_sw_version) 
-        VALUES ($1) 
-        ON CONFLICT (tgu_sw_version) DO NOTHING
+        INSERT INTO tgu_sw_version (tgu_sw_version_code, tgu_sw_version_name) 
+        VALUES ($1, $2) 
+        ON CONFLICT (tgu_sw_version_code, tgu_sw_version_name) DO NOTHING
       `;
-      await pgPoolTx.query(insertQuery, [version]);
+      await pgPoolTx.query(insertQuery, [version, version]);
     }
     
     console.log(`Successfully seeded ${tguSwVersions.length} TGU software versions`);
