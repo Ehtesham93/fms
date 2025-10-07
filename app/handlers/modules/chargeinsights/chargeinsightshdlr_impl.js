@@ -521,12 +521,24 @@ export default class ChargeinsightshdlrImpl {
       }
 
       const vinToRegnoMap = {};
+      const vinToCapacityMap = {};
 
-      regnoData.forEach(({ vinno, license_plate }) => {
+      regnoData.forEach(({ vinno, license_plate, modelinfo }) => {
         if (license_plate && license_plate.trim() !== "") {
           vinToRegnoMap[vinno] = license_plate;
         } else {
           vinToRegnoMap[vinno] = `${vinno}`;
+        }
+
+        const rawCap = modelinfo?.brochurespecs?.battery_capacity;
+        const capNum =
+          typeof rawCap === "number"
+            ? rawCap
+            : typeof rawCap === "string"
+            ? parseFloat(rawCap)
+            : undefined;
+        if (typeof capNum === "number" && !Number.isNaN(capNum)) {
+          vinToCapacityMap[vinno] = capNum;
         }
       });
 
@@ -561,8 +573,11 @@ export default class ChargeinsightshdlrImpl {
             const startkwh = charge.startkwh;
             const endkwh = charge.endkwh;
             const unitgained = this.safeToFixed(Math.abs(endkwh - startkwh), 2);
-
-            if (unitgained > 10) return;
+            const capacity = vinToCapacityMap[vin];
+            if (unitgained > capacity) {
+              this.logger.info(`Skipping charge session with unitgained(${unitgained}) > capacity(${capacity}) for vin: ${vin}`);
+              return;
+            }
             // Build session object
             const session = {
               starttime: formatEpochToDateTime(startEpoch),
