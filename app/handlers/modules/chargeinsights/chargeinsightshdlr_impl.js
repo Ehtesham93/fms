@@ -555,29 +555,11 @@ export default class ChargeinsightshdlrImpl {
               endEpoch && startEpoch ? endEpoch - startEpoch : 0;
             const durationStr = formatEpochToDuration(durationMs);
 
-            // Parse startdata/enddata if needed
-            let startdata = charge.startdata;
-            let enddata = charge.enddata;
-            if (typeof startdata === "string") {
-              try {
-                startdata = JSON.parse(startdata);
-              } catch {}
-            }
-            if (typeof enddata === "string") {
-              try {
-                enddata = JSON.parse(enddata);
-              } catch {}
-            }
-
             const isfastcharging = charge.isfastcharging;
 
             // Calculate unitgained
-            const startkwh =
-              startdata && typeof startdata.kwh === "number"
-                ? startdata.kwh
-                : 0;
-            const endkwh =
-              enddata && typeof enddata.kwh === "number" ? enddata.kwh : 0;
+            const startkwh = charge.startkwh;
+            const endkwh = charge.endkwh;
             const unitgained = this.safeToFixed(Math.abs(endkwh - startkwh), 2);
 
             if (unitgained > 10) return;

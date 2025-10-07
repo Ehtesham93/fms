@@ -125,7 +125,7 @@ export default class ChargeInsightSvcDB {
           .join(",");
         const query = `
         SELECT 
-          vin, event, starttime, endtime, startodo, startsoc, endsoc,
+          vin, event, starttime, endtime, startodo, startsoc, endsoc, startkwh, endkwh,
           starttemp, endtemp, startlat, endlat, startlng, endlng,
           startdte, enddte, maxcurrent, maxvoltage, maxbattemp,
           maxmotortemp, isfastcharging, bmscyclenum, startdata, enddata, proctime

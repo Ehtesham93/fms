@@ -1,5 +1,5 @@
 paramfamilycode,paramcode,paramname,paraminfo,isenabled,createdat,createdby,updatedat,updatedby
-regulardata,soc,State of Charge,"{""platform"":true,""account"":false}",true,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
+regulardata,soc,State of Charge,"{""platform"":true,""account"":true}",true,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 regulardata,odometer,Odometer,"{""platform"":true,""account"":true}",true,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 regulardata,vehiclespeed,Vehicle Speed,"{""platform"":true,""account"":true}",true,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 regulardata,kwh,Energy (kWh),"{""platform"":true,""account"":true}",true,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.953Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
