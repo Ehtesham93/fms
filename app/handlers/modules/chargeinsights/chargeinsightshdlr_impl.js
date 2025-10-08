@@ -574,8 +574,8 @@ export default class ChargeinsightshdlrImpl {
             const endkwh = charge.endkwh;
             const unitgained = this.safeToFixed(Math.abs(endkwh - startkwh), 2);
             const capacity = vinToCapacityMap[vin];
-            if (unitgained > capacity) {
-              this.logger.info(`Skipping charge session with unitgained(${unitgained}) > capacity(${capacity}) for vin: ${vin}`);
+            if (unitgained > capacity && unitgained > 20) {
+              this.logger.info(`Skipping charge session with unitgained(${unitgained} kWh) > tresold(20 kWh) for vin: ${vin}`);
               return;
             }
             // Build session object
