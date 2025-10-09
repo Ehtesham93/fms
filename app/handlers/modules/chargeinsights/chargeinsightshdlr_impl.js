@@ -3,6 +3,7 @@ import {
   formatEpochToDateTime,
   toFormattedString,
 } from "../../../utils/epochconverter.js";
+import { BATTERY_THRESOLD } from "../../../utils/constant.js";
 
 export default class ChargeinsightshdlrImpl {
   constructor(chargeinsightssvcI, fmsAccountSvcI, tripsinsightssvcI, logger) {
@@ -10,6 +11,7 @@ export default class ChargeinsightshdlrImpl {
     this.fmsAccountSvcI = fmsAccountSvcI;
     this.logger = logger;
     this.tripsinsightssvcI = tripsinsightssvcI;
+    this.BATTERY_THRESOLD = BATTERY_THRESOLD;
   }
 
   GetChargeInsightsByVehicleLogic = async (
@@ -44,14 +46,7 @@ export default class ChargeinsightshdlrImpl {
     const modeldisplayname = vehicle?.modeldisplayname || "Unknown Model";
 
     const regnoData = await this.fmsAccountSvcI.GetRegno([vinno]);
-    const vinToRegnoMap = {};
-    regnoData.forEach(({ vinno, license_plate }) => {
-      if (license_plate && license_plate.trim() !== "") {
-        vinToRegnoMap[vinno] = license_plate;
-      } else {
-        vinToRegnoMap[vinno] = `${vinno}`;
-      }
-    });
+    const {vinToRegnoMap, vinToCapacityMap} = this.vinToLicenceAndModelinfoMapping(regnoData);
 
     if (Array.isArray(result)) {
       result = result.map((charge) => {
@@ -60,10 +55,17 @@ export default class ChargeinsightshdlrImpl {
         const chargingduration =
           charge.chargingtime || charge.endtime - charge.starttime;
 
-        const avgpower = this.calculateAveragePower(
-          charge.startdata,
-          charge.enddata
+        const unitgained = this.calculateUnitGained(
+          charge.startkwh,
+          charge.endkwh
         );
+        const capacity = vinToCapacityMap[vinno];
+        if (this.unitGainedThresoldCheck(unitgained, capacity)) {
+          this.logger.info(
+            `Skipping charge session with unitgained(${unitgained} kWh) > batterycapacity(${capacity}) && unitgained(${unitgained} kWh) > tresold(20 kWh) for vin: ${vinno}`
+          );
+          return;
+        }
 
         const tempchange = charge.endtemp - charge.starttemp;
 
@@ -82,14 +84,14 @@ export default class ChargeinsightshdlrImpl {
           modeldisplayname: modeldisplayname,
           socgained: Math.round(socgained * 100) / 100,
           chargingduration: Math.round(chargingduration * 100) / 100,
-          avgpower: Math.round(avgpower * 100) / 100,
+          unitgained: Math.round(unitgained * 100) / 100,
           tempchange: Math.round(tempchange * 100) / 100,
           dtechange: Math.round(dtechange * 100) / 100,
           chargingtype: chargingtype,
           chargingrate: Math.round(chargingrate * 100) / 100,
           socgainedpercent: `${Math.round(socgained * 100) / 100}%`,
           chargingdurationformatted: formatEpochToDuration(chargingduration),
-          avgpowerformatted: `${Math.round(avgpower * 100) / 100} kWh`,
+          unitgainedformatted: `${Math.round(unitgained * 100) / 100} kWh`,
           tempchangeformatted: `${tempchange > 0 ? "+" : ""}${
             Math.round(tempchange * 100) / 100
           }°C`,
@@ -145,14 +147,7 @@ export default class ChargeinsightshdlrImpl {
       throw new Error("Failed to get fleet charge insights data");
     }
 
-    const vinToRegnoMap = {};
-    regnoData.forEach(({ vinno, license_plate }) => {
-      if (license_plate && license_plate.trim() !== "") {
-        vinToRegnoMap[vinno] = license_plate;
-      } else {
-        vinToRegnoMap[vinno] = `${vinno}`;
-      }
-    });
+    const {vinToRegnoMap, vinToCapacityMap} = this.vinToLicenceAndModelinfoMapping(regnoData);
 
     const vinToModelDisplayNameMap = {};
     vehicles.forEach((vehicle) => {
@@ -167,10 +162,18 @@ export default class ChargeinsightshdlrImpl {
         const chargingduration =
           charge.chargingtime || charge.endtime - charge.starttime;
 
-        const avgpower = this.calculateAveragePower(
-          charge.startdata,
-          charge.enddata
+        // Calculate unitgained
+        const unitgained = this.calculateUnitGained(
+          charge.startkwh,
+          charge.endkwh
         );
+        const capacity = vinToCapacityMap[charge.vin];
+        if (this.unitGainedThresoldCheck(unitgained, capacity)) {
+          this.logger.info(
+            `Skipping charge session with unitgained(${unitgained} kWh) > batterycapacity(${capacity}) && unitgained(${unitgained} kWh) > tresold(20 kWh) for vin: ${charge.vin}`
+          );
+          return;
+        }
         const tempchange = charge.endtemp - charge.starttemp;
 
         const dtechange = charge.enddte - charge.startdte;
@@ -189,14 +192,14 @@ export default class ChargeinsightshdlrImpl {
             vinToModelDisplayNameMap[charge.vin] || "Unknown Model",
           socgained: Math.round(socgained * 100) / 100,
           chargingduration: Math.round(chargingduration * 100) / 100,
-          avgpower: Math.round(avgpower * 100) / 100,
+          unitgained: Math.round(unitgained * 100) / 100,
           tempchange: Math.round(tempchange * 100) / 100,
           dtechange: Math.round(dtechange * 100) / 100,
           chargingtype: chargingtype,
           chargingrate: Math.round(chargingrate * 100) / 100,
           socgainedpercent: `${Math.round(socgained * 100) / 100}%`,
           chargingdurationformatted: formatEpochToDuration(chargingduration),
-          avgpowerformatted: `${Math.round(avgpower * 100) / 100} kWh`,
+          unitgainedformatted: `${Math.round(unitgained * 100) / 100} kWh`,
           tempchangeformatted: `${tempchange > 0 ? "+" : ""}${
             Math.round(tempchange * 100) / 100
           }°C`,
@@ -389,26 +392,42 @@ export default class ChargeinsightshdlrImpl {
     return durationdistribution;
   };
 
-  calculateAveragePower = (startData, endData) => {
-    if (!startData || !endData) return 0;
-
-    const startKwh = startData.kwh || 0;
-    const endKwh = endData.kwh || 0;
-
-    return endKwh - startKwh;
+  calculateUnitGained = (startKwh, endKwh) => {
+    if (startKwh == null || endKwh == null) return null;
+    if (!Number.isFinite(startKwh) || !Number.isFinite(endKwh)) return null; // 0 passes
+    return Math.abs(endKwh - startKwh);
   };
 
-  calculateChargingEfficiency = (startData, endData) => {
-    if (!startData || !endData) return null;
+  vinToLicenceAndModelinfoMapping = (regnoData)=>{
+    const vinToRegnoMap={};
+    const vinToCapacityMap={};
+    regnoData.forEach(({ vinno, license_plate, modelinfo }) => {
+      if (license_plate && license_plate.trim() !== "") {
+        vinToRegnoMap[vinno] = license_plate;
+      } else {
+        vinToRegnoMap[vinno] = `${vinno}`;
+      }
 
-    const startKwh = startData.kwh || 0;
-    const endKwh = endData.kwh || 0;
-    const energyConsumed = endKwh - startKwh;
+      const rawCap = modelinfo?.brochurespecs?.battery_capacity;
+      const capNum =
+        typeof rawCap === "number"
+          ? rawCap
+          : typeof rawCap === "string"
+          ? parseFloat(rawCap)
+          : undefined;
+      if (typeof capNum === "number" && !Number.isNaN(capNum)) {
+        vinToCapacityMap[vinno] = capNum;
+      }
+    });
+    return {
+      vinToRegnoMap,
+      vinToCapacityMap
+    }
+  }
 
-    if (energyConsumed <= 0) return null;
-
-    return 85;
-  };
+  unitGainedThresoldCheck = (unitgained, batteryCapacity) =>{
+    return (unitgained > batteryCapacity && unitgained > BATTERY_THRESOLD);
+  }
 
   GetVehicleChargeInsightsLogic = async (
     accountid,
@@ -520,27 +539,7 @@ export default class ChargeinsightshdlrImpl {
         };
       }
 
-      const vinToRegnoMap = {};
-      const vinToCapacityMap = {};
-
-      regnoData.forEach(({ vinno, license_plate, modelinfo }) => {
-        if (license_plate && license_plate.trim() !== "") {
-          vinToRegnoMap[vinno] = license_plate;
-        } else {
-          vinToRegnoMap[vinno] = `${vinno}`;
-        }
-
-        const rawCap = modelinfo?.brochurespecs?.battery_capacity;
-        const capNum =
-          typeof rawCap === "number"
-            ? rawCap
-            : typeof rawCap === "string"
-            ? parseFloat(rawCap)
-            : undefined;
-        if (typeof capNum === "number" && !Number.isNaN(capNum)) {
-          vinToCapacityMap[vinno] = capNum;
-        }
-      });
+      const {vinToRegnoMap, vinToCapacityMap} = this.vinToLicenceAndModelinfoMapping(regnoData);
 
       const BATCH_SIZE = 500;
 
@@ -570,12 +569,15 @@ export default class ChargeinsightshdlrImpl {
             const isfastcharging = charge.isfastcharging;
 
             // Calculate unitgained
-            const startkwh = charge.startkwh;
-            const endkwh = charge.endkwh;
-            const unitgained = this.safeToFixed(Math.abs(endkwh - startkwh), 2);
+            const unitgained = this.calculateUnitGained(
+              charge.startkwh,
+              charge.endkwh
+            );
             const capacity = vinToCapacityMap[vin];
-            if (unitgained > capacity && unitgained > 20) {
-              this.logger.info(`Skipping charge session with unitgained(${unitgained} kWh) > tresold(20 kWh) for vin: ${vin}`);
+            if (this.unitGainedThresoldCheck(unitgained, capacity)) {
+              this.logger.info(
+                `Skipping charge session with unitgained(${unitgained} kWh) > tresold(20 kWh) for vin: ${vin}`
+              );
               return;
             }
             // Build session object

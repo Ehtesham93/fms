@@ -1491,6 +1491,142 @@ paths:
           description: Successful response
           content:
             application/json: {}
+  /api/v1/platform/user/invite:
+    post:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Invite Platform User
+      description: Invite a platform user by email with specified role IDs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contact:
+                  type: string
+                  description: Contact of the user to invite
+                roleids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of role IDs to assign on acceptance
+              required:
+                - contact
+                - roleids
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User invited successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "429":
+          description: Too Many Requests - Rate limit exceeded for invites
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Invite platform user failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/invites:
+    get:
+      tags:
+        - FMS JS > Platform > Users
+      summary: List Platform Invites
+      description: List platform invites created by the authenticated user.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Platform invites fetched successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - List platform invites failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/invite/resend:
+    post:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Resend Platform Invite
+      description: Resend an existing platform invite by invite ID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                inviteid:
+                  type: string
+                  format: uuid
+                  description: Invite ID to resend
+              required:
+                - inviteid
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Platform invite resent successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "429":
+          description: Too Many Requests - Rate limit exceeded for resends
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Resend platform invite failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/invite/cancel:
+    post:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Cancel Platform Invite
+      description: Cancel an existing platform invite by invite ID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                inviteid:
+                  type: string
+                  format: uuid
+                  description: Invite ID to cancel
+              required:
+                - inviteid
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Platform invite cancelled successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Cancel platform invite failed
+          content:
+            application/json: {}
   /api/v1/platform/user/{userid}:
     get:
       tags:
@@ -1612,6 +1748,72 @@ paths:
                   msg:
                     type: string
                     example: "Delete user failed"
+  /api/v1/platform/user/{userid}/enable:
+    post:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Enable User
+      description: Enable a disabled user. Only superadmin can enable users.
+      parameters:
+        - in: path
+          name: userid
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: Target user ID to enable
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User enabled successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "403":
+          description: Forbidden - Insufficient permissions
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Enable user failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/{userid}/disable:
+    post:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Disable User
+      description: Disable a user. Only superadmin can disable users.
+      parameters:
+        - in: path
+          name: userid
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: Target user ID to disable
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User disabled successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "403":
+          description: Forbidden - Insufficient permissions
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Disable user failed
+          content:
+            application/json: {}
   /api/v1/platform/user/{userid}/role:
     post:
       tags:
@@ -1638,6 +1840,108 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json: {}
+  /api/v1/platform/user/{userid}/accounts:
+    get:
+      tags:
+        - FMS JS > Platform > Users
+      summary: List User Accounts
+      description: List accounts associated with the specified user ID.
+      parameters:
+        - in: path
+          name: userid
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: Target user ID whose accounts to list
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User accounts fetched successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - List user accounts failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/account/adduser:
+    post:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Add User To Account
+      description: Add a user to a specific account by contact identifier.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contact:
+                  type: string
+                  description: Email or mobile of the user to add
+                accountid:
+                  type: string
+                  format: uuid
+                  description: Account ID to which the user will be added
+              required:
+                - contact
+                - accountid
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User added to account successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Add user to account failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/account/{accountid}/user/{contact}:
+    delete:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Remove User From Account
+      description: Remove a user (by contact) from the specified account.
+      parameters:
+        - in: path
+          name: accountid
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: Account ID from which the user will be removed
+        - in: path
+          name: contact
+          required: true
+          schema:
+            type: string
+            description: Email or mobile of the user to remove
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: User removed from account successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Remove user from account failed
           content:
             application/json: {}
   /api/v1/platform/user/{userid}/role/{roleid}:
@@ -1679,6 +1983,158 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json: {}
+  /api/v1/platform/user/getmyperms:
+    get:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Get My Console Permissions
+      description: Returns the console permissions for the authenticated user.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Console permissions fetched successfully
+          content:
+            application/json: {}
+        "403":
+          description: Console access denied
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Get console permissions failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/metadata-options:
+    get:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Get Metadata Options
+      description: Retrieve metadata options for vehicles or related entities.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Vehicle metadata options fetched successfully
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Get vehicle metadata options failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/compositeonboardapi:
+    post:
+      tags:
+        - FMS JS > Platform > Users
+      summary: Composite Onboard API
+      description: Update onboarding tasks for user/account/vehicle based on task type and fields.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                taskid:
+                  type: string
+                  format: uuid
+                  description: Task ID
+                tasktype:
+                  type: string
+                  description: Task type identifier
+                updatedfields:
+                  oneOf:
+                    - type: object
+                      description: Fields for account review
+                      properties:
+                        accountname:
+                          type: string
+                          description: Account name
+                      required:
+                        - accountname
+                    - type: object
+                      description: Fields for user review (all optional)
+                      properties:
+                        displayname:
+                          type: string
+                        mobile:
+                          type: string
+                        email:
+                          type: string
+                        address:
+                          type: string
+                        city:
+                          type: string
+                        country:
+                          type: string
+                        pincode:
+                          type: string
+                        dateofbirth:
+                          type: string
+                        gender:
+                          type: string
+                        vehiclemobile:
+                          type: string
+              required:
+                - taskid
+                - tasktype
+                - updatedfields
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Composite onboard operation successful
+          content:
+            application/json: {}
+        "403":
+          description: Forbidden - Insufficient permissions
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Onboard user account failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/listpending:
+    get:
+      tags:
+        - FMS JS > Platform > Users
+      summary: List Pending Users
+      description: List users with pending onboarding or actions (requires appropriate permissions).
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Pending users listed successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - List pending users failed
+          content:
+            application/json: {}
+  /api/v1/platform/user/listdone:
+    get:
+      tags:
+        - FMS JS > Platform > Users
+      summary: List Done Users
+      description: List users who have completed onboarding or actions (requires appropriate permissions).
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Done users listed successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - List done users failed
           content:
             application/json: {}
   /api/v1/platform/pkg/types:
@@ -2937,17 +3393,44 @@ paths:
       tags:
         - FMS JS > Platform > Accounts > Credits
       summary: Get Account Credits History
+      description: Get detailed credits history for the specified account over a time range (milliseconds since epoch).
       parameters:
         - in: path
           name: accountid
           required: true
           schema:
             type: string
+            format: uuid
+          description: Account ID (UUID)
+        - in: query
+          name: starttime
+          required: true
+          schema:
+            type: number
+            minimum: 1000000000000
+            maximum: 9999999999999
+          description: Start time in milliseconds since epoch
+        - in: query
+          name: endtime
+          required: true
+          schema:
+            type: number
+            minimum: 1000000000000
+            maximum: 9999999999999
+          description: End time in milliseconds since epoch
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: Successful response
+          description: Account credits history fetched successfully
+          content:
+            application/json: {}
+        "400":
+          description: Bad Request - Invalid input parameters
+          content:
+            application/json: {}
+        "500":
+          description: Internal Server Error - Get account credits history failed
           content:
             application/json: {}
 

@@ -26,7 +26,7 @@ export default class ChargeInsightSvcDB {
       const bucketPromises = timeBuckets.map(async (bucket) => {
         const query = `
         SELECT 
-          vin, event, starttime, endtime, startodo, startsoc, endsoc,
+          vin, event, starttime, endtime, startodo, startsoc, endsoc, startkwh, endkwh,
           starttemp, endtemp, startlat, endlat, startlng, endlng,
           startdte, enddte, maxcurrent, maxvoltage, maxbattemp,
           maxmotortemp, isfastcharging, bmscyclenum, startdata, enddata, proctime
@@ -34,7 +34,6 @@ export default class ChargeInsightSvcDB {
         WHERE vin = {vin:String} 
           AND starttime >= {starttime:UInt64} 
           AND starttime < {endtime:UInt64}
-          AND endsoc - startsoc >= 5
           AND event = 'charge'`;
 
         const params = {
@@ -133,7 +132,6 @@ export default class ChargeInsightSvcDB {
         WHERE vin IN (${vinPlaceholders})
           AND starttime >= {starttime:UInt64} 
           AND starttime < {endtime:UInt64}
-          AND endsoc - startsoc >= 5
           AND event = 'charge'`;
 
         const params = {
