@@ -149,6 +149,7 @@ export default class AccountHdlr {
 
     router.get("/listpending", this.ListPendingAccounts);
     router.get("/listdone", this.ListDoneAccounts);
+    router.get("/summary", this.GetAccountSummary);
   }
 
   CreateAccount = async (req, res, next) => {
@@ -277,8 +278,9 @@ export default class AccountHdlr {
       const { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
       });
-      let result =
-        await this.accountHdlrImpl.GetAccountOverviewLogic(accountid);
+      let result = await this.accountHdlrImpl.GetAccountOverviewLogic(
+        accountid
+      );
       APIResponseOK(req, res, result, "Account overview fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountOverview error: ", error);
@@ -297,6 +299,33 @@ export default class AccountHdlr {
           "GET_ACCOUNT_OVERVIEW_ERR",
           error.toString(),
           "Get account overview failed"
+        );
+      }
+    }
+  };
+
+  GetAccountSummary = async (req, res, next) => {
+    try {
+      let result =
+        await this.accountHdlrImpl.GetAccountSummaryLogic();
+      APIResponseOK(req, res, result, "Account summary fetched successfully");
+    } catch (error) {
+      this.logger.error("GetAccountSummary error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ACCOUNT_SUMMARY_ERR",
+          error.toString(),
+          "Get account summary failed"
         );
       }
     }
@@ -591,8 +620,9 @@ export default class AccountHdlr {
         accountid: req.params.accountid,
       });
 
-      let result =
-        await this.accountHdlrImpl.ListInvitesOfAccountLogic(accountid);
+      let result = await this.accountHdlrImpl.ListInvitesOfAccountLogic(
+        accountid
+      );
 
       APIResponseOK(req, res, result, "Account invites fetched successfully");
     } catch (e) {
@@ -783,8 +813,9 @@ export default class AccountHdlr {
       let { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
       });
-      let result =
-        await this.accountHdlrImpl.GetUnassignedCustomPkgsLogic(accountid);
+      let result = await this.accountHdlrImpl.GetUnassignedCustomPkgsLogic(
+        accountid
+      );
       APIResponseOK(
         req,
         res,
@@ -1147,8 +1178,9 @@ export default class AccountHdlr {
       const { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
       });
-      let result =
-        await this.accountHdlrImpl.ListPackagesForSubscriptionLogic(accountid);
+      let result = await this.accountHdlrImpl.ListPackagesForSubscriptionLogic(
+        accountid
+      );
       APIResponseOK(
         req,
         res,
@@ -1752,8 +1784,9 @@ export default class AccountHdlr {
         accountid: req.params.accountid,
       });
 
-      let result =
-        await this.accountHdlrImpl.ListAccountVehiclesLogic(accountid);
+      let result = await this.accountHdlrImpl.ListAccountVehiclesLogic(
+        accountid
+      );
 
       APIResponseOK(req, res, result, "Account vehicles fetched successfully");
     } catch (e) {
@@ -2043,8 +2076,9 @@ export default class AccountHdlr {
       let { accountid } = validateAllInputs(schema, {
         accountid: req.params.accountid,
       });
-      let result =
-        await this.accountHdlrImpl.GetSubscriptionHistoryLogic(accountid);
+      let result = await this.accountHdlrImpl.GetSubscriptionHistoryLogic(
+        accountid
+      );
 
       APIResponseOK(
         req,
@@ -2286,8 +2320,9 @@ export default class AccountHdlr {
         accountid: req.params.accountid,
       });
 
-      let result =
-        await this.accountHdlrImpl.ListAssignableVehiclesLogic(accountid);
+      let result = await this.accountHdlrImpl.ListAssignableVehiclesLogic(
+        accountid
+      );
       APIResponseOK(
         req,
         res,

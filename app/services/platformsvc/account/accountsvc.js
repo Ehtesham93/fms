@@ -423,6 +423,14 @@ export default class AccountSvc {
     return await this.accountSvcDB.addReviewPendingAccount(accountData);
   }
 
+  async GetPendingAccountReviewByAccountName(accountname) {
+    return await this.accountSvcDB.getPendingAccountReviewByAccountName(accountname);
+  }
+
+  async GetAccountReviewDoneByAccountName(accountid, accountname, status) {
+    return await this.accountSvcDB.getAccountReviewDoneByAccountName(accountid, accountname, status);
+  }
+
   async GetPendingAccountReviewById(accountid) {
     return await this.accountSvcDB.getPendingAccountReviewById(accountid);
   }
@@ -441,5 +449,9 @@ export default class AccountSvc {
 
   async DiscardAccountReview(createdBy, taskid) {
     return await this.accountSvcDB.discardAccountReview(createdBy, taskid);
+  }
+
+  async GetAccountSummary(){
+    return await this.accountSvcDB.getAccountSummary();
   }
 }

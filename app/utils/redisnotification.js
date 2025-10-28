@@ -3,12 +3,14 @@
  * @returns {string} - Environment prefix ("dev", "stg", or "local")
  */
 const getEnvironmentPrefix = () => {
-  if (process.env.APP_ENV === "STAGING") {
-    return "stg";
+  if (process.env.APP_ENV === "PRODUCTION") {
+    return "";
+  } else if (process.env.APP_ENV === "STAGING") {
+    return "stg.";
   } else if (process.env.APP_ENV === "DEVELOPMENT") {
-    return "dev";
+    return "dev.";
   } else {
-    return "local";
+    return "local.";
   }
 };
 
@@ -36,7 +38,7 @@ export const publishAccountUpdate = async (
     };
 
     const envPrefix = getEnvironmentPrefix();
-    const key = `${envPrefix}.account.updates.${accountid}.${updateType}`;
+    const key = `${envPrefix}account.updates.${accountid}.${updateType}`;
     const message = JSON.stringify(updateData);
 
     // Set the key with the data (persistent state)

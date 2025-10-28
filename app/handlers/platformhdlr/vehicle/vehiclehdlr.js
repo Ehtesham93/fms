@@ -10,12 +10,14 @@ import { validateAllInputs } from "../../../utils/validationutil.js";
 import VehicleHdlrImpl from "./vehiclehdlr_impl.js";
 
 export default class VehicleHdlr {
-  constructor(platformSvcI, historyDataSvcI, logger) {
+  constructor(platformSvcI, historyDataSvcI, metaSvcI, logger) {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
+    this.metaSvcI = metaSvcI;
     this.vehicleHdlrImpl = new VehicleHdlrImpl(
       platformSvcI,
       historyDataSvcI,
+      metaSvcI,
       logger
     );
     this.logger = logger;

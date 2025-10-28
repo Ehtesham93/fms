@@ -336,6 +336,9 @@ export default class FmsAccountSvc {
   async GetSubscriptionInfo(accountid) {
     return await this.fmsAccountSvcDB.getSubscriptionInfo(accountid);
   }
+  async GetSubscriptionHistoryInfo(accountid, starttime, endtime) {
+    return await this.fmsAccountSvcDB.getSubscriptionHistoryInfo(accountid, starttime, endtime);
+  }
 
   async UpdateSubscription(accountid, pkgid, subscriptioninfo, updatedby) {
     return await this.fmsAccountSvcDB.updateSubscription(

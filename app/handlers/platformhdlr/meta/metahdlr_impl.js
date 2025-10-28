@@ -5,8 +5,8 @@ export default class MetaHdlrImpl {
   }
 
   // vehicle city
-  CreateVehicleCityLogic = async (citycode, cityname) => {
-    return await this.metaSvcI.CreateVehicleCity(citycode, cityname);
+  CreateVehicleCityLogic = async (cityname) => {
+    return await this.metaSvcI.CreateVehicleCity(cityname);
   };
 
   IsCityCodeAvailableLogic = async (citycode) => {
@@ -22,8 +22,8 @@ export default class MetaHdlrImpl {
   };
 
   // vehicle dealer
-  CreateVehicleDealerLogic = async (dealercode, dealername) => {
-    return await this.metaSvcI.CreateVehicleDealer(dealercode, dealername);
+  CreateVehicleDealerLogic = async (dealername) => {
+    return await this.metaSvcI.CreateVehicleDealer(dealername);
   };
 
   IsDealerCodeAvailableLogic = async (dealercode) => {
@@ -39,8 +39,8 @@ export default class MetaHdlrImpl {
   };
 
   // vehicle color
-  CreateVehicleColorLogic = async (colorcode, colorname) => {
-    return await this.metaSvcI.CreateVehicleColor(colorcode, colorname);
+  CreateVehicleColorLogic = async (colorname) => {
+    return await this.metaSvcI.CreateVehicleColor(colorname);
   };
 
   IsColorCodeAvailableLogic = async (colorcode) => {

@@ -1269,9 +1269,9 @@ export default class PUserHdlr {
           .nullable(),
         customergender: z
           .string({ message: "Customer gender must be a string" })
-          .refine((val) => ["Male", "Female", "Other", ""].includes(val), {
+          .refine((val) => ["Male", "Female", "Others", ""].includes(val), {
             message:
-              "Invalid gender format. Must be Male, Female, Other or empty.",
+              "Invalid gender format. Must be Male, Female, Others or empty.",
           }),
         customername: z
           .string({ message: "Customer name must be a string" })

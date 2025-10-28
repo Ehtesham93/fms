@@ -44,16 +44,6 @@ export default class MetaHdlr {
   CreateVehicleCity = async (req, res, next) => {
     try {
       const schema = z.object({
-        citycode: z
-          .string({ message: "Invalid City Code format" })
-          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
-            message:
-              "City Code must contain only letters, digits, underscores, hyphens, and spaces (no leading/trailing space)",
-          })
-          .max(128, {
-            message: "City Code must be at most 128 characters",
-          }),
-
         cityname: z
           .string({ message: "Invalid City Name format" })
           .nonempty({ message: "City Name cannot be empty" })
@@ -66,13 +56,11 @@ export default class MetaHdlr {
           }),
       });
 
-      const { citycode, cityname } = validateAllInputs(schema, {
-        citycode: req.body.citycode,
+      const { cityname } = validateAllInputs(schema, {
         cityname: req.body.cityname,
       });
 
       const result = await this.metaHdlrImpl.CreateVehicleCityLogic(
-        citycode,
         cityname
       );
 
@@ -153,7 +141,7 @@ export default class MetaHdlr {
             message: "City Name must be at most 128 characters",
           }),
       });
-      let { citycode } = validateAllInputs(schema, {
+      let { cityname } = validateAllInputs(schema, {
         cityname: req.params.cityname,
       });
 
@@ -267,16 +255,6 @@ export default class MetaHdlr {
   CreateVehicleDealer = async (req, res, next) => {
     try {
       const schema = z.object({
-        dealercode: z
-          .string({ message: "Invalid Dealer Code format" })
-          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
-            message:
-              "Dealer Code must contain only letters, digits, underscores, hyphens, and spaces (no leading/trailing space)",
-          })
-          .max(128, {
-            message: "Dealer Code must be at most 128 characters",
-          }),
-
         dealername: z
           .string({ message: "Invalid Dealer Name format" })
           .nonempty({ message: "Dealer Name cannot be empty" })
@@ -289,13 +267,11 @@ export default class MetaHdlr {
           }),
       });
 
-      const { dealercode, dealername } = validateAllInputs(schema, {
-        dealercode: req.body.dealercode,
+      const { dealername } = validateAllInputs(schema, {
         dealername: req.body.dealername,
       });
 
       const result = await this.metaHdlrImpl.CreateVehicleDealerLogic(
-        dealercode,
         dealername
       );
 
@@ -494,16 +470,6 @@ export default class MetaHdlr {
   CreateVehicleColor = async (req, res, next) => {
     try {
       const schema = z.object({
-        colorcode: z
-          .string({ message: "Invalid Color Code format" })
-          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
-            message:
-              "Color Code must contain only letters, digits, underscores, hyphens, and spaces (no leading/trailing space)",
-          })
-          .max(128, {
-            message: "Color Code must be at most 128 characters",
-          }),
-
         colorname: z
           .string({ message: "Invalid Color Name format" })
           .nonempty({ message: "Color Name cannot be empty" })
@@ -516,13 +482,11 @@ export default class MetaHdlr {
           }),
       });
 
-      const { colorcode, colorname } = validateAllInputs(schema, {
-        colorcode: req.body.colorcode,
+      const { colorname } = validateAllInputs(schema, {
         colorname: req.body.colorname,
       });
 
       const result = await this.metaHdlrImpl.CreateVehicleColorLogic(
-        colorcode,
         colorname
       );
 

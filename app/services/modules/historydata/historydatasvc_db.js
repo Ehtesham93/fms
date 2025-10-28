@@ -341,8 +341,9 @@ export default class HistoryDataSvcDB {
         return new Error("Could not fetch All CAN params");
       }
 
-      if (!canparams.every((param) => allCanParams.includes(param))) {
-        return new Error("Some CAN params does not exist");
+      const missing = canparams.filter((p) => !allCanParams.includes(p));
+      if (missing.length > 0) {
+        return new Error(`Invalid parameters found: ${missing.join(", ")}`);
       }
 
       const vehicleQuery = `SELECT modelcode FROM vehicle WHERE vinno = $1`;
@@ -385,37 +386,55 @@ export default class HistoryDataSvcDB {
 
       const canResults = [];
       const gpsResults = [];
+      
+      try{
+        await Promise.all([
+          // CAN
+          ...canQueries.map((query) => {
+            return new Promise((resolve, reject) => {
+              this.clickHouseClient.queryWithCallback(query, (err, result) => {
+                if (err) return reject(err);
+                result.forEach((row) => { canResults.push(row); });
+                resolve();
+              });
+            });
+          }),
+          // GPS
+          ...gpsQueries.map((query) => {
+            return new Promise((resolve, reject) => {
+              this.clickHouseClient.queryWithCallback(query, (err, result) => {
+                if (err) return reject(err);
+                result.forEach((row) => { gpsResults.push(row); });
+                resolve();
+              });
+            });
+          }),
+        ]);
+      }catch (err){
+        const msg = String(err?.message || err);
 
-      await Promise.all([
-        ...canQueries.map((query) => {
-          return this.clickHouseClient.queryWithCallback(
-            query,
-            (err, result) => {
-              if (err) {
-                console.error("Error executing CAN query:", err);
-                return;
-              }
-              result.forEach((row) => {
-                canResults.push(row);
-              });
-            }
-          );
-        }),
-        ...gpsQueries.map((query) => {
-          return this.clickHouseClient.queryWithCallback(
-            query,
-            (err, result) => {
-              if (err) {
-                console.error("Error executing GPS query:", err);
-                return;
-              }
-              result.forEach((row) => {
-                gpsResults.push(row);
-              });
-            }
-          );
-        }),
-      ]);
+        // ClickHouse unknown column/identifier messages to match:
+        // e.g. "Unknown identifier", "Column ... doesn't exist", "Unknown column"
+        if (err.type === 'UNKNOWN_IDENTIFIER') {
+          // Optional: try to extract the missing column name
+          const unknowns = [
+            ...msg.matchAll(/Unknown (?:expression )?identifier [`'"]?([a-zA-Z0-9_]+)[`'"]?/gi),
+            ...msg.matchAll(/Unknown column [`'"]?([a-zA-Z0-9_]+)[`'"]?/gi),
+          ].map((m) => m[1]);
+      
+          const missing = Array.from(new Set(unknowns.filter((p) => canparams.includes(p))));
+      
+          const detail =
+            missing.length > 0
+              ? `Invalid parameters found: ${missing.join(", ")}`
+              : `Invalid parameters found.`;
+      
+          return new Error(detail);
+        }
+
+        // Unknown error → bubble up
+        throw err;
+      }
 
       canResults.sort((a, b) => a.utctime - b.utctime);
       gpsResults.sort((a, b) => a.utctime - b.utctime);

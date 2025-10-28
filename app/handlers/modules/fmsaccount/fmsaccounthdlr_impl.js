@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
+import { formatLastUpdated } from "../../../utils/epochconverter.js";
 
 export default class fmsAccountHdlrImpl {
   constructor(fmsAccountSvcI, userSvcI, logger, platformSvcI, redisSvc) {
@@ -1274,6 +1275,64 @@ export default class fmsAccountHdlrImpl {
         unsubscribedcount: unsubscribedvehicles.length,
       },
     };
+  };
+
+  // GetSubscriptionVehiclesHistoryLogic = async (accountid) => {
+  //   // let rootFleetId = await this.fmsAccountSvcI.GetRootFleetId(accountid);
+  //   // if (!rootFleetId) {
+  //   //   throw new Error("Failed to get root fleet for account");
+  //   // }
+
+  //   // const isforcedfilter = true;
+  //   // let allVehicles = await this.GetVehiclesLogic(
+  //   //   accountid,
+  //   //   rootFleetId,
+  //   //   true,
+  //   //   isforcedfilter
+  //   // );
+  //   // if (!allVehicles) {
+  //   //   allVehicles = [];
+  //   // }
+  //   // accountid,lastupdated,regno,vin, isowner, status
+  //   // const vinNumbers = allVehicles.map((vehicle) => vehicle.vinno);
+  //   // const gpsDataMap =
+  //   //   await this.fmsAccountSvcI.GetLastestGpsDataForVehicles(vinNumbers);
+
+  //   // const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+  //   let subscriptionHistoryInfo =
+  //     await this.fmsAccountSvcI.GetSubscriptionHistoryInfo(accountid);
+    
+  //   console.log(subscriptionHistoryInfo);
+  //   return {
+  //     accountid: accountid,
+      
+  //   };
+  // };
+
+  GetSubscriptionVehiclesHistoryLogic = 
+  async (accountid, starttime, endtime) => {
+    const statusMap = {
+      0: "pending",
+      1: "subscribed",
+      2: "staged_for_disable",
+      3: "unsubscribed",
+    };
+
+    const subscriptionHistoryInfo =
+      await this.fmsAccountSvcI.GetSubscriptionHistoryInfo(accountid, starttime, endtime);
+
+    // Expecting an array of rows. Convert to required shape.
+    const history = (subscriptionHistoryInfo || []).map((r) => ({
+      accountid: accountid,
+      lastupdated: formatLastUpdated(r.updatedat),
+      regno: r.regno,
+      vin: r.vinno,
+      isowner: r.isowner,
+      status: (statusMap[r.state] ?? String(r.state)).toUpperCase(),
+    }));
+
+    return history;
   };
 
   CreateSubscriptionIntentLogic = async (accountid, vinnos, userid) => {

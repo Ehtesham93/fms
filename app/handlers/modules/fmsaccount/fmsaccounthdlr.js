@@ -123,6 +123,8 @@ export default class FmsAccountHdlr {
       "/subscription/vehicles",
       this.GetSubscriptionVehicles
     );
+    accountTokenGroup.get("/subscription/vehicles/history",
+      this.GetSubscriptionVehiclesHistory);
     accountTokenGroup.post(
       "/subscription/intent",
       this.CreateSubscriptionIntent
@@ -3445,6 +3447,91 @@ export default class FmsAccountHdlr {
           res,
           error,
           "Failed to get subscription vehicles"
+        );
+      }
+    }
+  };
+
+  GetSubscriptionVehiclesHistory = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" })
+      });
+      let convertedstarttime = parseInt(req.query.starttime);
+      let convertedendtime = parseInt(req.query.endtime);
+
+      let { accountid, starttime, endtime } = validateAllInputs(schema, {
+        accountid: req.accountid,
+        starttime: convertedstarttime,
+        endtime: convertedendtime
+      });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid
+      );
+
+      if (
+        !CheckUserPerms(userPerms, [
+          "account.settings.view",
+          "account.settings.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get subscription vehicles."
+        );
+      }
+
+      let result =
+        await this.fmsAccountHdlrImpl.GetSubscriptionVehiclesHistoryLogic(accountid, starttime, endtime);
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Subscription vehicles history fetched successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetSubscriptionVehiclesHistory error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          "Failed to get subscription vehicles history"
         );
       }
     }

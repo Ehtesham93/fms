@@ -9,7 +9,7 @@ import {
   seedConsoleAccount,
   seedModule,
   seedVehicleModelFamily,
-  seedOldVehicleModel,
+  // seedOldVehicleModel,
   seedVehicleModel,
   seedVehicleModelFamilyParam,
   seedPackageTypesAndCategories,
@@ -131,7 +131,7 @@ async function main() {
     await seedSuperAdmin(platformHdlrI, userid);
     await seedFleetUserRole(tx);
     await seedVehicleModelFamily(platformHdlrI, userid);
-    await seedOldVehicleModel(platformHdlrI, userid);
+    // await seedOldVehicleModel(platformHdlrI, userid);
     await seedVehicleModel(platformHdlrI, userid, tx);
     await seedParamFamily(tx, userid);
     await seedParamFamilyParam(tx, userid);

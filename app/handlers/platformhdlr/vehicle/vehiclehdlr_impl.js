@@ -2,11 +2,13 @@ import { formatEpochToDateTime } from "../../../utils/epochconverter.js";
 import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
 import axios from "axios";
 import config from "../../../config/config.js";
+import { errors } from "cassandra-driver";
 
 export default class VehicleHdlrImpl {
-  constructor(platformSvcI, historyDataSvcI, logger) {
+  constructor(platformSvcI, historyDataSvcI, metaSvcI, logger) {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
+    this.metaSvcI = metaSvcI;
     this.logger = logger;
     this.onboardingType = "onboarding";
   }
@@ -114,14 +116,8 @@ export default class VehicleHdlrImpl {
         lookupFieldsToValidate
       );
       if (validationErrors.length > 0) {
-        const errorMessage = validationErrors
-          .map((err) => err.message)
-          .join(", ");
-        throw {
-          errcode: "VALIDATION_ERROR",
-          errdata: validationErrors,
-          message: errorMessage,
-        };
+        // Fields don't match - insert into meta options
+        this.MetaOptions(validationErrors, lookupFieldsToValidate);
       }
     }
 
@@ -307,22 +303,32 @@ export default class VehicleHdlrImpl {
 
   convertDateFormat = (dateString) => {
     if (!dateString) return null;
-
+  
     try {
+      // Handle YYYY-MM-DD format
+      if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // For IST dates, we want to store them as-is without timezone conversion
+        // Create a date at midnight IST and return it as a string in the format PostgreSQL expects
+        const [year, month, day] = dateString.split('-');
+        const date = new Date(year, month - 1, day); // month is 0-indexed in JavaScript
+        return date.toISOString().split('T')[0] + 'T00:00:00+05:30';
+      }
+  
       // Parse DD/MM/YY format and convert to YYYY-MM-DD
       const parts = dateString.split("/");
       if (parts.length === 3) {
         const day = parts[0];
         const month = parts[1];
         const year = parts[2];
-
+  
         // Convert 2-digit year to 4-digit year
         const fullYear = year.length === 2 ? `20${year}` : year;
-
-        // Return in ISO format YYYY-MM-DD
-        return `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  
+        // Create a date at midnight IST
+        const date = new Date(fullYear, month - 1, day); // month is 0-indexed
+        return date.toISOString().split('T')[0] + 'T00:00:00+05:30';
       }
-
+  
       return dateString; // Return as-is if not in expected format
     } catch (error) {
       console.log("Date conversion error:", error);
@@ -361,14 +367,22 @@ export default class VehicleHdlrImpl {
     vehicleData.retailsSaleDate = this.convertDateFormat(
       vehicleData.retailsSaleDate
     );
-    vehicleData.vehicleColour = this.preprocessingText(
+    const processedVehicleColour = this.preprocessingText(
       vehicleData.vehicleColour
+    );
+    if (processedVehicleColour !== ""){
+      vehicleData.vehicleColour = processedVehicleColour
+    }else{
+      vehicleData.vehicleColour = "NA"
+    }
+    vehicleData.vehicleCity = this.preprocessingText(
+      vehicleData.vehicleCity
     );
     // Case 1: Vehicle already exists - just return
     let vehicleExists = await this.platformSvcI.CheckVehicleExists(vin);
     if (vehicleExists) {
       if (vehicleExists) {
-        let error = new Error(`Vehicle with vinno: ${vin} and vehiclemodel: ${vehicleExists.vehiclemodel} already exists`);
+        let error = new Error(`Vehicle with vinno: ${vin} already exists`);
         error.errcode = "VEHICLE_ALREADY_EXISTS";
         throw error;
       }
@@ -432,36 +446,8 @@ export default class VehicleHdlrImpl {
     );
 
     if (validationErrors.length > 0) {
-      // Fields don't match - update pending record with validation error
-      const firstError = validationErrors[0];
-      const status = `${firstError.field.toUpperCase()}_DOESNT_EXIST`;
-
-      // Update all fields in pending table
-      const reason = `${firstError.field} '${firstError.value}' is not valid`;
-      const reviewData = vehicleData;
-      const originalInput = vehicleData;
-
-      const updateFields = this.prepareAllPendingTableFields(
-        vehicleData,
-        status,
-        reason,
-        reviewData,
-        originalInput
-      );
-
-      await this.platformSvcI.UpdatePendingReview(
-        vin,
-        updateFields,
-        createdOrUpdatedBy
-      );
-
-      return {
-        action: "pending_review_updated",
-        vinno: vin,
-        status: status,
-        reason: `${firstError.field} '${firstError.value}' is not valid`,
-        message: "Vehicle pending review updated with validation errors",
-      };
+      // Fields don't match - insert into meta options
+      this.MetaOptions(validationErrors, fieldsToValidate);
     }
 
     // Fields match - try to create vehicle
@@ -604,33 +590,8 @@ export default class VehicleHdlrImpl {
     );
 
     if (validationErrors.length > 0) {
-      // Fields don't match - insert into pending
-      const firstError = validationErrors[0];
-      const status = `${firstError.field.toUpperCase()}_DOESNT_EXIST`;
-      const reason = `${firstError.field} '${firstError.value}' is not valid`;
-      const reviewData = vehicleData;
-      const originalInput = vehicleData;
-
-      const updateFields = this.prepareAllPendingTableFields(
-        vehicleData,
-        status,
-        reason,
-        reviewData,
-        originalInput
-      );
-      await this.platformSvcI.AddToPendingReview(
-        vin,
-        updateFields,
-        createdOrUpdatedBy
-      );
-
-      return {
-        action: "pending_review",
-        vinno: vin,
-        status: status,
-        reason: reason,
-        message: "Vehicle added to pending review queue for field validation",
-      };
+      // Fields don't match - insert into meta options
+      this.MetaOptions(validationErrors, fieldsToValidate);
     }
 
     // Fields match - try to create vehicle
@@ -1085,4 +1046,24 @@ export default class VehicleHdlrImpl {
       throw error;
     }
   };
+
+  MetaOptions = async (validationErrors, fieldsToValidate) => {
+    try{
+      for (const validationError of validationErrors) {
+        if(validationError.field === 'vehicle_city'){
+          await this.metaSvcI.CreateVehicleCity(fieldsToValidate.vehicle_city);
+        }
+        if(validationError.field === 'dealer'){
+          await this.metaSvcI.CreateVehicleDealer(fieldsToValidate.dealer);
+        }
+        if(validationError.field === 'color'){
+          await this.metaSvcI.CreateVehicleColor(fieldsToValidate.color);
+        }
+      };
+
+    }catch(error){
+      this.logger.error("MetaOption db operation failed", error);
+      throw error;
+    }
+  }
 }

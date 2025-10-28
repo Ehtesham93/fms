@@ -890,20 +890,7 @@ export default class ChargeinsightshdlrImpl {
           recursive
         )) || [];
       if (!vehicles || vehicles.length === 0) {
-        return {
-          err: null,
-          data: {
-            insights: [],
-            drilldowndata: {},
-            totalchargesessions: 0,
-            totalvehicles: 0,
-            analysisperiod: {
-              start: this.toISTDateString(parseInt(starttime)),
-              end: this.toISTDateString(parseInt(endtime)),
-            },
-          },
-          msg: "Fleet overview retrieved successfully",
-        };
+        return this.buildChargeNoDataOverview(starttime, endtime, 0)
       }
 
       const vinNumbers = vehicles.map((v) => v.vinno);
@@ -923,20 +910,7 @@ export default class ChargeinsightshdlrImpl {
       const totalvehicles = vehicles.length;
 
       if (!chargeData || totalchargesessions === 0) {
-        return {
-          err: null,
-          data: {
-            insights: [],
-            drilldowndata: {},
-            totalchargesessions: 0,
-            totalvehicles: 0,
-            analysisperiod: {
-              start: this.toISTDateString(parseInt(starttime)),
-              end: this.toISTDateString(parseInt(endtime)),
-            },
-          },
-          msg: "Fleet overview retrieved successfully",
-        };
+        return this.buildChargeNoDataOverview(starttime, endtime, totalvehicles)
       }
 
       // Group sessions by IST date
@@ -1262,4 +1236,89 @@ export default class ChargeinsightshdlrImpl {
       throw error;
     }
   };
+
+  buildChargeNoDataOverview(starttime, endtime, totalvehicles) {
+    const categories = [
+      "chargebehaviorviolation",
+      "intermittentcharging",
+      "lowsocchargingviolation",
+      "inactiveafterfullcharge",
+      "peakhourschargesessions",
+      "idleconnection",
+    ];
+    const thresholds = {
+      chargebehaviorviolation: 2,
+      intermittentcharging: 2,
+      lowsocchargingviolation: 2,
+      inactiveafterfullcharge: 1,
+      peakhourschargesessions: 2,
+      idleconnection: 1,
+    };
+    const titles = {
+      chargebehaviorviolation: "Charging after 100%",
+      intermittentcharging: "Intermittent Charging",
+      lowsocchargingviolation: "Low SoC Charging",
+      inactiveafterfullcharge: "Inactive After Full",
+      peakhourschargesessions: "Peak Hour Charging",
+      idleconnection: "Idle Connection",
+    };
+    const displaynames = {
+      chargebehaviorviolation: "Charge Behavior Violation",
+      intermittentcharging: "Charge Behavior Violation",
+      lowsocchargingviolation: "Low SoC Charging",
+      inactiveafterfullcharge: "Inactive After Full Charge",
+      peakhourschargesessions: "Peak Hour Charging",
+      idleconnection: "Idle Connection",
+    };
+    const drilldownTitles = {
+      chargebehaviorviolation: "Charge Behavior Violation - Daily Breakdown",
+      intermittentcharging: "Charge Behavior Violation - Daily Breakdown",
+      lowsocchargingviolation: "Low SoC Charging Violation - Daily Breakdown",
+      inactiveafterfullcharge: "Inactive After Full Charge - Daily Breakdown",
+      peakhourschargesessions: "Peak Hours Charge Sessions - Daily Breakdown",
+      idleconnection: "Idle Connection - Daily Breakdown",
+    };
+    const totalDays = Math.max(1, Math.ceil((endtime - starttime) / 86400000));
+  
+    const insights = categories.map((cat) => ({
+      displayname: displaynames[cat],
+      type: "info",
+      category: cat,
+      title: titles[cat],
+      message: `No data available for ${titles[cat]} analysis.`,
+      details: "Insufficient data for analysis",
+      value: "0 sessions",
+      rawvalue: 0,
+      threshold: `Ideal is ${thresholds[cat] * totalDays} sessions`,
+      status: "no_data",
+      priority:
+        cat === "chargebehaviorviolation" || cat === "intermittentcharging"
+          ? "high"
+          : cat === "lowsocchargingviolation" || cat === "inactiveafterfullcharge"
+          ? "medium"
+          : "low",
+    }));
+  
+    const drilldowndata = {};
+    categories.forEach((cat) => {
+      drilldowndata[cat] = {
+        category: cat,
+        title: drilldownTitles[cat],
+        threshold: thresholds[cat],
+        unit: "sessions",
+        dailydata: [],
+      };
+    });
+  
+    return {
+      insights,
+      drilldowndata,
+      totalchargesessions: 0,
+      totalvehicles: totalvehicles || 0,
+      analysisperiod: {
+        start: this.toISTDateString(parseInt(starttime)),
+        end: this.toISTDateString(parseInt(endtime)),
+      },
+    };
+  }
 }

@@ -8,8 +8,8 @@ export default class MetaSvc {
   }
 
   // Vehicle City CRUD
-  CreateVehicleCity = async (citycode, cityname) => {
-    return await this.metaSvcDB.createVehicleCity(citycode, cityname);
+  CreateVehicleCity = async (cityname) => {
+    return await this.metaSvcDB.createVehicleCity(cityname);
   };
 
   IsCityCodeAvailable = async (citycode) => {
@@ -22,8 +22,8 @@ export default class MetaSvc {
     return await this.metaSvcDB.deleteVehicleCity(citycode);
   };
   // Vehicle Dealer CRUD
-  CreateVehicleDealer = async (dealercode, dealername) => {
-    return await this.metaSvcDB.createVehicleDealer(dealercode, dealername);
+  CreateVehicleDealer = async (dealername) => {
+    return await this.metaSvcDB.createVehicleDealer(dealername);
   };
 
   IsDealerCodeAvailable = async (dealercode) => {
@@ -37,8 +37,8 @@ export default class MetaSvc {
   };
 
   // Vehicle Color CRUD
-  CreateVehicleColor = async (colorcode, colorname) => {
-    return await this.metaSvcDB.createVehicleColor(colorcode, colorname);
+  CreateVehicleColor = async (colorname) => {
+    return await this.metaSvcDB.createVehicleColor(colorname);
   };
 
   IsColorCodeAvailable = async (colorcode) => {

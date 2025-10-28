@@ -18,7 +18,6 @@ treo,regulardata,dte,dte,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-
 treo,regulardata,drive_enable,drive_enable,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 treo,regulardata,tcu_speedmode,tcu_speedmode,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 treo,regulardata,kwh,kwh,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
-treo,regulardata,Test Data,null,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 treo,regulardata,bms_hvbatt_connect_sts,bms_hvbatt_connect_sts,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 treo,regulardata,bms_hvbatt_disconnect_sts,bms_hvbatt_disconnect_sts,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 treo,regulardata,bms_in_keyon,bms_in_keyon,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
@@ -37,11 +36,11 @@ treo,regulardata,veh_immo_resp,veh_immo_resp,true,"""2025-09-04T18:43:24.983Z"""
 treo,regulardata,v_mode,v_mode,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 treo,regulardata,vehiclespeed,vehiclespeed,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 treo,regulardata,wakeup_command,wakeup_command,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
+treo,regulardata,vehicle_phase,vehicle_phase,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98
 zeo,regulardata,dte,ets_vcu_dte_km,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,drive_enable,drive_enable,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,tcu_speedmode,ets_vcu_drivemode_sts_enum,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,kwh,kwh,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
-zeo,regulardata,Test Data,null,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,bms_hvbatt_connect_sts,bms_hvbatt_connect_sts,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,bms_hvbatt_disconnect_sts,bms_hvbatt_disconnect_sts,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,bms_in_keyon,vcu_sts_ign,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
@@ -74,6 +73,7 @@ zeo,regulardata,bms_charger_plug_in_sts,ets_vcu_chargegunplugin_sts_enum,true,""
 zeo,regulardata,charger_sts_live,ets_vcu_charging_sts_enum,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,chargertemp,ets_vcu_chargeplugdctemp_act_degc,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,charger_temp_live,charger_temp_live,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
+zeo,regulardata,vehicle_phase,vehicle_phase,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98
 a301,regulardata,aux_batt_volt,auxbatt_sup_v,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98
 a301,regulardata,batt_current,batt_current,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98
 a301,regulardata,cycletime,cycletime,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98
@@ -110,3 +110,4 @@ a301,regulardata,veh_immo_resp,vehicle_immo_response,true,"""2025-09-12T09:05:46
 a301,regulardata,v_mode,vehicle_operation_mode,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98
 a301,regulardata,vehiclespeed,actual_vehicle_speed,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98
 a301,regulardata,wakeup_command,wakeup_command,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98
+a301,regulardata,vehicle_phase,vehicle_phase,true,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98,"""2025-09-12T09:05:46.446Z""",940e0547-a5b7-4c2c-9ab0-092f5a05fe98

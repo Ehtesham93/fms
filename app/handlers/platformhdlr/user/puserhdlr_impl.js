@@ -652,6 +652,10 @@ export default class PUserHdlrImpl {
     status = "REVIEWED_SUCCESS"
   ) => {
     try {
+      const existingdonetask = await this.accountSvcI.GetAccountReviewDoneByAccountName(taskid, accountname, status);
+      if (existingdonetask) {
+        return;
+      }
       const pendingaccount =
         await this.accountSvcI.GetPendingAccountReviewById(taskid);
       if (pendingaccount) {
@@ -2024,7 +2028,12 @@ export default class PUserHdlrImpl {
       accountname = `${processedcustomername} ${usermobile}`;
     }
     if (taskid === null) {
-      taskid = uuidv4();
+      const existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(accountname);
+      if (existingtask) {
+        taskid = existingtask;
+      } else {
+        taskid = uuidv4();
+      }
     }
     const original_input = {
       corporatetype: corporatetype,

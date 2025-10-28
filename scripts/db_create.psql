@@ -471,6 +471,31 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (updatedby) REFERENCES users (userid)
     );
 
+
+CREATE TABLE IF NOT EXISTS
+    city (
+        citycode text NOT NULL,
+        cityname text NOT NULL,
+        PRIMARY KEY (citycode),
+        UNIQUE (cityname)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    dealer (
+        dealercode text NOT NULL,
+        dealername text NOT NULL,
+        PRIMARY KEY (dealercode),
+        UNIQUE (dealername)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    color (
+        colorcode text NOT NULL,
+        colorname text NOT NULL,
+        PRIMARY KEY (colorcode),
+        UNIQUE (colorname)
+    );
+
 CREATE TABLE IF NOT EXISTS
     vehicle (
         vinno text NOT NULL,
@@ -499,10 +524,10 @@ CREATE TABLE IF NOT EXISTS
         CHECK ((char_length(mobile) >= 7)),
         FOREIGN KEY (createdby) REFERENCES users (userid),
         FOREIGN KEY (updatedby) REFERENCES users (userid),
-        FOREIGN KEY (modelcode) REFERENCES vehicle_model (modelcode) ON UPDATE CASCADE ON DELETE RESTRICT
-        FOREIGN KEY (color) REFERENCES color (colorname) ON UPDATE CASCADE ON DELETE RESTRICT
-        FOREIGN KEY (vehicle_city) REFERENCES city (cityname) ON UPDATE CASCADE ON DELETE RESTRICT
-        FOREIGN KEY (dealer) REFERENCES dealer (dealername) ON UPDATE CASCADE ON DELETE RESTRICT
+        FOREIGN KEY (modelcode) REFERENCES vehicle_model (modelcode) ON UPDATE CASCADE ON DELETE RESTRICT,
+        FOREIGN KEY (color) REFERENCES color (colorname),
+        FOREIGN KEY (vehicle_city) REFERENCES city (cityname),
+        FOREIGN KEY (dealer) REFERENCES dealer (dealername)
     );
 
 CREATE TABLE IF NOT EXISTS
@@ -669,6 +694,7 @@ CREATE TABLE IF NOT EXISTS
     account_vehicle_subscription_history (
         accountid uuid NOT NULL,
         vinno text NOT NULL,
+        isowner boolean NOT NULL DEFAULT false,
         startsat timestamptz NOT NULL,
         endsat timestamptz NULL,
         subscriptioninfo jsonb NOT NULL,
@@ -1047,6 +1073,19 @@ CREATE INDEX IF NOT EXISTS idx_user_login_audit_ssotype_createdat ON user_login_
 CREATE INDEX IF NOT EXISTS idx_user_login_audit_loginattempt ON user_login_audit (loginattempt);
 
 CREATE TABLE IF NOT EXISTS
+    account_summary (
+        accountid uuid NOT NULL,
+        users int NOT NULL DEFAULT 0,
+        vehicles int NOT NULL DEFAULT 0,
+        subscribed int NOT NULL DEFAULT 0,
+        packagename text NOT NULL DEFAULT 'Lite',
+        PRIMARY KEY (accountid),
+        UNIQUE (accountid),
+        FOREIGN KEY (accountid) REFERENCES account (accountid) INITIALLY DEFERRED
+    );
+
+
+CREATE TABLE IF NOT EXISTS
     vehicle_alert (
         alertcode text NOT NULL,
         alertseverity text NOT NULL, -- low, medium, high, critical
@@ -1118,30 +1157,6 @@ CREATE TABLE IF NOT EXISTS
         updatedby uuid NOT NULL,
         PRIMARY KEY (userid),
         FOREIGN KEY (userid) REFERENCES users (userid)
-    );
-
-CREATE TABLE IF NOT EXISTS
-    city (
-        citycode text NOT NULL,
-        cityname text NOT NULL,
-        PRIMARY KEY (citycode),
-        UNIQUE (cityname)
-    );
-
-CREATE TABLE IF NOT EXISTS
-    dealer (
-        dealercode text NOT NULL,
-        dealername text NOT NULL,
-        PRIMARY KEY (dealercode),
-        UNIQUE (dealername)
-    );
-
-CREATE TABLE IF NOT EXISTS
-    color (
-        colorcode text NOT NULL,
-        colorname text NOT NULL,
-        PRIMARY KEY (colorcode),
-        UNIQUE (colorname)
     );
 
 CREATE TABLE IF NOT EXISTS

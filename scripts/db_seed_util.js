@@ -780,7 +780,7 @@ export async function seedVehicleModelFamilyParam(pgPoolTx, createdby) {
       const isenabled = columns[4].trim();
       const odozeroprocessing = true;
       if (modelfamilycode) {
-        let stmt = `INSERT INTO vehicle_modelfamily_param (modelfamilycode, paramfamilycode, paramcode, paramvalue, isenabled, odozeroprocessing, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (modelfamilycode, paramfamilycode, paramcode) DO NOTHING`;
+        let stmt = `INSERT INTO vehicle_modelfamily_param (modelfamilycode, paramfamilycode, paramcode, paramvalue, isenabled, odozeroprocessing, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (modelfamilycode, paramfamilycode, paramcode) DO NOTHING`;
         let res = await pgPoolTx.query(stmt, [
           modelfamilycode,
           paramfamilycode,
@@ -1316,7 +1316,7 @@ export async function seedTGUModel(pgPoolTx) {
       const insertQuery = `
         INSERT INTO tgu_model (tgu_model_code, tgu_model_name) 
         VALUES ($1, $2) 
-        ON CONFLICT (tgu_model_code, tgu_model_name) DO NOTHING
+        ON CONFLICT (tgu_model_code) DO NOTHING
       `;
       await pgPoolTx.query(insertQuery, [model, model]);
     }
@@ -1348,7 +1348,7 @@ export async function seedTGUSwVersion(pgPoolTx) {
       const insertQuery = `
         INSERT INTO tgu_sw_version (tgu_sw_version_code, tgu_sw_version_name) 
         VALUES ($1, $2) 
-        ON CONFLICT (tgu_sw_version_code, tgu_sw_version_name) DO NOTHING
+        ON CONFLICT (tgu_sw_version_code) DO NOTHING
       `;
       await pgPoolTx.query(insertQuery, [version, version]);
     }

@@ -394,9 +394,16 @@ export default class HistoryDataHdlr {
           canparams
         );
 
-      if (result instanceof Error) {
-        result = [];
-      }
+        if (result instanceof Error) {
+          APIResponseBadRequest(
+            req,
+            res,
+            "INVALID_CAN_PARAMS",
+            {},
+            result.message
+          );
+          return;
+        }
 
       APIResponseOK(
         req,

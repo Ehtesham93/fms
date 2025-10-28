@@ -1378,6 +1378,34 @@ export default class UserSvcDB {
         throw new Error("Failed to create invite done record");
       }
 
+      //Extract the count safely
+      const countResult = await txclient.query(
+        `
+        SELECT COUNT(DISTINCT u.userid) AS user_count
+        FROM fleet_user_role fur 
+        JOIN users u ON fur.userid = u.userid 
+        LEFT JOIN roles r 
+          ON fur.accountid = r.accountid 
+          AND fur.roleid = r.roleid 
+          AND r.isenabled = true
+        WHERE fur.accountid = $1 
+          AND u.isdeleted = false;
+        `,
+        [accountid]
+      );
+      
+      const userCount = countResult.rows[0]?.user_count || 0;
+      
+      //Update the 'users' column in account_summary
+      await txclient.query(
+        `
+        UPDATE account_summary 
+        SET users = $1 
+        WHERE accountid = $2
+        `,
+        [userCount, accountid]
+      );
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -1532,6 +1560,34 @@ export default class UserSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to remove user from fleet");
       }
+
+      //Extract the count safely
+      const countResult = await txclient.query(
+        `
+        SELECT COUNT(DISTINCT u.userid) AS user_count
+        FROM fleet_user_role fur 
+        JOIN users u ON fur.userid = u.userid 
+        LEFT JOIN roles r 
+          ON fur.accountid = r.accountid 
+          AND fur.roleid = r.roleid 
+          AND r.isenabled = true
+        WHERE fur.accountid = $1 
+          AND u.isdeleted = false;
+        `,
+        [accountid]
+      );
+
+      const userCount = countResult.rows[0]?.user_count || 0;
+
+      //Update the 'users' column in account_summary
+      await txclient.query(
+        `
+        UPDATE account_summary 
+        SET users = $1 
+        WHERE accountid = $2
+        `,
+        [userCount, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -3317,8 +3373,8 @@ export default class UserSvcDB {
       const query = `
         UPDATE users 
         SET ${setClause}, updatedat = $${
-          Object.keys(fieldsToUpdate).length + 2
-        }, updatedby = $${Object.keys(fieldsToUpdate).length + 3}
+        Object.keys(fieldsToUpdate).length + 2
+      }, updatedby = $${Object.keys(fieldsToUpdate).length + 3}
         WHERE userid = $1 AND isdeleted = false
         RETURNING userid, displayname, isenabled
       `;

@@ -104,6 +104,16 @@ export default class AccountHdlrImpl {
     return { accountid: accountid, overview: account };
   };
 
+  GetAccountSummaryLogic = async () => {
+    try {
+      const getsummary = await this.accountSvcI.GetAccountSummary();
+      return getsummary;
+    } catch (error) {
+      this.logger.error("GetAccountSummaryLogic error:", error);
+      throw error;
+    }
+  };
+
   UpdateAccountLogic = async (accountid, updateFields, updatedby) => {
     const allowedFields = ["accountname", "accountinfo", "isenabled", "mobile"];
 

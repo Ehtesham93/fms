@@ -57,3 +57,22 @@ export const formatEpochToDuration = (milliseconds) => {
       return trimmedTo2Decimals(value);
     }
   };
+
+  export const formatLastUpdated = (isoString, { timeZone = 'UTC' } = {}) => {
+    const date = new Date(isoString);
+    if (isNaN(date)) throw new Error('Invalid date string');
+  
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone,
+    });
+  
+    const parts = Object.fromEntries(fmt.formatToParts(date).map(p => [p.type, p.value]));
+    return `${parts.day} ${parts.month} ${parts.year} | ${parts.hour}:${parts.minute}:${parts.second}`;
+  }

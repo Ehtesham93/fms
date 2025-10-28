@@ -2415,6 +2415,34 @@ export default class FmsAccountSvcDB {
         throw new Error("Failed to remove user from account");
       }
 
+      //Extract the count safely
+      const countResult = await txclient.query(
+        `
+        SELECT COUNT(DISTINCT u.userid) AS user_count
+        FROM fleet_user_role fur 
+        JOIN users u ON fur.userid = u.userid 
+        LEFT JOIN roles r 
+          ON fur.accountid = r.accountid 
+          AND fur.roleid = r.roleid 
+          AND r.isenabled = true
+        WHERE fur.accountid = $1 
+          AND u.isdeleted = false;
+        `,
+        [accountid]
+      );
+      
+      const userCount = countResult.rows[0]?.user_count || 0;
+      
+      //Update the 'users' column in account_summary
+      await txclient.query(
+        `
+        UPDATE account_summary 
+        SET users = $1 
+        WHERE accountid = $2
+        `,
+        [userCount, accountid]
+      );
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -2505,6 +2533,35 @@ export default class FmsAccountSvcDB {
         return null;
       }
       return result.rows[0];
+    } catch (error) {
+      throw new Error(`Failed to retrieve subscription`);
+    }
+  }
+
+  async getSubscriptionHistoryInfo(accountid, starttime, endtime) {
+    try {
+      const query = `
+        SELECT
+          COALESCE(v.license_plate, v.vinno) AS regno,
+          ash.vinno AS vinno,
+          ash.startsat,
+          ash.endsat,
+          ash.state,
+          ash.isowner,
+          ash.updatedat
+        FROM account_vehicle_subscription_history ash
+        JOIN vehicle v ON v.vinno = ash.vinno
+        WHERE ash.accountid = $1
+        AND ash.updatedat >= to_timestamp($2 / 1000.0)
+        AND ash.updatedat <  to_timestamp($3 / 1000.0)
+        ORDER BY ash.updatedat DESC
+      `;
+      const result = await this.pgPoolI.Query(query, [
+        accountid,
+        starttime,
+        endtime,
+      ]);
+      return result.rows; // return all rows (history), not null when != 1
     } catch (error) {
       throw new Error(`Failed to retrieve subscription`);
     }
@@ -2625,6 +2682,26 @@ export default class FmsAccountSvcDB {
           message: `Failed to create subscription history: ${pkgid}`,
         };
       }
+
+      //Get package name for the account
+      const pkgResult = await txclient.query(
+        `
+        SELECT p.pkgname
+        FROM account_package_subscription aps
+        JOIN package p ON aps.pkgid = p.pkgid
+        WHERE aps.accountid = $1
+        `,
+        [accountid]
+      );
+
+      //Extract package name (default to 'Lite' if none)
+      const packageName = pkgResult.rows[0]?.pkgname || 'Lite';
+
+      //Update account_summary with the package name
+      await txclient.query(
+        `UPDATE account_summary SET packagename = $1 WHERE accountid = $2`,
+        [packageName, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -3184,15 +3261,27 @@ export default class FmsAccountSvcDB {
           };
         }
 
+        const isOwnerList = await Promise.all(
+          vinnos.map(async (vinno) => {
+            const r = await txclient.query(
+              `SELECT isowner FROM fleet_vehicle WHERE accountid=$1 AND vinno=$2 LIMIT 1`,
+              [accountid, vinno]
+            );
+            return r.rows[0]?.isowner ?? false; // ensure a boolean
+          })
+        );
+
         let historyValues = [];
         const historyPlaceholders = vinnos
           .map((vinno, index) => {
             const startindex = index * 10 + 1;
             let startsat = currtime;
             let endsat = null;
+            let isowner = isOwnerList[index];
             historyValues.push(
               accountid,
               vinno,
+              isowner,
               startsat,
               endsat,
               {},
@@ -3206,13 +3295,13 @@ export default class FmsAccountSvcDB {
               startindex + 3
             }, $${startindex + 4}, $${startindex + 5}, $${startindex + 6}, $${
               startindex + 7
-            }, $${startindex + 8}, $${startindex + 9})`;
+            }, $${startindex + 8}, $${startindex + 9}, $${startindex + 10})`;
           })
           .join(",");
 
         query = `
           INSERT INTO account_vehicle_subscription_history 
-          (accountid, vinno, startsat, endsat, subscriptioninfo, state, createdat, createdby, updatedat, updatedby) 
+          (accountid, vinno, isowner, startsat, endsat, subscriptioninfo, state, createdat, createdby, updatedat, updatedby) 
           VALUES ${historyPlaceholders}
         `;
         result = await txclient.query(query, historyValues);
@@ -3229,6 +3318,19 @@ export default class FmsAccountSvcDB {
           };
         }
       }
+
+      const countResult = await txclient.query(
+        `SELECT COUNT(distinct vinno) AS vehicle_count FROM account_vehicle_subscription WHERE accountid = $1`,
+        [accountid]
+      );
+
+      const vehicleCount = countResult.rows[0].vehicle_count;
+
+      // Update account_summary with the correct count
+      await txclient.query(
+        `UPDATE account_summary SET subscribed = $1 WHERE accountid = $2`,
+        [vehicleCount, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -3437,6 +3539,19 @@ export default class FmsAccountSvcDB {
           },
         });
       }
+
+      const countResult = await txclient.query(
+        `SELECT COUNT(distinct vinno) AS vehicle_count FROM account_vehicle_subscription WHERE accountid = $1`,
+        [accountid]
+      );
+
+      const vehicleCount = countResult.rows[0].vehicle_count;
+
+      // Update account_summary with the correct count
+      await txclient.query(
+        `UPDATE account_summary SET subscribed = $1 WHERE accountid = $2`,
+        [vehicleCount, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -3740,6 +3855,26 @@ export default class FmsAccountSvcDB {
         msg = `Changing from ${oldpkgname} to ${newpkgname}, the validity of the subscription will remain the same at ${validityofoldpkg} days`;
         action = "switch";
       }
+
+      //Get package name for the account
+      const pkgResult = await txclient.query(
+        `
+        SELECT p.pkgname
+        FROM account_package_subscription aps
+        JOIN package p ON aps.pkgid = p.pkgid
+        WHERE aps.accountid = $1
+        `,
+        [accountid]
+      );
+
+      //Extract package name (default to 'Lite' if none)
+      const packageName = pkgResult.rows[0]?.pkgname || 'Lite';
+
+      //Update account_summary with the package name
+      await txclient.query(
+        `UPDATE account_summary SET packagename = $1 WHERE accountid = $2`,
+        [packageName, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -4065,7 +4200,7 @@ export default class FmsAccountSvcDB {
       if (hasConstraints) {
         const timestamp = Date.now();
         const deletedFleetName = `Deleted_Fleet_${timestamp}`;
-        
+
         query = `
           UPDATE fleet_tree 
           SET isdeleted = true, name = $1, updatedat = $2, updatedby = $3
@@ -4630,6 +4765,19 @@ export default class FmsAccountSvcDB {
         }
       }
 
+      const countResult = await txclient.query(
+        `SELECT COUNT(vinno) AS vehicle_count FROM fleet_vehicle WHERE accountid = $1`,
+        [dstaccountid]
+      );
+
+      const vehicleCount = countResult.rows[0].vehicle_count;
+
+      // Update account_summary with the correct count
+      await txclient.query(
+        `UPDATE account_summary SET vehicles = $1 WHERE accountid = $2`,
+        [vehicleCount, dstaccountid]
+      );
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         return {
@@ -4979,6 +5127,19 @@ export default class FmsAccountSvcDB {
           },
         });
       }
+
+      const countResult = await txclient.query(
+        `SELECT COUNT(vinno) AS vehicle_count FROM fleet_vehicle WHERE accountid = $1`,
+        [dstaccountid]
+      );
+
+      const vehicleCount = countResult.rows[0].vehicle_count;
+
+      // Update account_summary with the correct count
+      await txclient.query(
+        `UPDATE account_summary SET vehicles = $1 WHERE accountid = $2`,
+        [vehicleCount, dstaccountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {

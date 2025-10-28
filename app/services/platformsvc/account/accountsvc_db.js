@@ -255,6 +255,17 @@ export default class AccountSvcDB {
         throw new Error("Failed to create lite package subscription history");
       }
 
+      query = `
+                INSERT INTO account_summary (accountid, users, vehicles, subscribed, packagename) VALUES ($1, $2, $3, $4, $5)
+            `;
+      result = await txclient.query(query, [
+        account.accountid,
+        0,
+        0,
+        0,
+        'Lite',
+      ]); 
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -966,6 +977,34 @@ export default class AccountSvcDB {
         );
       }
 
+      //Extract the count safely
+      const countResult = await txclient.query(
+        `
+        SELECT COUNT(DISTINCT u.userid) AS user_count
+        FROM fleet_user_role fur 
+        JOIN users u ON fur.userid = u.userid 
+        LEFT JOIN roles r 
+          ON fur.accountid = r.accountid 
+          AND fur.roleid = r.roleid 
+          AND r.isenabled = true
+        WHERE fur.accountid = $1 
+          AND u.isdeleted = false;
+        `,
+        [accountid]
+      );
+
+      const userCount = countResult.rows[0]?.user_count || 0;
+
+      //Update the 'users' column in account_summary
+      await txclient.query(
+        `
+        UPDATE account_summary 
+        SET users = $1 
+        WHERE accountid = $2
+        `,
+        [userCount, accountid]
+      );
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -1225,6 +1264,34 @@ export default class AccountSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to add user to account");
       }
+
+      //Extract the count safely
+      const countResult = await txclient.query(
+        `
+        SELECT COUNT(DISTINCT u.userid) AS user_count
+        FROM fleet_user_role fur 
+        JOIN users u ON fur.userid = u.userid 
+        LEFT JOIN roles r 
+          ON fur.accountid = r.accountid 
+          AND fur.roleid = r.roleid 
+          AND r.isenabled = true
+        WHERE fur.accountid = $1 
+          AND u.isdeleted = false;
+        `,
+        [accountid]
+      );
+
+      const userCount = countResult.rows[0]?.user_count || 0;
+
+      //Update the 'users' column in account_summary
+      await txclient.query(
+        `
+        UPDATE account_summary 
+        SET users = $1 
+        WHERE accountid = $2
+        `,
+        [userCount, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -1545,6 +1612,19 @@ export default class AccountSvcDB {
         }
       }
 
+      const countResult = await txclient.query(
+        `SELECT COUNT(distinct vinno) AS vehicle_count FROM account_vehicle_subscription WHERE accountid = $1`,
+        [accountid]
+      );
+
+      const vehicleCount = countResult.rows[0].vehicle_count;
+
+      // Update account_summary with the correct count
+      await txclient.query(
+        `UPDATE account_summary SET subscribed = $1 WHERE accountid = $2`,
+        [vehicleCount, accountid]
+      );
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -1631,6 +1711,19 @@ export default class AccountSvcDB {
           "Failed to create account vehicle subscription history"
         );
       }
+
+      const countResult = await txclient.query(
+        `SELECT COUNT(distinct vinno) AS vehicle_count FROM account_vehicle_subscription WHERE accountid = $1`,
+        [accountid]
+      );
+
+      const vehicleCount = countResult.rows[0].vehicle_count;
+
+      // Update account_summary with the correct count
+      await txclient.query(
+        `UPDATE account_summary SET subscribed = $1 WHERE accountid = $2`,
+        [vehicleCount, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -1874,6 +1967,26 @@ export default class AccountSvcDB {
         msg = `Changing from ${oldpkgname} to ${newpkgname}, the validity of the subscription will remain the same at ${validityofoldpkg} days`;
         action = "switch";
       }
+
+      //Get package name for the account
+      const pkgResult = await txclient.query(
+        `
+        SELECT p.pkgname
+        FROM account_package_subscription aps
+        JOIN package p ON aps.pkgid = p.pkgid
+        WHERE aps.accountid = $1
+        `,
+        [accountid]
+      );
+
+      //Extract package name (default to 'Lite' if none)
+      const packageName = pkgResult.rows[0]?.pkgname || 'Lite';
+
+      //Update account_summary with the package name
+      await txclient.query(
+        `UPDATE account_summary SET packagename = $1 WHERE accountid = $2`,
+        [packageName, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -2141,6 +2254,25 @@ export default class AccountSvcDB {
           message: `Failed to create subscription history: ${newpkgid}`,
         };
       }
+      //Get package name for the account
+      const pkgResult = await txclient.query(
+        `
+        SELECT p.pkgname
+        FROM account_package_subscription aps
+        JOIN package p ON aps.pkgid = p.pkgid
+        WHERE aps.accountid = $1
+        `,
+        [accountid]
+      );
+
+      //Extract package name (default to 'Lite' if none)
+      const packageName = pkgResult.rows[0]?.pkgname || 'Lite';
+
+      //Update account_summary with the package name
+      await txclient.query(
+        `UPDATE account_summary SET packagename = $1 WHERE accountid = $2`,
+        [packageName, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -2254,6 +2386,19 @@ export default class AccountSvcDB {
         throw new Error("Failed to add vehicle to fleet history");
       }
 
+      const countResult = await txclient.query(
+        `SELECT COUNT(vinno) AS vehicle_count FROM fleet_vehicle WHERE accountid = $1`,
+        [accountid]
+      );
+
+      const vehicleCount = countResult.rows[0].vehicle_count;
+
+      // Update account_summary with the correct count
+      await txclient.query(
+        `UPDATE account_summary SET vehicles = $1 WHERE accountid = $2`,
+        [vehicleCount, accountid]
+      );
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -2328,6 +2473,20 @@ export default class AccountSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to remove vehicle from fleet");
       }
+
+      // Get vehicle count for the account
+      const countResult = await txclient.query(
+        `SELECT COUNT(vinno) AS vehicle_count FROM fleet_vehicle WHERE accountid = $1`,
+        [accountid]
+      );
+
+      const vehicleCount = countResult.rows[0].vehicle_count;
+
+      // Update account_summary with the correct count
+      await txclient.query(
+        `UPDATE account_summary SET vehicles = $1 WHERE accountid = $2`,
+        [vehicleCount, accountid]
+      );
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -2565,6 +2724,31 @@ export default class AccountSvcDB {
     }
   }
 
+  async getPendingAccountReviewByAccountName(accountname) {
+    try {
+      const query = `SELECT DISTINCT(accountid) FROM reviewpendingaccount WHERE accountname = $1`;
+      const result = await this.pgPoolI.Query(query, [accountname]);
+      if (result.rowCount === 0) {
+        return null;
+      }
+      return result.rows[0].accountid;
+    } catch (error) {
+      this.logger.error("Error in getPendingAccountReviewByAccountName:", error);
+      throw error;
+    }
+  }
+
+  async getAccountReviewDoneByAccountName(accountid, accountname, status) {
+    try {
+      const query = `SELECT * FROM reviewdoneaccount WHERE accountid = $1 AND accountname = $2 AND original_status = $3`;
+      const result = await this.pgPoolI.Query(query, [accountid, accountname, status]);
+      return result.rowCount > 0;
+    } catch (error) {
+      this.logger.error("Error in getAccountReviewDoneByAccountName:", error);
+      throw error;
+    }
+  }
+
   async getPendingAccountReviewById(accountid) {
     try {
       const query = `SELECT * FROM reviewpendingaccount WHERE accountid = $1`;
@@ -2679,6 +2863,74 @@ export default class AccountSvcDB {
     } catch (error) {
       this.logger.error("Error in discardAccountReview:", error);
       throw error;
+    }
+  }
+
+  async getAccountSummary(){
+    try{
+      let query = `
+        SELECT 
+            s.accountid,
+            a.accountname,
+            s.users,
+            s.vehicles AS totalvehicles,
+            s.subscribed AS subscribedvehicles,
+            s.packagename,
+            CAST(c.credits AS INTEGER) AS availablecredit,
+            COUNT(tvi.srcaccountid) AS taggedin,
+            COUNT(tvo.srcaccountid) AS taggedout,
+            TO_CHAR(
+                (
+                    NOW() + 
+                    (
+                        (CAST(c.credits AS INTEGER) /
+                        CASE 
+                            WHEN (s.vehicles * CAST(SUM(m.creditspervehicleday) AS INTEGER)) = 0 
+                                THEN 1 
+                            ELSE (s.vehicles * CAST(SUM(m.creditspervehicleday) AS INTEGER)) 
+                        END
+                        )::int * INTERVAL '1 day'
+                    )
+                ) AT TIME ZONE 'Asia/Kolkata',
+                'DD Mon YYYY | HH24:MI:SS'
+            ) AS expiredate,
+            CAST(c.credits AS INTEGER) /
+            (
+              CASE 
+                WHEN (s.vehicles * CAST(SUM(m.creditspervehicleday) AS INTEGER)) = 0 
+                  THEN 1 
+                ELSE (s.vehicles * CAST(SUM(m.creditspervehicleday) AS INTEGER)) 
+              END
+            ) AS expireindays
+        FROM account_summary s
+        JOIN account a ON a.accountid = s.accountid
+        JOIN account_credits c ON c.accountid = a.accountid
+        LEFT JOIN tagged_vehicle tvi ON tvi.dstaccountid = a.accountid
+        LEFT JOIN tagged_vehicle tvo ON tvo.srcaccountid = a.accountid
+        JOIN package p ON p.pkgname = s.packagename
+        JOIN package_module pm ON p.pkgid = pm.pkgid
+        JOIN module m ON pm.moduleid = m.moduleid
+        WHERE a.isenabled = TRUE 
+          AND a.isdeleted = FALSE
+        GROUP BY 
+            s.accountid,
+            a.accountname,
+            s.users,
+            s.vehicles,
+            s.subscribed,
+            s.packagename,
+            c.credits
+      `;
+      let result = await this.pgPoolI.Query(query);
+
+      if (result.rowCount === 0) {
+        throw new Error("Account not found");
+      }
+
+      return result.rows;
+    } catch (error) {
+      this.logger.error("getAccountSummary error:", error);
+      throw new Error("Failed to get account summary");
     }
   }
 }

@@ -1648,16 +1648,16 @@ export default class FleetInsightsHdlrImpl {
             vinToRegnoMap[vin].modelinfo.brochurespecs
           ) {
             const canmodelinfo = vinToRegnoMap[vin].modelinfo.brochurespecs;
-            const noofcycles = canDistance / canmodelinfo.range;
-            const batterneeded = noofcycles * canmodelinfo.battery_capacity;
+            const noofcycles = canDistance / parseInt(canmodelinfo.range);
+            const batterneeded = noofcycles * parseInt(canmodelinfo.battery_capacity);
             const iceco2emission =
-              canDistance * canmodelinfo.co2_emission_factor;
+              canDistance * parseInt(canmodelinfo.co2_emission_factor);
             const electricco2emission =
               batterneeded * electricco2emissionfactor;
             canCO2EmissionsSaved =
               (iceco2emission - electricco2emission) / 1000000;
             canTreesSaved = (canCO2EmissionsSaved * 1000) / 21.77;
-            canFuelCostSaved = (canDistance / milageoficevehicle) * canmodelinfo.fuel_price_factor;
+            canFuelCostSaved = (canDistance / milageoficevehicle) * parseInt(canmodelinfo.fuel_price_factor);
             vehiclecontribution.push({
               vin,
               fuelsaved: `₹${this.rupeeToFormattedString(canFuelCostSaved)}`,
@@ -1708,16 +1708,16 @@ export default class FleetInsightsHdlrImpl {
             vinToRegnoMap[vin].modelinfo.brochurespecs
           ) {
             const canmodelinfo = vinToRegnoMap[vin].modelinfo.brochurespecs;
-            const noofcycles = canDistance / canmodelinfo.range;
-            const batterneeded = noofcycles * canmodelinfo.battery_capacity;
+            const noofcycles = canDistance / parseInt(canmodelinfo.range);
+            const batterneeded = noofcycles * parseInt(canmodelinfo.battery_capacity);
             const iceco2emission =
-              canDistance * canmodelinfo.co2_emission_factor;
+              canDistance * parseInt(canmodelinfo.co2_emission_factor);
             const electricco2emission =
               batterneeded * electricco2emissionfactor;
             canCO2EmissionsSaved =
               (iceco2emission - electricco2emission) / 1000000;
             canTreesSaved = (canCO2EmissionsSaved * 1000) / 21.77;
-            canFuelCostSaved = (canDistance / milageoficevehicle) * canmodelinfo.fuel_price_factor;
+            canFuelCostSaved = (canDistance / milageoficevehicle) * parseInt(canmodelinfo.fuel_price_factor);
 
             fuelcostsaved += canFuelCostSaved;
             treesaved += canTreesSaved;

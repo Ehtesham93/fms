@@ -81,7 +81,7 @@ export default class PlatformHdlr {
       userSvcI,
       logger
     );
-    this.vehicleHdlr = new VehicleHdlr(platformSvcI, historyDataSvcI, logger);
+    this.vehicleHdlr = new VehicleHdlr(platformSvcI, historyDataSvcI, platformSvcI.getMetaSvc(), logger);
     this.metaHdlr = new MetaHdlr(platformSvcI.getMetaSvc(), logger);
   }
 
