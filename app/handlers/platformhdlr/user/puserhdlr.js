@@ -124,6 +124,9 @@ export default class PUserHdlr {
 
     router.get("/listpending", this.ListPendingUsers);
     router.get("/listdone", this.ListDoneUsers);
+    router.post("/retryonboard", this.RetryOnboard);
+    router.post("/getuseraccountlist", this.GetUserAccountList);
+    
   }
 
   CreateUser = async (req, res, next) => {
@@ -1568,6 +1571,125 @@ export default class PUserHdlr {
           "ONBOARD_USER_ACCOUNT_ERR",
           error.toString(),
           "Onboard user account failed"
+        );
+      }
+    }
+  };
+
+
+  RetryOnboard = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.user.admin",
+          "consolemgmt.account.admin",
+          "consolemgmt.vehicle.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to retry onboard."
+        );
+      }
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        retrytype: z
+          .string({ message: "Invalid Retry Type format" })
+          .nonempty({ message: "Retry Type cannot be empty" })
+          .refine((val) => ["user", "account"].includes(val), {
+            message: "Invalid Retry Type format",
+          })
+      });
+      let { userid, retrytype } = validateAllInputs(schema, {
+        userid: req.userid,
+        retrytype: req.body.retrytype,
+      });
+
+      let result = await this.pUserHdlrImpl.RetryOnboardLogic(
+        userid,
+        retrytype
+      );
+      APIResponseOK(req, res, result, "Retry onboard successfully");
+    } catch (e) {
+      this.logger.error("RetryOnboard error: ", e);
+      if (e.errcode === "CONSOLE_ACCESS_DENIED") {
+        APIResponseForbidden(
+          req,
+          res,
+          "RETRY_ONBOARD_ACCESS_DENIED",
+          null,
+          e.message
+        );
+      } else if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "RETRY_ONBOARD_ERR",
+          e.toString(),
+          "Retry onboard failed"
+        );
+      }
+    }
+  };
+
+  GetUserAccountList = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.user.admin",
+          "consolemgmt.user.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get user account list."
+        );
+      }
+      const schema = z.discriminatedUnion("usertype", [
+        z.object({
+          usertype: z.literal("email"),
+          contact: z.string({ message: "Contact must be a string" })
+            .trim()
+            .email({ message: "Invalid email format" }),
+        }),
+        z.object({
+          usertype: z.literal("mobile"),
+          contact: z.string({ message: "Mobile must be a string" })
+            .trim()
+            .min(10, { message: "Mobile number must be 10 digits" })
+            .max(10, { message: "Mobile number must be 10 digits" })
+            .refine((val) => /^[6-9]\d{9}$/.test(val), {
+              message: "Invalid mobile number format. Must be 10 digits starting with 6-9.",
+            }),
+        }),
+      ]);
+      const { contact, usertype } = validateAllInputs(schema, {
+        contact: req.body.contact,
+        usertype: req.body.usertype,
+      });
+      let result = await this.pUserHdlrImpl.GetUserAccountListLogic(contact, usertype);
+      APIResponseOK(req, res, result, "User account list listed successfully");
+    } catch (e) {
+      this.logger.error("GetUserAccountList error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_USER_ACCOUNT_LIST_ERR",
+          e.toString(),
+          "Get user account list failed"
         );
       }
     }

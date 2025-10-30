@@ -140,4 +140,12 @@ export default class PUserSvc {
   async DiscardUserReview(createdBy, taskid) {
     return await this.pUserSvcDB.discardUserReview(createdBy, taskid);
   }
+
+  async ListPendingUserReviews() {
+    return await this.pUserSvcDB.listPendingUserReviews();
+  }
+
+  async GetUserAccountList(contact, usertype) {
+    return await this.pUserSvcDB.getUserAccountList(contact, usertype);
+  }
 }

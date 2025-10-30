@@ -609,6 +609,7 @@ export default class PUserHdlrImpl {
       .trim(); // Trim leading and trailing whitespaces
   };
 
+
   AddAccountToReviewPending = async (
     taskid,
     accountname,
@@ -624,6 +625,7 @@ export default class PUserHdlrImpl {
         accountname: accountname,
         accounttype: "customer",
         accountinfo: {},
+        mobile: original_input.nemo_user_mobile,
         isenabled: false, // Disabled until reviewed
         isdeleted: false,
         original_input: original_input,
@@ -2028,7 +2030,7 @@ export default class PUserHdlrImpl {
       accountname = `${processedcustomername} ${usermobile}`;
     }
     if (taskid === null) {
-      const existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(accountname);
+      const existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(accountname, vin);
       if (existingtask) {
         taskid = existingtask;
       } else {
@@ -2059,26 +2061,49 @@ export default class PUserHdlrImpl {
       const existingaccount =
         await this.platformSvcI.GetAccountByName(accountname);
 
-      if (existingaccount === null) {
-        return await this.handleIndividualCustomerOnboarding(
-          taskid,
-          accountname,
-          userid,
-          original_input,
-          existingmobile,
-          usermobile,
-          processedcustomername,
-          customercontactemail,
-          customeraddress,
-          customeraddresscity,
-          customeraddresscountry,
-          customeraddresspincode,
-          customerdateofbirth,
-          customergender,
-          vehiclemobile,
-          vin,
-          licenseplate
-        );
+        if (existingaccount === null) {
+          if ( existingmobile === null ){
+            return await this.handleIndividualCustomerOnboarding(
+              taskid,
+              accountname,
+              userid,
+              original_input,
+              existingmobile,
+              usermobile,
+              processedcustomername,
+              customercontactemail,
+              customeraddress,
+              customeraddresscity,
+              customeraddresscountry,
+              customeraddresspincode,
+              customerdateofbirth,
+              customergender,
+              vehiclemobile,
+              vin,
+              licenseplate
+            );
+          } else {
+            await this.AddAccountToReviewPending(
+              taskid,
+              accountname,
+              original_input,
+              "ACCOUNT_CREATION",
+              userid,
+              `Duplicate account creation when User is already present with for the given contact onboarding failed. Account onboarding pending manual review.`,
+              "DUPLICATE_ACCOUNT_CREATION"
+            );
+  
+            const user = await this.userSvcI.GetUserDetails(existingmobile);
+  
+            return {
+              userid: user.userid,
+              errcode: "DUPLICATE_ACCOUNT_CREATION",
+              status: "DUPLICATE_ACCOUNT_CREATION",
+              message:
+                "Duplicate account creation. Account creation pending manual review.",
+            };
+  
+          }
       } else if (existingaccount !== null) {
         return await this.handleExistingIndividualAccount(
           taskid,
@@ -2291,4 +2316,102 @@ export default class PUserHdlrImpl {
       accountname
     );
   }
+
+  RetryOnboardLogic = async ( userid, retrytype ) => {
+    try {
+      if (retrytype === "user") {
+        return await this.handleUserRetry(userid);
+      } else if (retrytype === "account") {
+        return await this.handleAccountRetry(userid);
+      }
+      return true;
+    } catch (error) {
+      this.logger.error("RetryUserOnboardLogic failed", error);
+      throw error;
+    }
+  };
+
+  handleUserRetry = async ( userid) => {
+    try {
+      let pendingreviews = await this.pUserSvcI.ListPendingUserReviews();
+      for (const review of pendingreviews) {
+        const original_input = review.original_input;
+        try {
+          await this.OnboardUserAccountLogic(
+            userid,
+            original_input.corporatetype,
+            original_input.customeraddress,
+            original_input.customeraddresscity,
+            original_input.customeraddresscountry,
+            original_input.customeraddresspincode,
+            original_input.customercontactemail,
+            original_input.customercontactmobile,
+            original_input.customerdateofbirth,
+            original_input.customergender,
+            original_input.customername,
+            original_input.customertype,
+            original_input.licenseplate,
+            original_input.vin,
+            original_input.nemo_user_mobile,
+            "review",
+            review.userid,
+            null
+          );
+        } catch (error) {
+          this.logger.error("RetryUserOnboardLogic failed", error);
+          continue;
+        }
+      }
+      return true;
+    } catch (error) {
+      this.logger.error("RetryUserOnboardLogic failed", error);
+      throw error;
+    }
+  }
+  handleAccountRetry = async ( userid) => {
+    try {
+      let pendingreviews = await this.accountSvcI.ListPendingAccountReviews();
+      for (const review of pendingreviews) {
+        const original_input = review.original_input;
+        try {
+          await this.OnboardUserAccountLogic(
+            userid,
+            original_input.corporatetype,
+            original_input.customeraddress,
+            original_input.customeraddresscity,
+            original_input.customeraddresscountry,
+            original_input.customeraddresspincode,
+            original_input.customercontactemail,
+            original_input.customercontactmobile,
+            original_input.customerdateofbirth,
+            original_input.customergender,
+            original_input.customername,
+            original_input.customertype,
+            original_input.licenseplate,
+            original_input.vin,
+            original_input.nemo_user_mobile,
+            "review",
+            review.accountid,
+            review.accountname
+          );
+        } catch (error) {
+          this.logger.error("RetryAccountOnboardLogic failed", error);
+          continue;
+        }
+      }
+      return true;
+    } catch (error) {
+      this.logger.error("RetryAccountOnboardLogic failed", error);
+      throw error;
+    }
+  }
+
+  GetUserAccountListLogic = async (contact, usertype) => {
+    try {
+      return await this.pUserSvcI.GetUserAccountList(contact, usertype);
+    } catch (error) {
+      this.logger.error("GetUserAccountListLogic error:", error);
+      throw error;
+    }
+  };
 }

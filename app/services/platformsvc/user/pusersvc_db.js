@@ -1369,4 +1369,66 @@ export default class PUserSvcDB {
       throw error;
     }
   }
+
+  async listPendingUserReviews() {
+    try {
+      let query = `SELECT * FROM reviewpendinguser ORDER BY updatedat ASC LIMIT 100`;
+      let result = await this.pgPoolI.Query(query);
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to list pending user reviews: ${error.message}`);
+    }
+  }
+
+  async getUserAccountList(contact, usertype){
+    try{
+
+      if (usertype !== "email" && usertype !== "mobile") {
+        throw new Error("Invalid usertype. Must be 'email' or 'mobile'");
+      }
+
+      // Validate contact format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const indianMobileRegex = /^[6-9]\d{9}$/;
+
+      if (usertype === "email" && !emailRegex.test(contact)) {
+        throw new Error("Invalid email format");
+      }
+
+      if (usertype === "mobile" && !indianMobileRegex.test(contact)) {
+        throw new Error(
+          "Invalid mobile format. Must be a valid Indian mobile number"
+        );
+      }
+
+      if (usertype === "email") {
+        let query = `
+          SELECT uf.accountid, a.accountname FROM user_fleet uf
+            JOIN account a ON uf.accountid = a.accountid
+            JOIN fleet_tree ft ON uf.fleetid = ft.fleetid
+            JOIN email_pwd_sso es ON es.userid = uf.userid
+            WHERE es.ssoid = $1 AND a.isenabled = true AND a.isdeleted = false ORDER BY a.accountname
+        `;
+        let result = await this.pgPoolI.Query(query, [contact]);
+        if (result.rowCount > 0) {
+          return result.rows
+        }
+      } else {
+        let query = `
+          SELECT uf.accountid, a.accountname FROM user_fleet uf
+            JOIN account a ON uf.accountid = a.accountid
+            JOIN fleet_tree ft ON uf.fleetid = ft.fleetid
+            JOIN mobile_sso ms ON ms.userid = uf.userid
+            WHERE ms.ssoid = $1 AND a.isenabled = true AND a.isdeleted = false ORDER BY a.accountname
+        `;
+        let result = await this.pgPoolI.Query(query, [contact]);
+        if (result.rowCount > 0) {
+          return result.rows;
+        }
+      }
+    } catch (error) {
+      this.logger.error("getUserAccountList error:", error);
+      throw new Error("Failed to get user account list");
+    }
+  }
 }

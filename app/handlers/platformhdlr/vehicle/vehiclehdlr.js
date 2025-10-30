@@ -44,6 +44,7 @@ export default class VehicleHdlr {
     router.get("/listpending", this.ListPendingVehicles);
     router.get("/listdone", this.ListDoneVehicles);
     router.post("/vehicleserviceonboarding", this.VehicleServiceOnboarding);
+    router.post("/retryonboard", this.RetryOnboard);
   }
 
   ValidateEpochTime = (timeStr, fieldName) => {
@@ -909,6 +910,56 @@ export default class VehicleHdlr {
         );
       }
       APIResponseInternalErr(req, res, e.errcode, e.errdata, e.message);
+    }
+  };
+
+  RetryOnboard = async (req, res, next) => {
+    try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.vehicle.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to retry vehicle onboard."
+        );
+      }
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        retrytype: z
+          .string({ message: "Invalid Retry Type format" })
+          .nonempty({ message: "Retry Type cannot be empty" })
+          .refine((val) => ["vehicle"].includes(val), {
+            message: "Invalid Retry Type format",
+          })
+      });
+      let { userid, retrytype } = validateAllInputs(schema, {
+        userid: req.userid,
+        retrytype: req.body.retrytype,
+      });
+
+      let result = await this.vehicleHdlrImpl.RetryOnboardLogic(
+        userid,
+        retrytype
+      );
+      APIResponseOK(req, res, result, "Retry onboard successfully");
+    } catch (e) {
+      this.logger.error("RetryOnboard error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "VEHICLE_ALREADY_EXISTS") {
+        APIResponseBadRequest(req, res, e.errcode, {}, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "RETRY_ONBOARD_ERR",
+          e.toString(),
+          "Retry onboard failed"
+        );
+      }
     }
   };
 }

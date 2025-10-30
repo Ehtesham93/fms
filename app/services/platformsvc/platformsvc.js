@@ -221,4 +221,8 @@ export default class PlatformSvc {
   async DiscardVehicleReview(createdBy, vin) {
     return await this.platformSvcDB.discardVehicleReview(createdBy, vin);
   }
+
+  async ListPendingVehicleReviews() {
+    return await this.platformSvcDB.listPendingVehicleReviews();
+  }
 }

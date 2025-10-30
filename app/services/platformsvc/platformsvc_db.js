@@ -1352,4 +1352,13 @@ export default class PlatformSvcDB {
       throw new Error(`Failed to discard vehicle review: ${error.message}`);
     }
   }
+  async listPendingVehicleReviews() {
+    try {
+      let query = `SELECT * FROM reviewpendingvehicle ORDER BY updatedat ASC LIMIT 100`;
+      let result = await this.pgPoolI.Query(query);
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to list pending vehicle reviews: ${error.message}`);
+    }
+  }
 }

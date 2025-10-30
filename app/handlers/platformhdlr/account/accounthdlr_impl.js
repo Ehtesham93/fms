@@ -1044,4 +1044,17 @@ export default class AccountHdlrImpl {
 
     return `${day} ${month} ${year}`;
   }
+
+  IsAccountNameAvailableLogic = async (accountname) => {
+    try {
+      const result =  await this.platformSvcI.GetAccountByName(accountname);
+      if(result){
+        return false;
+      }
+      return true;
+    } catch (error) {
+      this.logger.error("IsAccountNameAvailableLogic error:", error);
+      throw error;
+    }
+  };
 }

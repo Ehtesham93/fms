@@ -303,32 +303,32 @@ export default class VehicleHdlrImpl {
 
   convertDateFormat = (dateString) => {
     if (!dateString) return null;
-  
+
     try {
       // Handle YYYY-MM-DD format
       if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
         // For IST dates, we want to store them as-is without timezone conversion
         // Create a date at midnight IST and return it as a string in the format PostgreSQL expects
-        const [year, month, day] = dateString.split('-');
+        const [year, month, day] = dateString.split("-");
         const date = new Date(year, month - 1, day); // month is 0-indexed in JavaScript
-        return date.toISOString().split('T')[0] + 'T00:00:00+05:30';
+        return date.toISOString().split("T")[0] + "T00:00:00+05:30";
       }
-  
+
       // Parse DD/MM/YY format and convert to YYYY-MM-DD
       const parts = dateString.split("/");
       if (parts.length === 3) {
         const day = parts[0];
         const month = parts[1];
         const year = parts[2];
-  
+
         // Convert 2-digit year to 4-digit year
         const fullYear = year.length === 2 ? `20${year}` : year;
-  
+
         // Create a date at midnight IST
         const date = new Date(fullYear, month - 1, day); // month is 0-indexed
-        return date.toISOString().split('T')[0] + 'T00:00:00+05:30';
+        return date.toISOString().split("T")[0] + "T00:00:00+05:30";
       }
-  
+
       return dateString; // Return as-is if not in expected format
     } catch (error) {
       console.log("Date conversion error:", error);
@@ -370,14 +370,12 @@ export default class VehicleHdlrImpl {
     const processedVehicleColour = this.preprocessingText(
       vehicleData.vehicleColour
     );
-    if (processedVehicleColour !== ""){
-      vehicleData.vehicleColour = processedVehicleColour
-    }else{
-      vehicleData.vehicleColour = "NA"
+    if (processedVehicleColour !== "") {
+      vehicleData.vehicleColour = processedVehicleColour;
+    } else {
+      vehicleData.vehicleColour = "NA";
     }
-    vehicleData.vehicleCity = this.preprocessingText(
-      vehicleData.vehicleCity
-    );
+    vehicleData.vehicleCity = this.preprocessingText(vehicleData.vehicleCity);
     // Case 1: Vehicle already exists - just return
     let vehicleExists = await this.platformSvcI.CheckVehicleExists(vin);
     if (vehicleExists) {
@@ -766,12 +764,14 @@ export default class VehicleHdlrImpl {
     const allFields = {};
 
     // Map all fields to database column names
+    allFields.delivered = false;
     if (fields.licensePlate) allFields.license_plate = fields.licensePlate;
     if (fields.vehicleCity) allFields.vehicle_city = fields.vehicleCity;
     if (fields.vehicleColour) allFields.color = fields.vehicleColour;
     if (fields.tgu_imei_no) allFields.tgu_imei_no = fields.tgu_imei_no;
     if (fields.dealer) allFields.dealer = fields.dealer;
     if (fields.deliveredDate) allFields.delivered_date = fields.deliveredDate;
+    if (fields.deliveredDate) allFields.delivered = true;
     if (fields.engineNo) allFields.engineno = fields.engineNo;
     if (fields.fuelType) allFields.fueltype = fields.fuelType;
     if (fields.retailsSaleDate)
@@ -1048,22 +1048,43 @@ export default class VehicleHdlrImpl {
   };
 
   MetaOptions = async (validationErrors, fieldsToValidate) => {
-    try{
+    try {
       for (const validationError of validationErrors) {
-        if(validationError.field === 'vehicle_city'){
+        if (validationError.field === "vehicle_city") {
           await this.metaSvcI.CreateVehicleCity(fieldsToValidate.vehicle_city);
         }
-        if(validationError.field === 'dealer'){
+        if (validationError.field === "dealer") {
           await this.metaSvcI.CreateVehicleDealer(fieldsToValidate.dealer);
         }
-        if(validationError.field === 'color'){
+        if (validationError.field === "color") {
           await this.metaSvcI.CreateVehicleColor(fieldsToValidate.color);
         }
-      };
-
-    }catch(error){
+      }
+    } catch (error) {
       this.logger.error("MetaOption db operation failed", error);
       throw error;
     }
-  }
+  };
+
+  RetryOnboardLogic = async ( userid, retrytype ) => {
+    try {
+      if (retrytype === "vehicle") {
+        let pendingreviews = await this.platformSvcI.ListPendingVehicleReviews();
+        for (const review of pendingreviews) {
+          try {
+            await this.OnboardVehicleLogic(review.original_input, "review", userid);
+          } catch (error) {
+            this.logger.error("RetryVehicleOnboardLogic failed", error);
+            continue;
+          }
+        }
+        return true;
+      }else {
+        throw new Error("Invalid retry type");
+      }
+    } catch (error) {
+      this.logger.error("RetryOnboardLogic failed", error);
+      throw error;
+    }
+  };
 }

@@ -2724,10 +2724,10 @@ export default class AccountSvcDB {
     }
   }
 
-  async getPendingAccountReviewByAccountName(accountname) {
+  async getPendingAccountReviewByAccountName(accountname, vin) {
     try {
-      const query = `SELECT DISTINCT(accountid) FROM reviewpendingaccount WHERE accountname = $1`;
-      const result = await this.pgPoolI.Query(query, [accountname]);
+      const query = `SELECT DISTINCT(accountid) FROM reviewpendingaccount WHERE accountname = $1 AND original_input->>'vin' = $2`;
+      const result = await this.pgPoolI.Query(query, [accountname, vin]);
       if (result.rowCount === 0) {
         return null;
       }
@@ -2931,6 +2931,16 @@ export default class AccountSvcDB {
     } catch (error) {
       this.logger.error("getAccountSummary error:", error);
       throw new Error("Failed to get account summary");
+    }
+  }
+
+  async listPendingAccountReviews() {
+    try {
+      let query = `SELECT * FROM reviewpendingaccount ORDER BY updatedat ASC LIMIT 100`;
+      let result = await this.pgPoolI.Query(query);
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to list pending account reviews: ${error.message}`);
     }
   }
 }

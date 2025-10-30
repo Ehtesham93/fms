@@ -150,6 +150,7 @@ export default class AccountHdlr {
     router.get("/listpending", this.ListPendingAccounts);
     router.get("/listdone", this.ListDoneAccounts);
     router.get("/summary", this.GetAccountSummary);
+    router.post("/isaccountnameavailable", this.IsAccountNameAvailable);
   }
 
   CreateAccount = async (req, res, next) => {
@@ -2415,6 +2416,32 @@ export default class AccountHdlr {
           e.toString(),
           "List done accounts failed"
         );
+      }
+    }
+  };
+
+  IsAccountNameAvailable = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountname: z
+          .string({ message: "Account name must be a string" })
+          .nonempty({ message: "Account name cannot be empty" }),
+      });
+      let { accountname } = validateAllInputs(schema, {
+        accountname: req.body.accountname,
+      });
+      let result = await this.accountHdlrImpl.IsAccountNameAvailableLogic(accountname);
+      if (result) {
+        return APIResponseOK(req, res, result, "Account name available");
+      } else {
+        return APIResponseOK(req, res, result, "Account name not available");
+      }
+    } catch (e) {
+      this.logger.error("IsAccountNameAvailable error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(req, res, e);
       }
     }
   };
