@@ -1051,13 +1051,37 @@ export default class VehicleHdlrImpl {
     try {
       for (const validationError of validationErrors) {
         if (validationError.field === "vehicle_city") {
-          await this.metaSvcI.CreateVehicleCity(fieldsToValidate.vehicle_city);
+          try {
+            await this.metaSvcI.CreateVehicleCity(fieldsToValidate.vehicle_city);
+          } catch (error) {
+            // Handle "already exists" gracefully - this is fine
+            if (error.errcode === "CITY_NAME_ALREADY_EXISTS" || error.message?.includes("already exists")) {
+              continue;
+            }
+            throw error;
+          }
         }
         if (validationError.field === "dealer") {
-          await this.metaSvcI.CreateVehicleDealer(fieldsToValidate.dealer);
+          try {
+            await this.metaSvcI.CreateVehicleDealer(fieldsToValidate.dealer);
+          } catch (error) {
+            // Handle "already exists" gracefully - this is fine
+            if (error.errcode === "DEALER_NAME_ALREADY_EXISTS" || error.message?.includes("already exists")) {
+              continue;
+            }
+            throw error;
+          }
         }
         if (validationError.field === "color") {
-          await this.metaSvcI.CreateVehicleColor(fieldsToValidate.color);
+          try {
+            await this.metaSvcI.CreateVehicleColor(fieldsToValidate.color);
+          } catch (error) {
+            // Handle "already exists" gracefully - this is fine
+            if (error.errcode === "COLOR_NAME_ALREADY_EXISTS" || error.message?.includes("already exists")) {
+              continue;
+            }
+            throw error;
+          }
         }
       }
     } catch (error) {
