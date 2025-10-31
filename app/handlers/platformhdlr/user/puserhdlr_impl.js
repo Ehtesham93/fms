@@ -2062,7 +2062,9 @@ export default class PUserHdlrImpl {
         await this.platformSvcI.GetAccountByName(accountname);
 
         if (existingaccount === null) {
-          if ( existingmobile === null ){
+          const pendingaccount =
+            await this.accountSvcI.GetPendingAccountReviewById(taskid);
+          if ( existingmobile === null || ( pendingaccount && pendingaccount.status === "DUPLICATE_ACCOUNT_CREATION" && pendingaccount.error_status === "ACCOUNT_CREATION" && type === "review")){
             return await this.handleIndividualCustomerOnboarding(
               taskid,
               accountname,
@@ -2353,7 +2355,7 @@ export default class PUserHdlrImpl {
             original_input.licenseplate,
             original_input.vin,
             original_input.nemo_user_mobile,
-            "review",
+            "retry",
             review.userid,
             null
           );
@@ -2390,7 +2392,7 @@ export default class PUserHdlrImpl {
             original_input.licenseplate,
             original_input.vin,
             original_input.nemo_user_mobile,
-            "review",
+            "retry",
             review.accountid,
             review.accountname
           );

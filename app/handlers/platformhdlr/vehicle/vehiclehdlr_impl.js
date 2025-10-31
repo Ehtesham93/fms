@@ -1072,7 +1072,7 @@ export default class VehicleHdlrImpl {
         let pendingreviews = await this.platformSvcI.ListPendingVehicleReviews();
         for (const review of pendingreviews) {
           try {
-            await this.OnboardVehicleLogic(review.original_input, "review", userid);
+            await this.OnboardVehicleLogic(review.original_input, "retry", userid);
           } catch (error) {
             this.logger.error("RetryVehicleOnboardLogic failed", error);
             continue;

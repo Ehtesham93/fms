@@ -938,13 +938,13 @@ export default class PlatformSvcDB {
         this.pgPoolI.Query("SELECT COUNT(*) FROM reviewpendinguser"),
         this.pgPoolI.Query("SELECT COUNT(*) FROM reviewpendingvehicle"),
         this.pgPoolI.Query(
-          "SELECT COUNT(distinct accountid) FROM reviewdoneaccount WHERE entrytype = 'review'"
+          "SELECT COUNT(distinct accountid) FROM reviewdoneaccount WHERE entrytype = 'review' OR entrytype = 'retry'"
         ),
         this.pgPoolI.Query(
-          "SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'review'"
+          "SELECT COUNT(*) FROM reviewdoneuser WHERE entrytype = 'review' OR entrytype = 'retry'"
         ),
         this.pgPoolI.Query(
-          "SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'review'"
+          "SELECT COUNT(*) FROM reviewdonevehicle WHERE entrytype = 'review' OR entrytype = 'retry'"
         ),
         this.pgPoolI.Query(
           "SELECT COUNT(DISTINCT accountid) FROM reviewdoneaccount WHERE entrytype = 'onboarding' AND original_status='ACCOUNT_CREATION_SUCCESS'"
