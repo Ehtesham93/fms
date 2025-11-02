@@ -100,12 +100,15 @@ export default class VehicleHdlrImpl {
     }
 
     const lookupFieldsToValidate = {};
-    if (fieldsToUpdate.vehicle_city)
-      lookupFieldsToValidate.vehicle_city = fieldsToUpdate.vehicle_city;
-    if (fieldsToUpdate.dealer)
-      lookupFieldsToValidate.dealer = fieldsToUpdate.dealer;
-    if (fieldsToUpdate.color)
-      lookupFieldsToValidate.color = fieldsToUpdate.color;
+    if (fieldsToUpdate.dealer) {
+      fieldsToUpdate.dealer = this.preprocessingDealer(fieldsToUpdate.dealer);
+    }
+    if (fieldsToUpdate.vehicle_city) {
+      fieldsToUpdate.vehicle_city = this.preprocessingText(fieldsToUpdate.vehicle_city);
+    }
+    if (fieldsToUpdate.color) {
+      fieldsToUpdate.color = this.preprocessingText(fieldsToUpdate.color);
+    }  
     if (fieldsToUpdate.fueltype)
       lookupFieldsToValidate.fueltype = fieldsToUpdate.fueltype;
     if (fieldsToUpdate.modelcode)
@@ -1055,9 +1058,14 @@ export default class VehicleHdlrImpl {
             await this.metaSvcI.CreateVehicleCity(fieldsToValidate.vehicle_city);
           } catch (error) {
             // Handle "already exists" gracefully - this is fine
-            if (error.errcode === "CITY_NAME_ALREADY_EXISTS" || error.message?.includes("already exists")) {
-              continue;
+            if (
+              error.errcode === "CITY_NAME_ALREADY_EXISTS" || 
+              error.message?.toLowerCase().includes("already exists") ||
+              error.message === "City name already exists"
+            ) {
+              continue; // Skip to next validation error
             }
+            // For other errors, rethrow
             throw error;
           }
         }
@@ -1066,9 +1074,14 @@ export default class VehicleHdlrImpl {
             await this.metaSvcI.CreateVehicleDealer(fieldsToValidate.dealer);
           } catch (error) {
             // Handle "already exists" gracefully - this is fine
-            if (error.errcode === "DEALER_NAME_ALREADY_EXISTS" || error.message?.includes("already exists")) {
-              continue;
+            if (
+              error.errcode === "DEALER_NAME_ALREADY_EXISTS" || 
+              error.message?.toLowerCase().includes("already exists") ||
+              error.message === "Dealer name already exists"
+            ) {
+              continue; // Skip to next validation error
             }
+            // For other errors, rethrow
             throw error;
           }
         }
@@ -1077,9 +1090,14 @@ export default class VehicleHdlrImpl {
             await this.metaSvcI.CreateVehicleColor(fieldsToValidate.color);
           } catch (error) {
             // Handle "already exists" gracefully - this is fine
-            if (error.errcode === "COLOR_NAME_ALREADY_EXISTS" || error.message?.includes("already exists")) {
-              continue;
+            if (
+              error.errcode === "COLOR_NAME_ALREADY_EXISTS" || 
+              error.message?.toLowerCase().includes("already exists") ||
+              error.message === "Color name already exists"
+            ) {
+              continue; // Skip to next validation error
             }
+            // For other errors, rethrow
             throw error;
           }
         }
