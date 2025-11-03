@@ -1059,7 +1059,13 @@ export default class UserHdlr {
 
   GetBanners = async (req, res, next) => {
     try {
-      let result = await this.userHdlrImpl.GetBannersLogic();
+      const userAgent = req.headers["user-agent"] || "";
+
+      let category = "web";
+      if (/android/i.test(userAgent) || /iphone|ipad|ipod/i.test(userAgent)) {
+        category = "mobile";
+      }
+      let result = await this.userHdlrImpl.GetBannersLogic(category);
       APIResponseOK(req, res, result, "Banners fetched successfully");
     } catch (e) {
       this.logger.error("GetBanners error: ", e);

@@ -1000,6 +1000,7 @@ CREATE TABLE IF NOT EXISTS
         url text NOT NULL,
         priority integer NOT NULL,
         isenabled boolean NOT NULL DEFAULT true,
+        category text,
         createdat timestamptz NOT NULL,
         updatedat timestamptz NOT NULL,
         PRIMARY KEY (id),

@@ -3105,7 +3105,7 @@ export default class UserSvcDB {
     }
   }
 
-  async getBanners() {
+  async getBanners(category) {
     try {
       let query = `
         SELECT 
@@ -3117,10 +3117,11 @@ export default class UserSvcDB {
           updatedat
         FROM banners 
         WHERE isenabled = true
+        AND category = $1
         ORDER BY priority ASC, id ASC
       `;
 
-      let result = await this.pgPoolI.Query(query);
+      let result = await this.pgPoolI.Query(query, [category]);
 
       return result.rows.map((row) => ({
         id: row.id,

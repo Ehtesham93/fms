@@ -809,7 +809,7 @@ export default class VehicleHdlrImpl {
     if (fields.tgu_imei_no) allFields.tgu_imei_no = fields.tgu_imei_no;
     if (fields.dealer) allFields.dealer = fields.dealer;
     if (fields.deliveredDate) allFields.delivered_date = fields.deliveredDate;
-    if (fields.deliveredDate) allFields.delivered = true;
+    if (fields.deliveredDate || fields.retailsSaleDate || fields.mobileNo) allFields.delivered = true;
     if (fields.engineNo) allFields.engineno = fields.engineNo;
     if (fields.fuelType) allFields.fueltype = fields.fuelType;
     if (fields.retailsSaleDate)

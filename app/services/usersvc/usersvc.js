@@ -379,8 +379,8 @@ export default class UserSvc {
     return await this.userSvcDB.getDocuments();
   }
 
-  async GetBanners() {
-    return await this.userSvcDB.getBanners();
+  async GetBanners(category) {
+    return await this.userSvcDB.getBanners(category);
   }
 
   async UpdatePasswordWithExpiry(userid, newPassword) {

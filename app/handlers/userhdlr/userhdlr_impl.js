@@ -612,9 +612,9 @@ export default class UserHdlrImpl {
     }
   };
 
-  GetBannersLogic = async () => {
+  GetBannersLogic = async (category) => {
     try {
-      let banners = await this.userSvcI.GetBanners();
+      let banners = await this.userSvcI.GetBanners(category);
 
       if (!banners) {
         banners = [];
