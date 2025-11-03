@@ -12,7 +12,11 @@ export default class MetaSvcDB {
   async createVehicleCity(cityname) {
     try {
       // Check if cityname already exists
-      const existingCityName = await this.isCityNameAvailable(cityname);
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
+      const existingCityName = await this.isCityNameAvailable(cityname, txclient);
       if (!existingCityName.isavailable) {
         const error = new Error("City name already exists");
         error.errcode = "CITY_NAME_ALREADY_EXISTS";
@@ -23,7 +27,7 @@ export default class MetaSvcDB {
       }
       let citycode = cityname.trim();
       // Check if citycode already exists
-      const existingCity = await this.isCityCodeAvailable(cityname);
+      const existingCity = await this.isCityCodeAvailable(cityname, txclient);
       if (!existingCity.isavailable) {
         citycode = `${citycode}_${Math.floor(Math.random() * 1000000)}`;
       }
@@ -34,7 +38,7 @@ export default class MetaSvcDB {
           ON CONFLICT (cityname) DO NOTHING
           RETURNING citycode, cityname
         `;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         citycode.toUpperCase(),
         cityname.toUpperCase(),
       ]);
@@ -42,11 +46,16 @@ export default class MetaSvcDB {
       // If no rows returned (conflict occurred), fetch the existing city
       if (result.rows.length === 0) {
         const fetchQuery = `SELECT citycode, cityname FROM city WHERE cityname = $1`;
-        result = await this.pgPoolI.Query(fetchQuery, [cityname.toUpperCase()]);
+        result = await txclient.query(fetchQuery, [cityname.toUpperCase()]);
       }
 
       if (result.rows.length === 0) {
         throw new Error("Failed to create vehicle city");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return {
@@ -59,10 +68,23 @@ export default class MetaSvcDB {
     }
   }
 
-  async isCityCodeAvailable(citycode) {
+  async isCityCodeAvailable(citycode, txclient) {
     try {
+      if (!txclient) {
+        let [newtxclient, err] = await this.pgPoolI.StartTransaction();
+        if (err) {
+          throw err;
+        }
+        txclient = newtxclient;
+      }
       let query = `SELECT citycode FROM city WHERE citycode = $1`;
-      let result = await this.pgPoolI.Query(query, [citycode.toUpperCase()]);
+      let result = await txclient.query(query, [citycode.toUpperCase()]);
+      if (!txclient) {
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+      }
 
       return {
         isavailable: result.rows.length === 0,
@@ -74,8 +96,12 @@ export default class MetaSvcDB {
   }
   async updateVehicleCity(citycode, cityname) {
     try {
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
       // Check if cityname already exists
-      const existingCityName = await this.isCityNameAvailable(cityname);
+      const existingCityName = await this.isCityNameAvailable(cityname, txclient);
       if (!existingCityName.isavailable) {
         const error = new Error("City name already exists");
         error.errcode = "CITY_NAME_ALREADY_EXISTS";
@@ -86,13 +112,18 @@ export default class MetaSvcDB {
       }
 
       let query = `UPDATE city SET cityname = $1 WHERE citycode = $2`;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         cityname.toUpperCase(),
         citycode.toUpperCase(),
       ]);
 
       if (result.rowCount !== 1) {
         throw new Error("Failed to update vehicle city");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return true;
@@ -104,11 +135,20 @@ export default class MetaSvcDB {
 
   async deleteVehicleCity(citycode) {
     try {
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
       let query = `DELETE FROM city WHERE citycode = $1`;
-      let result = await this.pgPoolI.Query(query, [citycode.toUpperCase()]);
+      let result = await txclient.query(query, [citycode.toUpperCase()]);
 
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete vehicle city");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return true;
@@ -121,8 +161,12 @@ export default class MetaSvcDB {
   // Vehicle Dealer CRUD
   async createVehicleDealer(dealername) {
     try {
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
       // Check if dealername already exists
-      const existingDealerName = await this.isDealerNameAvailable(dealername);
+      const existingDealerName = await this.isDealerNameAvailable(dealername, txclient);
       if (!existingDealerName.isavailable) {
         const error = new Error("Dealer name already exists");
         error.errcode = "DEALER_NAME_ALREADY_EXISTS";
@@ -135,7 +179,7 @@ export default class MetaSvcDB {
       let dealercode = dealername.trim();
 
       // Check if dealercode already exists
-      const existingDealer = await this.isDealerCodeAvailable(dealercode);
+      const existingDealer = await this.isDealerCodeAvailable(dealercode, txclient);
       if (!existingDealer.isavailable) {
         dealercode = `${dealercode}_${Math.floor(Math.random() * 1000000)}`;
       }
@@ -146,20 +190,25 @@ export default class MetaSvcDB {
           ON CONFLICT (dealername) DO NOTHING
           RETURNING dealercode, dealername
         `;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         dealercode.toUpperCase(),
         dealername.toUpperCase(),
       ]);
 
       if (result.rows.length === 0) {
         const fetchdealers = `SELECT dealercode, dealername FROM dealer WHERE dealername = $1`;
-        result = await this.pgPoolI.Query(fetchdealers, [
+        result = await txclient.query(fetchdealers, [
           dealername.toUpperCase(),
         ]);
       }
 
       if (result.rows.length === 0) {
         throw new Error("Failed to create vehicle dealer");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return {
@@ -172,10 +221,23 @@ export default class MetaSvcDB {
     }
   }
 
-  async isDealerCodeAvailable(dealercode) {
+  async isDealerCodeAvailable(dealercode, txclient) {
+    if (!txclient) {
+      let [newtxclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
+      txclient = newtxclient;
+    }
     try {
       let query = `SELECT dealercode FROM dealer WHERE dealercode = $1`;
-      let result = await this.pgPoolI.Query(query, [dealercode.toUpperCase()]);
+      let result = await txclient.query(query, [dealercode.toUpperCase()]);
+      if (!txclient) {
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+      }
 
       return {
         isavailable: result.rows.length === 0,
@@ -188,8 +250,12 @@ export default class MetaSvcDB {
 
   async updateVehicleDealer(dealercode, dealername) {
     try {
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
       // Check if dealername already exists
-      const existingDealerName = await this.isDealerNameAvailable(dealername);
+      const existingDealerName = await this.isDealerNameAvailable(dealername, txclient);
       if (!existingDealerName.isavailable) {
         const error = new Error("Dealer name already exists");
         error.errcode = "DEALER_NAME_ALREADY_EXISTS";
@@ -200,13 +266,18 @@ export default class MetaSvcDB {
       }
 
       let query = `UPDATE dealer SET dealername = $1 WHERE dealercode = $2`;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         dealername.toUpperCase(),
         dealercode.toUpperCase(),
       ]);
 
       if (result.rowCount !== 1) {
         throw new Error("Failed to update vehicle dealer");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return true;
@@ -218,11 +289,20 @@ export default class MetaSvcDB {
 
   async deleteVehicleDealer(dealercode) {
     try {
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
       let query = `DELETE FROM dealer WHERE dealercode = $1`;
-      let result = await this.pgPoolI.Query(query, [dealercode.toUpperCase()]);
+      let result = await txclient.query(query, [dealercode.toUpperCase()]);
 
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete vehicle dealer");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return true;
@@ -235,8 +315,12 @@ export default class MetaSvcDB {
   // Vehicle Color CRUD
   async createVehicleColor(colorname) {
     try {
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
       // Check if colorname already exists
-      const existingColorName = await this.isColorNameAvailable(colorname);
+      const existingColorName = await this.isColorNameAvailable(colorname, txclient);
       if (!existingColorName.isavailable) {
         const error = new Error("Color name already exists");
         error.errcode = "COLOR_NAME_ALREADY_EXISTS";
@@ -249,7 +333,7 @@ export default class MetaSvcDB {
       let colorcode = colorname.trim();
 
       // Check if colorcode already exists
-      const existingColor = await this.isColorCodeAvailable(colorcode);
+      const existingColor = await this.isColorCodeAvailable(colorcode, txclient);
       if (!existingColor.isavailable) {
         colorcode = `${colorcode}_${Math.floor(Math.random() * 1000000)}`;
       }
@@ -260,20 +344,25 @@ export default class MetaSvcDB {
           ON CONFLICT (colorname) DO NOTHING
           RETURNING colorcode, colorname
         `;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         colorcode.toUpperCase(),
         colorname.toUpperCase(),
       ]);
 
       if (result.rows.length === 0) {
         const fetchcolor = `SELECT colorcode, colorname FROM color WHERE colorname = $1`;
-        result = await this.pgPoolI.Query(fetchcolor, [
+        result = await txclient.query(fetchcolor, [
           colorname.toUpperCase(),
         ]);
       }
 
       if (result.rows.length === 0) {
         throw new Error("Failed to create vehicle color");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return {
@@ -286,10 +375,23 @@ export default class MetaSvcDB {
     }
   }
 
-  async isColorCodeAvailable(colorcode) {
+  async isColorCodeAvailable(colorcode, txclient) {
+    if (!txclient) {
+      let [newtxclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
+      txclient = newtxclient;
+    }
     try {
       let query = `SELECT colorcode FROM color WHERE colorcode = $1`;
-      let result = await this.pgPoolI.Query(query, [colorcode.toUpperCase()]);
+      let result = await txclient.query(query, [colorcode.toUpperCase()]);
+      if (!txclient) {
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+      }
 
       return {
         isavailable: result.rows.length === 0,
@@ -300,10 +402,23 @@ export default class MetaSvcDB {
     }
   }
 
-  async isColorNameAvailable(colorname) {
+  async isColorNameAvailable(colorname, txclient) {
+    if (!txclient) {
+      let [newtxclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
+      txclient = newtxclient;
+    }
     try {
       let query = `SELECT colorname FROM color WHERE colorname = $1`;
-      let result = await this.pgPoolI.Query(query, [colorname.toUpperCase()]);
+      let result = await txclient.query(query, [colorname.toUpperCase()]);
+      if (!txclient) {
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+      }
 
       return {
         isavailable: result.rows.length === 0,
@@ -314,10 +429,23 @@ export default class MetaSvcDB {
     }
   }
 
-  async isCityNameAvailable(cityname) {
+  async isCityNameAvailable(cityname, txclient) {
     try {
+      if (!txclient) {
+        let [newtxclient, err] = await this.pgPoolI.StartTransaction();
+        if (err) {
+          throw err;
+        }
+        txclient = newtxclient;
+      }
       let query = `SELECT cityname FROM city WHERE cityname = $1`;
-      let result = await this.pgPoolI.Query(query, [cityname.toUpperCase()]);
+      let result = await txclient.query(query, [cityname.toUpperCase()]);
+      if (!txclient) {
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+      }
       return {
         isavailable: result.rows.length === 0,
       };
@@ -327,10 +455,23 @@ export default class MetaSvcDB {
     }
   }
 
-  async isDealerNameAvailable(dealername) {
+  async isDealerNameAvailable(dealername, txclient) {
+    if (!txclient) {
+      let [newtxclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
+      txclient = newtxclient;
+    }
     try {
       let query = `SELECT dealername FROM dealer WHERE dealername = $1`;
-      let result = await this.pgPoolI.Query(query, [dealername.toUpperCase()]);
+      let result = await txclient.query(query, [dealername.toUpperCase()]);
+      if (!txclient) {
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+      }
       return {
         isavailable: result.rows.length === 0,
       };
@@ -342,8 +483,12 @@ export default class MetaSvcDB {
 
   async updateVehicleColor(colorcode, colorname) {
     try {
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
       // Check if colorname already exists
-      const existingColorName = await this.isColorNameAvailable(colorname);
+      const existingColorName = await this.isColorNameAvailable(colorname, txclient);
       if (!existingColorName.isavailable) {
         const error = new Error("Color name already exists");
         error.errcode = "COLOR_NAME_ALREADY_EXISTS";
@@ -354,12 +499,17 @@ export default class MetaSvcDB {
       }
 
       let query = `UPDATE color SET colorname = $1 WHERE colorcode = $2`;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         colorname.toUpperCase(),
         colorcode.toUpperCase(),
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update vehicle color");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return true;
@@ -371,16 +521,58 @@ export default class MetaSvcDB {
 
   async deleteVehicleColor(colorcode) {
     try {
+      let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
       let query = `DELETE FROM color WHERE colorcode = $1`;
-      let result = await this.pgPoolI.Query(query, [colorcode.toUpperCase()]);
+      let result = await txclient.query(query, [colorcode.toUpperCase()]);
 
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete vehicle color");
       }
 
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+
       return true;
     } catch (error) {
       this.logger.error("deleteVehicleColor error: ", error);
+      throw error;
+    }
+  }
+
+  async getDealerByName(dealername) {
+    try {
+      let query = `SELECT dealercode, dealername FROM dealer WHERE dealername = $1`;
+      let result = await this.pgPoolI.Query(query, [dealername.toUpperCase()]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("getDealerByName error: ", error);
+      throw error;
+    }
+  }
+
+  async getCityByName(cityname) {
+    try {
+      let query = `SELECT citycode, cityname FROM city WHERE cityname = $1`;
+      let result = await this.pgPoolI.Query(query, [cityname.toUpperCase()]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("getCityByName error: ", error);
+      throw error;
+    }
+  }
+
+  async getColorByName(colorname) {
+    try {
+      let query = `SELECT colorcode, colorname FROM color WHERE colorname = $1`;
+      let result = await this.pgPoolI.Query(query, [colorname.toUpperCase()]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("getColorByName error: ", error);
       throw error;
     }
   }

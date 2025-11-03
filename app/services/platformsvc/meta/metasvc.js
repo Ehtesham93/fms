@@ -61,4 +61,13 @@ export default class MetaSvc {
   IsCityNameAvailable = async (cityname) => {
     return await this.metaSvcDB.isCityNameAvailable(cityname);
   };
+  GetDealerByName = async (dealername) => {
+    return await this.metaSvcDB.getDealerByName(dealername);
+  };
+  GetCityByName = async (cityname) => {
+    return await this.metaSvcDB.getCityByName(cityname);
+  };
+  GetColorByName = async (colorname) => {
+    return await this.metaSvcDB.getColorByName(colorname);
+  };
 }

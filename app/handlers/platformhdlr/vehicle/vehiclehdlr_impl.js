@@ -124,6 +124,41 @@ export default class VehicleHdlrImpl {
       }
     }
 
+    // OUTSIDE if-else: Always fetch exact DB values to ensure FK match
+    // This handles both cases: when MetaOptions created the item OR when it already existed
+    if (fieldsToUpdate.dealer) {
+      try {
+        const exactDealer = await this.metaSvcI.GetDealerByName(fieldsToUpdate.dealer);
+        if (exactDealer) {
+          fieldsToUpdate.dealer = exactDealer.dealername; // Use exact DB value
+        }
+      } catch (error) {
+        this.logger.warn(`Could not fetch exact dealer name, using normalized value: ${fieldsToUpdate.dealer}`, error);
+      }
+    }
+    
+    if (fieldsToUpdate.vehicle_city) {
+      try {
+        const exactCity = await this.metaSvcI.GetCityByName(fieldsToUpdate.vehicle_city);
+        if (exactCity) {
+          fieldsToUpdate.vehicle_city = exactCity.cityname; // Use exact DB value
+        }
+      } catch (error) {
+        this.logger.warn(`Could not fetch exact city name, using normalized value: ${fieldsToUpdate.vehicle_city}`, error);
+      }
+    }
+    
+    if (fieldsToUpdate.color) {
+      try {
+        const exactColor = await this.metaSvcI.GetColorByName(fieldsToUpdate.color);
+        if (exactColor) {
+          fieldsToUpdate.color = exactColor.colorname; // Use exact DB value
+        }
+      } catch (error) {
+        this.logger.warn(`Could not fetch exact color name, using normalized value: ${fieldsToUpdate.color}`, error);
+      }
+    }
+
     let res = await this.platformSvcI.UpdateVehicleInfo(
       vinno,
       fieldsToUpdate,
