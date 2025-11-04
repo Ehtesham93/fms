@@ -79,7 +79,7 @@ export default {
     enableCreditChecks: false,
   },
   credit: {
-    accountCreationCredits: 1000,
+    accountCreationCredits: 100000,
   },
   packageDefaults: {
     graceperiod: 30,
