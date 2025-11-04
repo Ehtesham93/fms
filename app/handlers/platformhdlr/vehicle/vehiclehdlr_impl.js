@@ -120,7 +120,7 @@ export default class VehicleHdlrImpl {
       );
       if (validationErrors.length > 0) {
         // Fields don't match - insert into meta options
-        this.MetaOptions(validationErrors, lookupFieldsToValidate);
+        await this.MetaOptions(validationErrors, lookupFieldsToValidate);
       }
     }
 
@@ -483,7 +483,7 @@ export default class VehicleHdlrImpl {
 
     if (validationErrors.length > 0) {
       // Fields don't match - insert into meta options
-      this.MetaOptions(validationErrors, fieldsToValidate);
+      await this.MetaOptions(validationErrors, fieldsToValidate);
     }
 
     // Fields match - try to create vehicle
@@ -627,7 +627,7 @@ export default class VehicleHdlrImpl {
 
     if (validationErrors.length > 0) {
       // Fields don't match - insert into meta options
-      this.MetaOptions(validationErrors, fieldsToValidate);
+      await this.MetaOptions(validationErrors, fieldsToValidate);
     }
 
     // Fields match - try to create vehicle
