@@ -1284,7 +1284,8 @@ export default class PUserHdlr {
           .nonempty({ message: "Customer type cannot be empty" }),
         licenseplate: z
           .string({ message: "License plate must be a string" })
-          .nonempty({ message: "License plate cannot be empty" }),
+          .optional()
+          .nullable(),
         vin: z
           .string({ message: "VIN must be a string" })
           .nonempty({ message: "VIN cannot be empty" }),

@@ -19,4 +19,4 @@ COPY startup-script.sh /usr/local/bin/startup-script.sh
 RUN chmod +x /usr/local/bin/startup-script.sh
 ENTRYPOINT ["/usr/local/bin/startup-script.sh"]
 
-CMD ["node", "index.js"]
+CMD ["node", "--max-old-space-size=8096", "index.js"]
