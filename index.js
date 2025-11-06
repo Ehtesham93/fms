@@ -31,13 +31,6 @@ import PlatformSvc from "./app/services/platformsvc/platformsvc.js";
 import UserSvc from "./app/services/usersvc/usersvc.js";
 import { Logger } from "./lib/nemo3-lib-observability/index.js";
 
-// The config has been given here, we can proceed with the starting of the services...
-const myFormat = winston.format.printf(
-  ({ level, message, label, timestamp }) => {
-    return `${timestamp} [${label}] ${level}: ${JSON.stringify(message)}`;
-  }
-);
-
 //setup logger
 const logger = new Logger({
   environment: process.env.APP_ENV || "LOCAL",
