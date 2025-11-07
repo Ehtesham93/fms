@@ -917,13 +917,19 @@ export default class ChargeinsightshdlrImpl {
       const sessionsByDate = await this.groupSessionsByDate(chargeData);
 
       const allDates = [];
-      const startDate = new Date(parseInt(starttime));
-      const endDate = new Date(parseInt(endtime));
-      const currentDate = new Date(startDate);
+      const dateEpochMap = {};
+      let currentEpoch = parseInt(starttime);
+      const endEpoch = parseInt(endtime);
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-      while (currentDate <= endDate) {
-        allDates.push(this.toISTDateString(currentDate.getTime()));
-        currentDate.setDate(currentDate.getDate() + 1);
+      while (currentEpoch <= endEpoch) {
+        const dateKey = this.toISTDateString(currentEpoch);
+        allDates.push(dateKey);
+        const startepoch = currentEpoch;
+        const endepoch = currentEpoch + (ONE_DAY_MS-1000);
+        
+        dateEpochMap[dateKey] = { startepoch, endepoch };
+        currentEpoch += ONE_DAY_MS;
       }
 
       // Prepare daily breakdowns for each category
@@ -1001,6 +1007,9 @@ export default class ChargeinsightshdlrImpl {
           totalSessions,
         } = processed;
 
+        // Get epoch range for this date
+        const { startepoch, endepoch } = dateEpochMap[date] || { startepoch: null, endepoch: null };
+
         // For summary
         totalLongPost100 += countLongPost100;
         totalIntermittent += countIntermittent;
@@ -1013,6 +1022,8 @@ export default class ChargeinsightshdlrImpl {
         // For daily breakdown
         drilldowndata.chargebehaviorviolation.dailydata.push({
           date,
+          startepoch,
+          endepoch,
           value: `${countLongPost100}`,
           rawvalue: countLongPost100,
           threshold: `${thresholds.chargebehaviorviolation} sessions`,
@@ -1025,6 +1036,8 @@ export default class ChargeinsightshdlrImpl {
         });
         drilldowndata.intermittentcharging.dailydata.push({
           date,
+          startepoch,
+          endepoch,
           value: `${countIntermittent}`,
           rawvalue: countIntermittent,
           threshold: `${thresholds.intermittentcharging} sessions`,
@@ -1037,6 +1050,8 @@ export default class ChargeinsightshdlrImpl {
         });
         drilldowndata.lowsocchargingviolation.dailydata.push({
           date,
+          startepoch,
+          endepoch,
           value: `${lowsocSessions}`,
           rawvalue: lowsocSessions,
           threshold: `${thresholds.lowsocchargingviolation} sessions`,
@@ -1049,6 +1064,8 @@ export default class ChargeinsightshdlrImpl {
         });
         drilldowndata.inactiveafterfullcharge.dailydata.push({
           date,
+          startepoch,
+          endepoch,
           value: `${inactiveafterfullcharge}`,
           rawvalue: inactiveafterfullcharge,
           threshold: `${thresholds.inactiveafterfullcharge} sessions`,
@@ -1061,6 +1078,8 @@ export default class ChargeinsightshdlrImpl {
         });
         drilldowndata.peakhourschargesessions.dailydata.push({
           date,
+          startepoch,
+          endepoch,
           value: `${peakhourschargesessions}`,
           rawvalue: peakhourschargesessions,
           threshold: `${thresholds.peakhourschargesessions} sessions`,
@@ -1073,6 +1092,8 @@ export default class ChargeinsightshdlrImpl {
         });
         drilldowndata.idleconnection.dailydata.push({
           date,
+          startepoch,
+          endepoch,
           value: `${idleconnection}`,
           rawvalue: idleconnection,
           threshold: `${thresholds.idleconnection} sessions`,
@@ -1235,6 +1256,187 @@ export default class ChargeinsightshdlrImpl {
       this.logger.error("Error in GetFleetChargeInsightsLogic:", error);
       throw error;
     }
+  };
+
+  GetFleetChargeInsightsOverviewListLogic = async (
+    accountid,
+    fleetid,
+    starttime,
+    endtime,
+    category,
+    recursive
+  ) => {
+    try {
+      if (!fleetid) throw new Error("Fleet ID is required");
+  
+      const vehicles =
+        (await this.fmsAccountSvcI.GetVehicles(
+          accountid,
+          fleetid,
+          recursive
+        )) || [];
+      if (!vehicles || vehicles.length === 0) {
+        return this.buildDefaultDateStructure(starttime, endtime);
+      }
+  
+      const vinNumbers = vehicles.map((v) => v.vinno);
+      const vinregnoMap = {};
+      vehicles.forEach((v) => {
+        vinregnoMap[v.vinno] = v.regno;
+      });
+      const [chargeData, tripData] = await Promise.all([
+        this.chargeinsightssvcI.GetChargeInsightsByFleet(
+          accountid,
+          vinNumbers,
+          starttime,
+          endtime
+        ),
+        this.tripsinsightssvcI.GetTripsByFleet(vinNumbers, starttime, endtime),
+      ]);
+  
+      const tripIndex = this.preprocessTripData(tripData);
+  
+      if (!chargeData || chargeData.length === 0) {
+        return this.buildDefaultDateStructure(starttime, endtime);
+      }
+  
+      // Filter sessions based on category
+      const filteredSessions = chargeData.filter((session) => {
+        return this.matchesCategory(session, category, tripIndex);
+      });
+  
+      // Build default date structure first
+      const sessionsByDate = this.buildDefaultDateStructure(starttime, endtime);
+  
+      // Populate with filtered sessions
+      for (const session of filteredSessions) {
+        const dateKey = this.toISTDateString(session.starttime);
+        
+        // Calculate duration
+        const duration = session.chargingtime || (session.endtime - session.starttime);
+        
+        // Calculate status based on threshold
+        const status = this.calculateStatus(session, category, duration);
+
+        const unitgained = (this.calculateUnitGained(session.startkwh, session.endkwh) || 0).toFixed(2);
+  
+        sessionsByDate[dateKey].push({
+          vin: session.vin,
+          regno: vinregnoMap[session.vin] || session.vin,
+          starttime: formatEpochToDateTime(session.starttime),
+          endtime: formatEpochToDateTime(session.endtime),
+          duration: formatEpochToDuration(duration),
+          startsoc: `${session.startsoc}%`,
+          endsoc: `${session.endsoc}%`,
+          unitgained: `${unitgained} kWh`,
+          status: status,
+        });
+      }
+
+      return sessionsByDate;
+    } catch (error) {
+      this.logger.error(
+        "Error in GetFleetChargeInsightsOverviewListLogic:",
+        error
+      );
+      throw error;
+    }
+  };
+  // Helper method to check if session matches category
+  matchesCategory = (session, category, tripIndex) => {
+    switch (category) {
+      case "chargebehaviorviolation":
+        return session.endsoc === 100 && 
+               (session.chargingtime || (session.endtime - session.starttime)) > 60 * 60 * 1000; 
+  
+      case "intermittentcharging":
+        return session.startsoc >= 20 &&
+               session.startsoc <= 80 &&
+               session.endsoc >= 20 &&
+               session.endsoc <= 80;
+  
+      case "lowsocchargingviolation":
+        return session.startsoc < 15;
+  
+      case "inactiveafterfullcharge":
+        if (session.endsoc >= 98) {
+          const sessionEndTime = session.endtime;
+          const sixHoursLater = sessionEndTime + 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+          const tripsForVin = this.findTripsInWindow(
+            tripIndex,
+            session.vin,
+            sessionEndTime,
+            sixHoursLater
+          );
+          return tripsForVin.length === 0;
+        }
+        return false;
+  
+      case "peakhourschargesessions":
+        const startDate = new Date(session.starttime);
+        const endDate = new Date(session.endtime);
+        const startHourIST =
+          (startDate.getUTCHours() +
+            5 +
+            Math.floor((startDate.getUTCMinutes() + 30) / 60)) %
+          24;
+        const endHourIST =
+          (endDate.getUTCHours() +
+            5 +
+            Math.floor((endDate.getUTCMinutes() + 30) / 60)) %
+          24;
+        return (
+          (endHourIST >= 17 && endHourIST < 22) ||
+          (startHourIST >= 17 && startHourIST < 22) ||
+          (startHourIST < 17 && endHourIST >= 22) ||
+          (startHourIST >= 17 && endHourIST < 17)
+        );
+  
+      case "idleconnection":
+        // Connected duration >> energy draw duration
+        const duration = (session.endtime - session.starttime) / 1000; // seconds
+        const energyGained = session.endsoc - session.startsoc;
+        return duration > 3600 && energyGained < 5; 
+  
+      default:
+        return false;
+    }
+  };
+  
+  // Helper method to calculate status
+  calculateStatus = (session, category, duration) => {
+    const thresholds = {
+      chargebehaviorviolation: 60 * 60 * 1000, 
+      intermittentcharging: 0, 
+      lowsocchargingviolation: 0,
+      inactiveafterfullcharge: 0, 
+      peakhourschargesessions: 0, 
+      idleconnection: 0, 
+    };
+  
+    if (category === "chargebehaviorviolation") {
+      return duration > thresholds.chargebehaviorviolation
+        ? "above_threshold"
+        : "within_threshold";
+    }
+  
+    return "above_threshold";
+  };
+
+  // Helper method to build default date structure with empty arrays
+  buildDefaultDateStructure = (starttime, endtime) => {
+    const dateStructure = {};
+    const startDate = new Date(parseInt(starttime));
+    const endDate = new Date(parseInt(endtime));
+    const currentDate = new Date(startDate);
+
+    while (currentDate <= endDate) {
+      const dateKey = this.toISTDateString(currentDate.getTime());
+      dateStructure[dateKey] = [];
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return dateStructure;
   };
 
   buildChargeNoDataOverview(starttime, endtime, totalvehicles) {

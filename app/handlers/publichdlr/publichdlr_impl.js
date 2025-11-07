@@ -33,8 +33,6 @@ export default class PublicHdlrImpl {
       .createHash("sha256")
       .update(useragentstr)
       .digest("hex");
-    console.log("useragentstr", useragentstr);
-    console.log("deviceFingerprint", deviceFingerprint);
 
     return deviceFingerprint;
   };

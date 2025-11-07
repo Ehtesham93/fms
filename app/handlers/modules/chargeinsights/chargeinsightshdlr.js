@@ -156,6 +156,12 @@ export default class Chargeinsightshdlr {
       this.ValidateFleetAccess,
       this.GetFleetChargeInsightsOverview
     );
+    accountTokenGroup.get(
+      "/fleet/:fleetid/chargeinsightsoverview/list",
+      this.ValidateFleetAccess,
+      this.GetFleetChargeInsightsOverviewList
+    );
+
   }
 
   VerifyUserAccountAccess = async (req, res, next) => {
@@ -1201,6 +1207,152 @@ export default class Chargeinsightshdlr {
           "FAILED_TO_GET_FLEET_CHARGE_INSIGHTS_OVERVIEW",
           {},
           "Failed to get fleet charge insights overview"
+        );
+      }
+    }
+  };
+
+  GetFleetChargeInsightsOverviewList = async (req, res, next) => {
+    try {
+      const schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        fleetid: z
+          .string({ message: "Invalid Fleet ID format" })
+          .uuid({ message: "Invalid Fleet ID format" }),
+        starttime: z.string({ message: "Start Time is invalid" }),
+        endtime: z.string({ message: "End Time is invalid" }),
+        category: z.string({ message: "Category is invalid" }),
+      });
+
+      const recursive = req.query.recursive
+        ? req.query.recursive === "true"
+        : false;
+
+      const { accountid, fleetid, starttime, endtime, category } = validateAllInputs(
+        schema,
+        {
+          accountid: req.accountid,
+          fleetid: req.params.fleetid,
+          starttime: req.query.starttime,
+          endtime: req.query.endtime,
+          category: req.query.category,
+        }
+      );
+
+      const startepoch = this.ValidateEpochTime(starttime, "starttime");
+      const endepoch = this.ValidateEpochTime(endtime, "endtime");
+
+      if (startepoch >= endepoch) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "starttime must be less than endtime"
+        );
+        return;
+      }
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        accountid,
+        fleetid
+      );
+
+      if (!CheckUserPerms(userPerms, ["chargeinsights.overview.view"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get fleet charge insights overview."
+        );
+      }
+
+      let result;
+      const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
+      const redisKey = `${fullUrl}.${starttime}.${endtime}.${category}`;
+      const redisSvc = this.redisSvc;
+      try {
+        const [cachedData, redisError] = await redisSvc.get(redisKey);
+        if (redisError) {
+          this.logger.error("Redis error:", redisError);
+        } else if (cachedData !== null) {
+          result = JSON.parse(cachedData);
+          APIResponseOK(req, res, result, "SUCCESS");
+          return;
+        }
+      } catch (redisErr) {
+        this.logger.error("Redis connection error:", redisErr);
+      }
+
+      result =
+        await this.chargeinsightssvcHdlrImpl.GetFleetChargeInsightsOverviewListLogic(
+          accountid,
+          fleetid,
+          startepoch,
+          endepoch,
+          category,
+          recursive
+        );
+
+      if (result instanceof Error) {
+        result = [];
+      }
+      if (result && Object.keys(result).length > 0) {
+        try {
+          const [setResult, setError] = await redisSvc.set(
+            redisKey,
+            JSON.stringify(result),
+            1800
+          );
+          if (setError) {
+            this.logger.error("Failed to cache data:", setError);
+          } else {
+            console.log("Data cached successfully");
+          }
+        } catch (cacheErr) {
+          this.logger.error("Failed to cache data:", cacheErr);
+        }
+      }
+
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "charge insights overview list retrieved successfully"
+      );
+    } catch (error) {
+      this.logger.error("GetFleetChargeInsightsOverviewList error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "FAILED_TO_GET_FLEET_CHARGE_INSIGHTS_OVERVIEW_LIST",
+          {},
+          "Failed to get fleet charge insights overview list"
         );
       }
     }

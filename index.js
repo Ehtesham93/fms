@@ -42,7 +42,7 @@ const logger = new Logger({
   maxBackups: 5,
   checkIntervalMs: 2 * 1000,
   autoInstrument: true,
-  flushInterval: 5 * 1000,
+  flushInterval: 60 * 1000,
 });
 
 // 0. Config Related...
