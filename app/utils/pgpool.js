@@ -20,7 +20,7 @@ export default class PgPool {
       database: pgcfg.database,
       password: pgcfg.password,
       min: 2,
-      max: 5,
+      max: 10,
       statement_timeout: 30 * 1000,
     });
     this.Pool.on("connect", (client) => {
