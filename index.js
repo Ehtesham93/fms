@@ -1,4 +1,3 @@
-import winston from "winston";
 import NodeCache from "node-cache";
 
 import APIServer from "./app/apiserver.js";
@@ -31,13 +30,6 @@ import PlatformSvc from "./app/services/platformsvc/platformsvc.js";
 import UserSvc from "./app/services/usersvc/usersvc.js";
 import { Logger } from "./lib/nemo3-lib-observability/index.js";
 
-// The config has been given here, we can proceed with the starting of the services...
-const myFormat = winston.format.printf(
-  ({ level, message, label, timestamp }) => {
-    return `${timestamp} [${label}] ${level}: ${JSON.stringify(message)}`;
-  }
-);
-
 //setup logger
 const logger = new Logger({
   environment: process.env.APP_ENV || "LOCAL",
@@ -50,7 +42,7 @@ const logger = new Logger({
   maxBackups: 5,
   checkIntervalMs: 2 * 1000,
   autoInstrument: true,
-  flushInterval: 5000,
+  flushInterval: 60 * 1000,
 });
 
 // 0. Config Related...
@@ -74,7 +66,7 @@ let tripsInsightSvcI = new TripsInsightSvc(pgPoolI, servicelogger);
 let chargeInsightSvcI = new ChargeInsightSvc(pgPoolI, servicelogger);
 let fleetInsightSvcI = new FleetInsightSvc(pgPoolI, servicelogger);
 let emailSvcI = new EmailSvc(pgPoolI, config, servicelogger);
-emailSvcI.Start();
+// emailSvcI.Start();
 
 // 2. Handlers...
 let healthHdlrI = new HealthHdlr(healthSvcI);

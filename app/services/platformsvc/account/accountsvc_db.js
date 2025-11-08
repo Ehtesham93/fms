@@ -263,8 +263,8 @@ export default class AccountSvcDB {
         0,
         0,
         0,
-        'Lite',
-      ]); 
+        "Lite",
+      ]);
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -284,24 +284,17 @@ export default class AccountSvcDB {
     try {
       // TODO: ideally we should not return platform account
       let query = `
-            SELECT a.accountid, a.accountname, a.accounttype, a.accountinfo, a.isenabled, 
-                   a.createdat, a.createdby, a.updatedat, a.updatedby, af.fleetid as rootfleetid 
-            FROM account a
-            LEFT JOIN account_fleet af ON a.accountid = af.accountid AND af.isroot = true
-            WHERE a.accountid != $1 AND a.isdeleted = false
+            SELECT a.accountid, a.accountname FROM account a
+            WHERE a.accounttype = 'customer' AND a.isdeleted = false
             ORDER BY a.createdat DESC
         `;
-      let result = await this.pgPoolI.Query(query, [platformAccountId]);
+      let result = await this.pgPoolI.Query(query, []);
       if (result.rowCount === 0) {
         return null;
       }
-      result.rows.forEach(async (row) => {
-        row.createdby = await this.getUserName(row.createdby);
-        row.updatedby = await this.getUserName(row.updatedby);
-      });
       return result.rows;
     } catch (error) {
-      throw new Error("Failed to fetch accounts");
+      throw error;
     }
   }
 
@@ -315,6 +308,7 @@ export default class AccountSvcDB {
       if (result.rowCount === 0) {
         return null;
       }
+      // TOOD: LATENCY_ISSUE
       result.rows[0].createdby = await this.getUserName(
         result.rows[0].createdby
       );
@@ -1324,6 +1318,7 @@ export default class AccountSvcDB {
       if (result.rowCount === 0) {
         return null;
       }
+      // TOOD: LATENCY_ISSUE
       result.rows.forEach(async (row) => {
         row.createdby = await this.getUserName(row.createdby);
         row.updatedby = await this.getUserName(row.updatedby);
@@ -1364,6 +1359,7 @@ export default class AccountSvcDB {
       if (result.rowCount === 0) {
         return null;
       }
+      // TOOD: LATENCY_ISSUE
       result.rows.forEach(async (row) => {
         row.createdby = await this.getUserName(row.createdby);
         row.updatedby = await this.getUserName(row.updatedby);
@@ -1980,7 +1976,7 @@ export default class AccountSvcDB {
       );
 
       //Extract package name (default to 'Lite' if none)
-      const packageName = pkgResult.rows[0]?.pkgname || 'Lite';
+      const packageName = pkgResult.rows[0]?.pkgname || "Lite";
 
       //Update account_summary with the package name
       await txclient.query(
@@ -2266,7 +2262,7 @@ export default class AccountSvcDB {
       );
 
       //Extract package name (default to 'Lite' if none)
-      const packageName = pkgResult.rows[0]?.pkgname || 'Lite';
+      const packageName = pkgResult.rows[0]?.pkgname || "Lite";
 
       //Update account_summary with the package name
       await txclient.query(
@@ -2733,7 +2729,10 @@ export default class AccountSvcDB {
       }
       return result.rows[0].accountid;
     } catch (error) {
-      this.logger.error("Error in getPendingAccountReviewByAccountName:", error);
+      this.logger.error(
+        "Error in getPendingAccountReviewByAccountName:",
+        error
+      );
       throw error;
     }
   }
@@ -2741,7 +2740,11 @@ export default class AccountSvcDB {
   async getAccountReviewDoneByAccountName(accountid, accountname, status) {
     try {
       const query = `SELECT * FROM reviewdoneaccount WHERE accountid = $1 AND accountname = $2 AND original_status = $3`;
-      const result = await this.pgPoolI.Query(query, [accountid, accountname, status]);
+      const result = await this.pgPoolI.Query(query, [
+        accountid,
+        accountname,
+        status,
+      ]);
       return result.rowCount > 0;
     } catch (error) {
       this.logger.error("Error in getAccountReviewDoneByAccountName:", error);
@@ -2866,8 +2869,8 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAccountSummary(){
-    try{
+  async getAccountSummary() {
+    try {
       let query = `
         SELECT 
             s.accountid,
@@ -2875,7 +2878,7 @@ export default class AccountSvcDB {
             s.users,
             s.vehicles AS totalvehicles,
             s.subscribed AS subscribedvehicles,
-            s.packagename,
+            p.pkgname AS packagename,
             CAST(c.credits AS INTEGER) AS availablecredit,
             COUNT(tvi.srcaccountid) AS taggedin,
             COUNT(tvo.srcaccountid) AS taggedout,
@@ -2907,7 +2910,8 @@ export default class AccountSvcDB {
         JOIN account_credits c ON c.accountid = a.accountid
         LEFT JOIN tagged_vehicle tvi ON tvi.dstaccountid = a.accountid
         LEFT JOIN tagged_vehicle tvo ON tvo.srcaccountid = a.accountid
-        JOIN package p ON p.pkgname = s.packagename
+        LEFT JOIN account_package_subscription aps ON aps.accountid = a.accountid
+        LEFT JOIN package p ON aps.pkgid = p.pkgid
         JOIN package_module pm ON p.pkgid = pm.pkgid
         JOIN module m ON pm.moduleid = m.moduleid
         WHERE a.isenabled = TRUE 
@@ -2918,7 +2922,7 @@ export default class AccountSvcDB {
             s.users,
             s.vehicles,
             s.subscribed,
-            s.packagename,
+            p.pkgname,
             c.credits
       `;
       let result = await this.pgPoolI.Query(query);
@@ -2940,7 +2944,9 @@ export default class AccountSvcDB {
       let result = await this.pgPoolI.Query(query);
       return result.rows;
     } catch (error) {
-      throw new Error(`Failed to list pending account reviews: ${error.message}`);
+      throw new Error(
+        `Failed to list pending account reviews: ${error.message}`
+      );
     }
   }
 }

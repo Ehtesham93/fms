@@ -369,6 +369,18 @@ export default class PlatformSvcDB {
       throw new Error(`Failed to list vehicles: ${error.message}`);
     }
   }
+  async listAllVehicles() {
+    try {
+      let query = `SELECT vinno, COALESCE(license_plate, vinno) as regno, modelcode FROM vehicle`;
+      let result = await this.pgPoolI.Query(query);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to list all vehicles: ${error.message}`);
+    }
+  }
 
   async getVehicleInfo(vinno) {
     let query = `

@@ -19,13 +19,20 @@ export default class PgPool {
       port: pgcfg.port,
       database: pgcfg.database,
       password: pgcfg.password,
-      min: 2,
-      max: 5,
-      statement_timeout: 30 * 1000,
+      min: 30,
+      max: 50,
+      statement_timeout: 60 * 1000,
     });
+    this.activeQueries = 0;
     this.Pool.on("connect", (client) => {
       client.query("SET search_path TO " + pgcfg.schema + ",public");
       client.query("SET TIME ZONE 'Asia/Kolkata'");
+    });
+    this.Pool.on("acquire", (client) => {
+      this.activeQueries++;
+    });
+    this.Pool.on("release", () => {
+      this.activeQueries--;
     });
   }
 

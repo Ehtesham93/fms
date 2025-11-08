@@ -28,6 +28,7 @@ export default class VehicleHdlr {
     router.put("/:vinno/info", this.UpdateVehicleInfo);
     router.delete("/:vinno/delete", this.DeleteVehicle);
     router.get("/list", this.ListVehicles);
+    router.get("/listall", this.ListAllVehicles);
     router.get("/:vinno/info", this.GetVehicleInfo);
     router.get("/:vinno/accountinfo", this.GetVehicleAccountDetails);
 
@@ -375,6 +376,27 @@ export default class VehicleHdlr {
           req,
           res,
           "LIST_VEHICLES_ERR",
+          e.toString(),
+          "List vehicles failed"
+        );
+      }
+    }
+  };
+
+
+  ListAllVehicles = async (req, res, next) => {
+    try {
+      let result = await this.vehicleHdlrImpl.ListAllVehiclesLogic();
+      APIResponseOK(req, res, result, "Vehicles listed successfully");
+    } catch (e) {
+      this.logger.error("ListAllVehicles error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "LIST_ALL_VEHICLES_ERR",
           e.toString(),
           "List vehicles failed"
         );

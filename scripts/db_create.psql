@@ -129,6 +129,14 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (updatedby) REFERENCES users (userid)
     );
 
+CREATE INDEX IF NOT EXISTS account_createdby_idx ON account (createdby);
+
+CREATE INDEX IF NOT EXISTS account_updatedby_idx ON account (updatedby);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_active_createdat_desc ON account (createdat DESC)
+WHERE
+    isdeleted = false;
+
 -- Review tables for account
 CREATE TABLE IF NOT EXISTS
     reviewpendingaccount (
@@ -192,6 +200,10 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (accountid) REFERENCES account (accountid) DEFERRABLE INITIALLY DEFERRED,
         FOREIGN KEY (createdby) REFERENCES users (userid)
     );
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_fleet_root ON account_fleet (accountid) INCLUDE (fleetid)
+WHERE
+    isroot = true;
 
 CREATE TABLE IF NOT EXISTS
     fleet_tree (
@@ -471,7 +483,6 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (updatedby) REFERENCES users (userid)
     );
 
-
 CREATE TABLE IF NOT EXISTS
     city (
         citycode text NOT NULL,
@@ -620,6 +631,8 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (dstaccountid) REFERENCES account (accountid),
         FOREIGN KEY (taggedby) REFERENCES users (userid)
     );
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tagged_vehicle_dstaccountid ON tagged_vehicle (dstaccountid) INCLUDE (srcaccountid, vinno);
 
 CREATE TABLE IF NOT EXISTS
     tagged_vehicle_history (
@@ -1084,7 +1097,6 @@ CREATE TABLE IF NOT EXISTS
         UNIQUE (accountid),
         FOREIGN KEY (accountid) REFERENCES account (accountid) INITIALLY DEFERRED
     );
-
 
 CREATE TABLE IF NOT EXISTS
     vehicle_alert (

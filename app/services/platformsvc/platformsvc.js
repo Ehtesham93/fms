@@ -225,4 +225,8 @@ export default class PlatformSvc {
   async ListPendingVehicleReviews() {
     return await this.platformSvcDB.listPendingVehicleReviews();
   }
+
+  async ListAllVehicles() {
+    return await this.platformSvcDB.listAllVehicles();
+  }
 }

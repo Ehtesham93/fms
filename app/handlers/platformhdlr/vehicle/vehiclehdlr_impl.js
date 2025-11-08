@@ -255,6 +255,14 @@ export default class VehicleHdlrImpl {
     return vehicles;
   };
 
+  ListAllVehiclesLogic = async () => {
+    let vehicles = await this.platformSvcI.ListAllVehicles();
+    if (!vehicles) {
+      vehicles = [];
+    }
+    return vehicles;
+  };
+
   GetVehicleInfoLogic = async (vinno) => {
     let vehicle = await this.platformSvcI.GetVehicleInfo(vinno);
     if (!vehicle) {
