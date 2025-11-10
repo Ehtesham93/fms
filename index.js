@@ -66,7 +66,7 @@ let tripsInsightSvcI = new TripsInsightSvc(pgPoolI, servicelogger);
 let chargeInsightSvcI = new ChargeInsightSvc(pgPoolI, servicelogger);
 let fleetInsightSvcI = new FleetInsightSvc(pgPoolI, servicelogger);
 let emailSvcI = new EmailSvc(pgPoolI, config, servicelogger);
-// emailSvcI.Start();
+emailSvcI.Start();
 
 // 2. Handlers...
 let healthHdlrI = new HealthHdlr(healthSvcI);
