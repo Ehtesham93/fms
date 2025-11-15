@@ -10,7 +10,6 @@ import { AuthenticateUserTokenFromCookie } from "../../utils/tokenutil.js";
 import { validateAllInputs } from "../../utils/validationutil.js";
 import UserHdlrImpl from "./userhdlr_impl.js";
 import { TOKEN_EXPIRY_TIME, COOKIE_MAX_AGE } from "../../utils/constant.js";
-import { Sleep } from "../../utils/commonutil.js";
 
 export default class UserHdlr {
   /**
@@ -1077,8 +1076,6 @@ export default class UserHdlr {
 
   RefreshToken = async (req, res, next) => {
     try {
-      await Sleep(10000);
-
       let result = await this.userHdlrImpl.RefreshTokenLogic(req);
 
       res.cookie("token", result.token, {

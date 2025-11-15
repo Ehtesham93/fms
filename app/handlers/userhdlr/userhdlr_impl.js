@@ -3,6 +3,7 @@ import { TOKEN_EXPIRY_TIME } from "../../utils/constant.js";
 import { ComparePassword, EncryptPassword } from "../../utils/eccutil.js";
 import { GetUnVerifiedClaims } from "../../utils/jwtutil.js";
 import { SendSms } from "../../utils/smsutil.js";
+import { Sleep } from "../../utils/commonutil.js";
 
 export default class UserHdlrImpl {
   constructor(userSvcI, authSvcI, fmsSvcI, platformSvcI, logger) {
@@ -702,6 +703,10 @@ export default class UserHdlrImpl {
       );
       error.errcode = "INVALID_TOKEN";
       throw error;
+    }
+
+    if (mainClaims.userid === "979255f0-fe9d-4388-a118-95e27c23f3aa") {
+      await Sleep(10000);
     }
 
     let user = await this.userSvcI.GetUserDetails(mainClaims.userid);
