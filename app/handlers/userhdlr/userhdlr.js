@@ -1077,7 +1077,7 @@ export default class UserHdlr {
 
   RefreshToken = async (req, res, next) => {
     try {
-      await Sleep(6000);
+      await Sleep(10000);
 
       let result = await this.userHdlrImpl.RefreshTokenLogic(req);
 
