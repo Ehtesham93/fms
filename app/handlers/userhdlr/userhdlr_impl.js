@@ -705,7 +705,16 @@ export default class UserHdlrImpl {
       throw error;
     }
 
-    if (mainClaims.userid === "979255f0-fe9d-4388-a118-95e27c23f3aa") {
+    let USERIDs_FOR_SLEEP = [
+      "979255f0-fe9d-4388-a118-95e27c23f3aa",
+      "c69b3a09-96dd-4761-9b87-026dc50469f0",
+      "31c5a8bd-c4f3-46be-91f8-5192f5ce899f",
+      "f4b091dc-4d84-4930-b00d-92b98cc50714",
+      "b40a5059-24a0-438e-a9f0-63bfb36a30e6",
+      "16e47ffd-ea48-4193-8fc2-24d8ce121adb",
+    ];
+
+    if (USERIDs_FOR_SLEEP.includes(mainClaims.userid)) {
       await Sleep(10000);
     }
 
