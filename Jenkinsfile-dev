@@ -12,6 +12,10 @@ pipeline {
         TASK_DEFINITION_NAME = 'dev-lmm-intellicar-nemo3-api-fms-svc'
         CONTAINER_NAME = 'dev-nemo3-api-fms-svc'
         APP_ENV = 'DEVELOPMENT'
+        ECR_INTERNAL_SVC_IMAGE_NAME = 'dev-nemo3-api-fms-internal-svc'
+        INTERNAL_SVC_TASK_DEFINITION_NAME = 'dev-lmm-intellicar-nemo3-api-fms-internal-svc'
+        INTERNAL_SVC_CONTAINER_NAME = 'dev-nemo3-api-fms-internal-svc'
+        INTERNAL_SVC_SERVICE_NAME = 'dev-nemo3-api-fms-internal-svc'
     }
 
     options {
@@ -116,15 +120,107 @@ pipeline {
                 }
             }
         }
+
+        stage('Build for FMS Internal Svc') {
+            steps {
+                echo 'Building the application...'
+                sh 'docker build --build-arg APP_ENV=${APP_ENV} --build-arg SERVICE_NAME=${INTERNAL_SVC_SERVICE_NAME} -t ${ECR_ENDPOINT}/${ECR_REPO}:${ECR_INTERNAL_SVC_IMAGE_NAME}-${GIT_COMMIT} .'
+            }
+        }
+
+        stage('Docker Login and Push to ECR for FMS Internal Svc') {
+            steps {
+                script {
+                    docker.withRegistry("https://${ECR_ENDPOINT}", "ecr:ap-south-1:${AWS_CREDENTIALS_ID}") {
+                        echo 'Pushing to ECR...'
+                        sh 'docker push ${ECR_ENDPOINT}/${ECR_REPO}:${ECR_INTERNAL_SVC_IMAGE_NAME}-${GIT_COMMIT}'
+                    }
+                }
+            }
+        }
+
         
+        stage('Create Task Definition for FMS Internal Svc') {
+            steps {
+                withAWS(credentials: AWS_CREDENTIALS_ID, region: 'ap-south-1') {
+                    // Fetch the current task definition and save it to a file
+                    echo 'Fetching the current internal task definition...'
+                    sh """
+                        aws ecs describe-task-definition \
+                            --task-definition ${INTERNAL_SVC_TASK_DEFINITION_NAME} \
+                            --query 'taskDefinition' \
+                            --output json > internal-task-definition.json
+                    """
+
+                    echo 'Cleanup internal task definition file...'
+                    sh """
+                        jq 'del(.taskDefinitionArn, .revision, .status, .registeredBy, .registeredAt, .requiresAttributes, .compatibilities)' internal-task-definition.json > cleaned-internal-task-definition.json
+                    """
+
+                    echo 'Updating the internal task definition...'
+                        // Update the container image in the task definition file
+                    sh """
+                        jq '.containerDefinitions[] |= 
+                        if .name == "${INTERNAL_SVC_CONTAINER_NAME}" then 
+                            .image = "${ECR_ENDPOINT}/${ECR_REPO}:${ECR_INTERNAL_SVC_IMAGE_NAME}-${GIT_COMMIT}" 
+                        else 
+                            . 
+                        end' cleaned-internal-task-definition.json > updated-internal-task-definition.json
+                    """
+
+                    echo 'Registering the new internal task definition...'
+                    sh """
+                        aws ecs register-task-definition \
+                            --cli-input-json file://updated-internal-task-definition.json
+                    """
+
+                    echo 'Internal task definition registered successfully!'
+                }
+            }
+        }
+
+        stage('Update ECS Service for FMS Internal Svc') {
+            steps {
+                withAWS(credentials: AWS_CREDENTIALS_ID, region: 'ap-south-1') {
+                    script {
+                        // Get the latest task definition ARN
+                        def taskDefinitionArn = sh(
+                            script: """
+                                aws ecs describe-task-definition \
+                                    --task-definition ${INTERNAL_SVC_TASK_DEFINITION_NAME} \
+                                    --query 'taskDefinition.taskDefinitionArn' \
+                                    --output text
+                            """,
+                            returnStdout: true
+                        ).trim()
+
+                        echo "New Internal Task Definition ARN: ${taskDefinitionArn}"
+
+                        // Update the ECS service with the new task definition
+                        sh """
+                            aws ecs update-service \
+                                --cluster ${CLUSTER_NAME} \
+                                --service ${INTERNAL_SVC_SERVICE_NAME} \
+                                --task-definition ${taskDefinitionArn}
+                        """
+
+                        echo 'Internal Service updated successfully!'
+                    }
+                }
+            }
+        }
     }
 
     post {
         always {
             echo 'Cleaning up task definition files...'
             sh 'rm -rf task-definition.json updated-task-definition.json cleaned-task-definition.json'
+            echo 'Cleaning up internal task definition files...'
+            sh 'rm -rf internal-task-definition.json updated-internal-task-definition.json cleaned-internal-task-definition.json'
             echo 'Cleaning up docker image...'
             sh 'docker rmi ${ECR_ENDPOINT}/${ECR_REPO}:${ECR_IMAGE_NAME}-${GIT_COMMIT}'
+            echo 'Cleaning up docker image for FMS Internal Svc...'
+            sh 'docker rmi ${ECR_ENDPOINT}/${ECR_REPO}:${ECR_INTERNAL_SVC_IMAGE_NAME}-${GIT_COMMIT}'
             echo 'Cleaning up workspace...'
             cleanWs()
         }

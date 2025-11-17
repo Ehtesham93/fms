@@ -941,12 +941,28 @@ export default class TripsinsighthdlrImpl {
 
       const insights = this.calculateAllFleetInsights(tripData, allTripData);
 
+      const dateEpochMap = {};
+      let currentEpoch = parseInt(starttime);
+      const endEpoch = parseInt(endtime);
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+      while (currentEpoch <= endEpoch) {
+        const dateKey = this.formatDateToIST(new Date(currentEpoch));
+        const startepoch = currentEpoch;
+        const endepoch = currentEpoch + (ONE_DAY_MS - 1000);
+        
+        dateEpochMap[dateKey] = { startepoch, endepoch };
+        currentEpoch += ONE_DAY_MS;
+      }
+
       const drilldowndata = this.calculateMetricDrillDown(
         tripData,
         allTripData,
         starttime,
-        endtime
+        endtime,
+        dateEpochMap
       );
+
 
       return {
         insights,
@@ -962,6 +978,202 @@ export default class TripsinsighthdlrImpl {
       this.logger.error("Error in GetFleetOverviewLogic:", error);
       throw error;
     }
+  };
+
+  GetFleetOverviewListLogic = async (
+    accountid,
+    fleetid,
+    starttime,
+    endtime,
+    category,
+    recursive
+  ) => {
+    try {
+      if (!fleetid) throw new Error("Fleet ID is required");
+  
+      const vehicles =
+        (await this.fmsAccountSvcI.GetVehicles(
+          accountid,
+          fleetid,
+          recursive
+        )) || [];
+      if (!vehicles || vehicles.length === 0) {
+        return this.buildDefaultDateStructure(starttime, endtime);
+      }
+  
+      const vinNumbers = vehicles.map((v) => v.vinno);
+      const vinregnoMap = {};
+      vehicles.forEach((v) => {
+        vinregnoMap[v.vinno] = v.regno;
+      });
+  
+      let allTripData = await this.tripsinsightssvcI.GetAllTripsByFleet(
+        vinNumbers,
+        starttime,
+        endtime
+      );
+  
+      if (!allTripData || allTripData.length === 0) {
+        return this.buildDefaultDateStructure(starttime, endtime);
+      }
+  
+      // Filter trips based on category
+      const filteredTrips = allTripData.filter((trip) => {
+        return this.matchesTripCategory(trip, category);
+      });
+  
+      // Build default date structure first
+      const tripsByDate = this.buildDefaultDateStructure(starttime, endtime);
+  
+      // Populate with filtered trips
+      for (const trip of filteredTrips) {
+        // Only include trips that fall within the requested time range
+        if (trip.starttime < parseInt(starttime) || trip.starttime >= parseInt(endtime)) {
+          continue;
+        }
+  
+        const tripDate = new Date(parseInt(trip.starttime));
+        const dateKey = this.formatDateToIST(tripDate);
+  
+        // Additional safety check: only add to dates that exist in the structure
+        if (!tripsByDate[dateKey]) {
+          continue;
+        }
+  
+        const distance = (trip.endodo || 0) - (trip.startodo || 0);
+        const duration = (trip.movingtime || 0) + (trip.idletime || 0);
+        const socconsumed = (trip.startsoc || 0) - (trip.endsoc || 0);
+        
+        // Calculate boost/eco mode percentages
+        const boostDistance = trip.boostdist || 0;
+        const boostModePercentage = distance > 0 
+          ? Math.round((Math.min(boostDistance, distance) / distance) * 100)
+          : 0;
+        const ecoModePercentage = 100 - boostModePercentage;
+        
+        // Calculate idle time in minutes
+        const idleTimeMinutes = (trip.idletime || 0) / (1000 * 60);
+  
+        // Calculate status based on category and thresholds
+        const status = this.calculateTripStatus(trip, category, {
+          boostModePercentage,
+          ecoModePercentage,
+          idleTimeMinutes,
+          distance,
+        });
+
+        tripsByDate[dateKey].push({
+          vin: trip.vin,
+          regno: vinregnoMap[trip.vin] || trip.vin,
+          starttime: formatEpochToDateTime(trip.starttime),
+          endtime: formatEpochToDateTime(trip.endtime),
+          duration: formatEpochToDuration(duration),
+          distance: `${distance.toFixed(2)} km`,
+          startsoc: `${trip.startsoc}%`,
+          endsoc: `${trip.endsoc}%`,
+          socconsumed: `${socconsumed}%`,
+          status: status,
+        });
+      }
+  
+      return tripsByDate;
+    } catch (error) {
+      this.logger.error(
+        "Error in GetFleetOverviewListLogic:",
+        error
+      );
+      throw error;
+    }
+  };
+  
+  // Helper method to check if trip matches category
+  matchesTripCategory = (trip, category) => {
+    const BOOST_MODE_THRESHOLD = 30;
+    const ECO_MODE_THRESHOLD = 70;
+    const IDLE_TIME_THRESHOLD = 5; // minutes
+    const SHORT_TRIP_DISTANCE = 2; // km
+  
+    const distance = (trip.endodo || 0) - (trip.startodo || 0);
+    const boostDistance = trip.boostdist || 0;
+    const idleTime = trip.idletime || 0;
+    const idleTimeMinutes = idleTime / (1000 * 60);
+  
+    switch (category) {
+      case "boost_mode":
+        if (distance > 0) {
+          const boostModePercentage = (Math.min(boostDistance, distance) / distance) * 100;
+          return boostModePercentage > BOOST_MODE_THRESHOLD;
+        }
+        return false;
+  
+      case "eco_mode":
+        if (distance > 0) {
+          const boostModePercentage = (Math.min(boostDistance, distance) / distance) * 100;
+          const ecoModePercentage = 100 - boostModePercentage;
+          return ecoModePercentage >= ECO_MODE_THRESHOLD;
+        }
+        return false;
+  
+      case "idle_time":
+        return idleTimeMinutes > IDLE_TIME_THRESHOLD;
+  
+      case "short_trips":
+        return distance > 0 && distance < SHORT_TRIP_DISTANCE;
+  
+      default:
+        return false;
+    }
+  };
+  
+  // Helper method to calculate status for trip
+  calculateTripStatus = (trip, category, metrics) => {
+    const BOOST_MODE_THRESHOLD = 30;
+    const ECO_MODE_THRESHOLD = 70;
+    const IDLE_TIME_THRESHOLD = 5; // minutes
+    const SHORT_TRIP_DISTANCE = 2; // km
+  
+    const { boostModePercentage, ecoModePercentage, idleTimeMinutes, distance } = metrics;
+  
+    switch (category) {
+      case "boost_mode":
+        return boostModePercentage > BOOST_MODE_THRESHOLD
+          ? "above_threshold"
+          : "within_threshold";
+  
+      case "eco_mode":
+        return ecoModePercentage >= ECO_MODE_THRESHOLD
+          ? "above_threshold"
+          : "below_threshold";
+  
+      case "idle_time":
+        return idleTimeMinutes > IDLE_TIME_THRESHOLD
+          ? "above_threshold"
+          : "within_threshold";
+  
+      case "short_trips":
+        return distance < SHORT_TRIP_DISTANCE
+          ? "above_threshold"
+          : "within_threshold";
+  
+      default:
+        return "within_threshold";
+    }
+  };
+  
+  // Helper method to build default date structure with empty arrays
+  buildDefaultDateStructure = (starttime, endtime) => {
+    const dateStructure = {};
+    const startDate = new Date(parseInt(starttime));
+    const endDate = new Date(parseInt(endtime));
+    const currentDate = new Date(startDate);
+  
+    while (currentDate <= endDate) {
+      const dateKey = this.formatDateToIST(currentDate);
+      dateStructure[dateKey] = [];
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+  
+    return dateStructure;
   };
 
   GetFleetDistanceReportLogic = async (
@@ -1234,7 +1446,7 @@ export default class TripsinsighthdlrImpl {
     }
   };
 
-  calculateMetricDrillDown = (tripData, allTripData, starttime, endtime) => {
+  calculateMetricDrillDown = (tripData, allTripData, starttime, endtime, dateEpochMap = {}) => {
     const BOOST_MODE_THRESHOLD = 30;
     const ECO_MODE_THRESHOLD = 70;
     const IDLE_TIME_THRESHOLD = 5;
@@ -1359,9 +1571,14 @@ export default class TripsinsighthdlrImpl {
         dayData.allTripData.length > 0
           ? (shortTrips / dayData.allTripData.length) * 100
           : 0;
+      
+      // Get epoch range for this date
+      const { startepoch, endepoch } = dateEpochMap[dateKey] || { startepoch: null, endepoch: null };
 
       drillDown.boost_mode.dailydata.push({
         date: dateKey,
+        startepoch,
+        endepoch,
         value: `${Math.round(boostModePercentage)}%`,
         rawvalue: Math.round(boostModePercentage),
         status:
@@ -1374,6 +1591,8 @@ export default class TripsinsighthdlrImpl {
 
       drillDown.eco_mode.dailydata.push({
         date: dateKey,
+        startepoch,
+        endepoch,
         value: `${Math.round(ecoModePercentage)}%`,
         rawvalue: Math.round(ecoModePercentage),
         status:
@@ -1389,6 +1608,8 @@ export default class TripsinsighthdlrImpl {
       );
       drillDown.idle_time.dailydata.push({
         date: dateKey,
+        startepoch,
+        endepoch,
         value: formattedIdleTime || "0 min",
         rawvalue: Math.round(averageIdleTimePerTrip),
         status:
@@ -1401,6 +1622,8 @@ export default class TripsinsighthdlrImpl {
 
       drillDown.short_trips.dailydata.push({
         date: dateKey,
+        startepoch,
+        endepoch,
         value: `${Math.round(shortTripPercentage)}%`,
         rawvalue: Math.round(shortTripPercentage),
         status:
@@ -1716,19 +1939,41 @@ export default class TripsinsighthdlrImpl {
               ecodistance: 0,
               boostpercentage: 0,
               ecopercentage: 0,
+              boostsocusage: 0,
+              ecosocusage: 0,
+              boostrange: 0,
+              ecorange: 0,
             };
           }
 
           const tripDistance = (trip.endodo || 0) - (trip.startodo || 0);
           const boostDistance = trip.boostdist || 0;
 
+          const tripSocUsage = (trip.startsoc || 0) - (trip.endsoc || 0);
+          const boostSocUsage = trip.boostsocusage || 0;
+
+          const ecoSocUsage = Math.max(0, tripSocUsage - boostSocUsage);
+
           const actualBoostDistance = Math.min(boostDistance, tripDistance);
           const ecoDistance = Math.max(0, tripDistance - actualBoostDistance);
+          
+          let boostRange = 0;
+          let ecoRange = 0;
+          if (boostSocUsage > 0) {
+            boostRange = (actualBoostDistance * 100) / boostSocUsage;
+          }
+          if (ecoSocUsage > 0) {
+            ecoRange = (ecoDistance * 100) / ecoSocUsage;
+          }
 
           if (tripDistance > 0) {
             drivingModeUsage[dateKey].totaldistance += tripDistance;
             drivingModeUsage[dateKey].boostdistance += actualBoostDistance;
             drivingModeUsage[dateKey].ecodistance += ecoDistance;
+            drivingModeUsage[dateKey].boostsocusage += boostSocUsage;
+            drivingModeUsage[dateKey].ecosocusage += ecoSocUsage;
+            drivingModeUsage[dateKey].boostrange += boostRange;
+            drivingModeUsage[dateKey].ecorange += ecoRange;
           }
         }
       });

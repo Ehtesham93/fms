@@ -33,7 +33,7 @@ import { Logger } from "./lib/nemo3-lib-observability/index.js";
 //setup logger
 const logger = new Logger({
   environment: process.env.APP_ENV || "LOCAL",
-  service: "nemo3-api-fms-svc",
+  service: process.env.SERVICE_NAME || "nemo3-api-fms-svc",
   instance: process.env.TASK_ARN || "localhost",
   ip: process.env.TASK_IP || "127.0.0.1",
   loglevel: "info",
@@ -60,7 +60,7 @@ let userSvcI = new UserSvc(pgPoolI, config, servicelogger);
 let platformSvcI = new PlatformSvc(pgPoolI, servicelogger, config);
 let fmsSvcI = new FmsSvc(pgPoolI, servicelogger);
 let fmsAccountSvcI = new FmsAccountSvc(pgPoolI, servicelogger, config);
-let historyDataSvcI = new HistoryDataSvc(pgPoolI, servicelogger);
+let historyDataSvcI = new HistoryDataSvc(pgPoolI, servicelogger, redisSvc);
 let livetrackingSvcI = new LivetrackingSvc(pgPoolI, servicelogger, config);
 let tripsInsightSvcI = new TripsInsightSvc(pgPoolI, servicelogger);
 let chargeInsightSvcI = new ChargeInsightSvc(pgPoolI, servicelogger);

@@ -347,6 +347,18 @@ export default class Chargeinsightshdlr {
         return;
       }
 
+      if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 35 days"
+        );
+        return;
+      }
+
+
       let result =
         await this.chargeinsightssvcHdlrImpl.GetChargeInsightsByVehicleLogic(
           accountid,
@@ -444,6 +456,18 @@ export default class Chargeinsightshdlr {
         );
         return;
       }
+
+      if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 35 days"
+        );
+        return;
+      }
+
 
       const userPerms = await this.permissionSvc.GetUserFleetPermissions(
         req.userid,
@@ -826,6 +850,18 @@ export default class Chargeinsightshdlr {
         return;
       }
 
+      if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 35 days"
+        );
+        return;
+      }
+
+
       const userPerms = await this.permissionSvc.GetUserFleetPermissions(
         req.userid,
         req.accountid
@@ -973,6 +1009,18 @@ export default class Chargeinsightshdlr {
         return;
       }
 
+      if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 35 days"
+        );
+        return;
+      }
+
+
       const userPerms = await this.permissionSvc.GetUserFleetPermissions(
         req.userid,
         req.accountid,
@@ -1106,6 +1154,17 @@ export default class Chargeinsightshdlr {
           "INVALID_TIME_RANGE",
           {},
           "starttime must be less than endtime"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 35 days"
         );
         return;
       }
@@ -1251,6 +1310,17 @@ export default class Chargeinsightshdlr {
           "INVALID_TIME_RANGE",
           {},
           "starttime must be less than endtime"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 35 days"
         );
         return;
       }

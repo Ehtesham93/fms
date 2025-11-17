@@ -49,16 +49,15 @@ export default class PackageSvcDB {
   async getAllPackageTypes() {
     try {
       let query = `
-            SELECT pkgtype, createdat, createdby FROM package_type
-            ORDER BY createdat DESC
+            SELECT pt.pkgtype, pt.createdat, u1.displayname as createdby 
+            FROM package_type pt 
+            JOIN users u1 ON pt.createdby = u1.userid
+            ORDER BY pt.createdat DESC
         `;
       let result = await this.pgPoolI.Query(query);
       if (result.rowCount === 0) {
         return null;
       }
-      result.rows.forEach(async (row) => {
-        row.createdby = await this.getUserName(row.createdby);
-      });
       return result.rows;
     } catch (error) {
       throw new Error(`Failed to retrieve package types`);
@@ -167,17 +166,16 @@ export default class PackageSvcDB {
   async getAllPackages() {
     try {
       let query = `
-            SELECT pkgid, pkgname, pkgtype, pkginfo, isenabled, createdat, createdby, updatedat, updatedby FROM package
-            ORDER BY createdat DESC
+            SELECT p.pkgid, p.pkgname, p.pkgtype, p.pkginfo, p.isenabled, p.createdat, u1.displayname as createdby, p.updatedat, u2.displayname as updatedby 
+            FROM package p 
+            JOIN users u1 ON p.createdby = u1.userid 
+            JOIN users u2 ON p.updatedby = u2.userid
+            ORDER BY p.createdat DESC
         `;
       let result = await this.pgPoolI.Query(query);
       if (result.rowCount === 0) {
         return null;
       }
-      result.rows.forEach(async (row) => {
-        row.createdby = await this.getUserName(row.createdby);
-        row.updatedby = await this.getUserName(row.updatedby);
-      });
       return result.rows;
     } catch (error) {
       throw new Error(`Failed to retrieve all packages`);
@@ -187,19 +185,16 @@ export default class PackageSvcDB {
   async getPkgInfo(pkgid) {
     try {
       let query = `
-            SELECT pkgid, pkgname, pkgtype, pkginfo, isenabled, createdat, createdby, updatedat, updatedby FROM package
-            WHERE pkgid = $1
+            SELECT p.pkgid, p.pkgname, p.pkgtype, p.pkginfo, p.isenabled, p.createdat, u1.displayname as createdby, p.updatedat, u2.displayname as updatedby 
+            FROM package p 
+            JOIN users u1 ON p.createdby = u1.userid 
+            JOIN users u2 ON p.updatedby = u2.userid
+            WHERE p.pkgid = $1
         `;
       let result = await this.pgPoolI.Query(query, [pkgid]);
       if (result.rowCount === 0) {
         return null;
       }
-      result.rows[0].createdby = await this.getUserName(
-        result.rows[0].createdby
-      );
-      result.rows[0].updatedby = await this.getUserName(
-        result.rows[0].updatedby
-      );
       return result.rows[0];
     } catch (error) {
       throw new Error(`Failed to retrieve package info`);
@@ -224,17 +219,16 @@ export default class PackageSvcDB {
   async getAllModulesInfo() {
     try {
       let query = `
-            SELECT moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, isenabled, createdat, createdby, updatedat, updatedby FROM module WHERE modulecode != 'consolemgmt' ORDER BY priority
+            SELECT m.moduleid, m.modulename, m.moduletype, m.modulecode, m.moduleinfo, m.creditspervehicleday, m.isenabled, m.createdat, u1.displayname as createdby, m.updatedat, u2.displayname as updatedby 
+            FROM module m 
+            JOIN users u1 ON m.createdby = u1.userid 
+            JOIN users u2 ON m.updatedby = u2.userid
+            WHERE m.modulecode != 'consolemgmt' ORDER BY m.priority
         `;
       let result = await this.pgPoolI.Query(query);
       if (result.rowCount === 0) {
         return null;
       }
-
-      result.rows.forEach(async (row) => {
-        row.createdby = await this.getUserName(row.createdby);
-        row.updatedby = await this.getUserName(row.updatedby);
-      });
       return result.rows;
     } catch (error) {
       throw new Error(`Failed to retrieve all modules info`);

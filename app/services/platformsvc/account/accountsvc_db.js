@@ -301,20 +301,16 @@ export default class AccountSvcDB {
   async getAccountOverview(accountid) {
     try {
       let query = `
-            SELECT accountid, accountname, accounttype, accountinfo, isenabled, createdat, createdby, updatedat, updatedby FROM account
-            WHERE accountid = $1 AND isdeleted = false
+            SELECT a.accountid, a.accountname, a.accounttype, a.accountinfo, a.isenabled, a.createdat, u1.displayname as createdby, a.updatedat, u2.displayname as updatedby 
+            FROM account a 
+            JOIN users u1 ON a.createdby = u1.userid 
+            JOIN users u2 ON a.updatedby = u2.userid
+            WHERE a.accountid = $1 AND a.isdeleted = false
         `;
       let result = await this.pgPoolI.Query(query, [accountid]);
       if (result.rowCount === 0) {
         return null;
       }
-      // TOOD: LATENCY_ISSUE
-      result.rows[0].createdby = await this.getUserName(
-        result.rows[0].createdby
-      );
-      result.rows[0].updatedby = await this.getUserName(
-        result.rows[0].updatedby
-      );
       return result.rows[0];
     } catch (error) {
       throw new Error("Failed to load account overview");
@@ -1305,12 +1301,14 @@ export default class AccountSvcDB {
     try {
       let query = `
             SELECT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, 
-            u.ismobileverified, u.createdat, u.createdby, u.updatedat, u.updatedby, r.roleid, r.rolename, 
+            u.ismobileverified, u.createdat, u1.displayname as createdby, u.updatedat, u2.displayname as updatedby, r.roleid, r.rolename, 
             eps.ssoid as email, ms.ssoid as mobile FROM fleet_user_role fur 
             JOIN users u ON fur.userid = u.userid 
             LEFT JOIN email_pwd_sso eps ON fur.userid = eps.userid
             LEFT JOIN mobile_sso ms ON fur.userid = ms.userid
             LEFT JOIN roles r ON fur.accountid = r.accountid AND fur.roleid = r.roleid AND r.isenabled = true
+            LEFT JOIN users u1 ON r.createdby = u1.userid 
+            LEFT JOIN users u2 ON r.updatedby = u2.userid
             WHERE fur.accountid = $1 AND u.isdeleted = false
             ORDER BY u.userid DESC
         `;
@@ -1318,11 +1316,6 @@ export default class AccountSvcDB {
       if (result.rowCount === 0) {
         return null;
       }
-      // TOOD: LATENCY_ISSUE
-      result.rows.forEach(async (row) => {
-        row.createdby = await this.getUserName(row.createdby);
-        row.updatedby = await this.getUserName(row.updatedby);
-      });
       return result.rows;
     } catch (error) {
       throw new Error("Failed to retrieve account users");
@@ -1350,20 +1343,17 @@ export default class AccountSvcDB {
   async getPkgInfoWithModules(pkgid) {
     try {
       let query = `
-            SELECT p.pkgid, p.pkgname, p.pkgtype, p.pkginfo, p.isenabled, p.createdat, p.createdby, p.updatedat, p.updatedby, m.moduleid, m.modulename, m.creditspervehicleday FROM package p
+            SELECT p.pkgid, p.pkgname, p.pkgtype, p.pkginfo, p.isenabled, p.createdat, u1.displayname as createdby, p.updatedat, u2.displayname as updatedby, m.moduleid, m.modulename, m.creditspervehicleday FROM package p
             JOIN package_module pm ON p.pkgid = pm.pkgid
             JOIN module m ON pm.moduleid = m.moduleid
+            JOIN users u1 ON m.createdby = u1.userid 
+            JOIN users u2 ON m.updatedby = u2.userid
             WHERE p.pkgid = $1 AND m.isenabled = true AND p.isenabled = true
         `;
       let result = await this.pgPoolI.Query(query, [pkgid]);
       if (result.rowCount === 0) {
         return null;
       }
-      // TOOD: LATENCY_ISSUE
-      result.rows.forEach(async (row) => {
-        row.createdby = await this.getUserName(row.createdby);
-        row.updatedby = await this.getUserName(row.updatedby);
-      });
       return result.rows;
     } catch (error) {
       throw new Error("Failed to retrieve package information");

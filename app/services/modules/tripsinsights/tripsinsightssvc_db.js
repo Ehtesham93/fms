@@ -148,7 +148,7 @@ export default class TripsInsightSvcDB {
           SELECT 
             vin, starttime, endtime, startodo, endodo, startsoc, endsoc,
             starttemp, endtemp, startlat, endlat, startlng, endlng,
-            startdte, enddte, boostduration, boostdist, maxcurrent, maxvoltage,
+            startdte, enddte, boostduration, boostdist, boostsocusage, maxcurrent, maxvoltage,
             maxbattemp, maxspeed, maxmotortemp, movingtime,
             idletime, bmscyclenum, calcrange, startdata, enddata, proctime
           FROM lmmdata.tripdata_${bucket} 

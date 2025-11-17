@@ -1,5 +1,5 @@
 import { formatEpochToDateTime } from "../../../utils/epochconverter.js";
-import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
+import { publishVehicleModificationUpdate, publishVehicleUpdate } from "../../../utils/redisnotification.js";
 import axios from "axios";
 import config from "../../../config/config.js";
 import { errors } from "cassandra-driver";
@@ -41,6 +41,8 @@ export default class VehicleHdlrImpl {
       this.logger.error("Failed to create vehicle");
       throw new Error("Failed to create vehicle");
     }
+
+    await publishVehicleModificationUpdate(vinno, "added", this.redisSvc, this.logger);
     return {
       vinno: vinno,
       modelcode: modelcode,
@@ -393,6 +395,7 @@ export default class VehicleHdlrImpl {
       .trim(); // Trim leading and trailing whitespaces
   };
 
+
   preprocessingDealer = (name) => {
     if (!name || typeof name !== "string") {
       return ""; // Return empty string for undefined, null, or non-string values
@@ -405,7 +408,6 @@ export default class VehicleHdlrImpl {
 
   OnboardVehicleLogic = async (vehicleData, entrytype, createdOrUpdatedBy) => {
     this.onboardingType = entrytype;
-    const { vin, vehicleModel, vehicleVariant, ...otherFields } = vehicleData;
     vehicleData.dealer = this.preprocessingDealer(vehicleData.dealer);
     vehicleData.deliveredDate = this.convertDateFormat(
       vehicleData.deliveredDate
@@ -422,6 +424,12 @@ export default class VehicleHdlrImpl {
       vehicleData.vehicleColour = "NA";
     }
     vehicleData.vehicleCity = this.preprocessingText(vehicleData.vehicleCity);
+
+    vehicleData.vehicleModel = this.preprocessingDealer(vehicleData.vehicleModel);
+    vehicleData.vehicleVariant = this.preprocessingDealer(vehicleData.vehicleVariant);
+
+    const { vin, vehicleModel, vehicleVariant, ...otherFields } = vehicleData;
+
     // Case 1: Vehicle already exists - just return
     let vehicleExists = await this.platformSvcI.CheckVehicleExists(vin);
     if (vehicleExists) {

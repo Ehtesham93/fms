@@ -1310,12 +1310,16 @@ export default class ChargeinsightshdlrImpl {
   
       // Populate with filtered sessions
       for (const session of filteredSessions) {
+        if (session.starttime < parseInt(starttime) || session.starttime >= parseInt(endtime)) {
+          continue; // Skip sessions outside the requested time range
+        }
         const dateKey = this.toISTDateString(session.starttime);
         
         // Calculate duration
         const duration = session.chargingtime || (session.endtime - session.starttime);
         
         // Calculate status based on threshold
+        const socgained = session.endsoc - session.startsoc;
         const status = this.calculateStatus(session, category, duration);
 
         const unitgained = (this.calculateUnitGained(session.startkwh, session.endkwh) || 0).toFixed(2);
@@ -1328,6 +1332,7 @@ export default class ChargeinsightshdlrImpl {
           duration: formatEpochToDuration(duration),
           startsoc: `${session.startsoc}%`,
           endsoc: `${session.endsoc}%`,
+          socgained: `${socgained}%`,
           unitgained: `${unitgained} kWh`,
           status: status,
         });
@@ -1361,7 +1366,7 @@ export default class ChargeinsightshdlrImpl {
       case "inactiveafterfullcharge":
         if (session.endsoc >= 98) {
           const sessionEndTime = session.endtime;
-          const sixHoursLater = sessionEndTime + 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+          const sixHoursLater = sessionEndTime + 12 * 60 * 60 * 1000; // 6 hours in milliseconds
           const tripsForVin = this.findTripsInWindow(
             tripIndex,
             session.vin,

@@ -88,3 +88,77 @@ export const publishVehicleUpdate = async (
     logger
   );
 };
+
+
+/**
+ * Publishes a vehicle modification update notification to Redis
+ * @param {string} vinno - The vehicle VIN number
+ * @param {string} action - The action performed ("added", "updated", "removed")
+ * @param {object} redisSvc - Redis service instance
+ * @param {object} logger - Logger instance
+ * @returns {Promise<boolean>} - Success status
+ */
+export const  publishVehicleModificationUpdate = async (
+  vinno,
+  action,
+  redisSvc,
+  logger
+) => {
+  try {
+    // Create the data to store and publish
+    const updateData = {
+      timestamp: new Date().toISOString(),
+      vinno: vinno,
+      action: action,
+    };
+
+    const envPrefix = getEnvironmentPrefix();
+    const key = `${envPrefix}vehicle.creation.${vinno}.${action}`;
+    const message = JSON.stringify(updateData);
+
+    // Set the key with the data (persistent state)
+    const [setResult, setError] = await redisSvc.set(key, message);
+    if (setError) {
+      logger.error(`Failed to set key ${key}:`, setError);
+    } else {
+      logger.info(`Vehicle modification update data set for key: ${key}`);
+    }
+
+    // Publish to the same key as topic (real-time notification)
+    const [publishResult, publishError] = await redisSvc.publish(key, message);
+    if (publishError) {
+      logger.error(`Failed to publish to topic ${key}:`, publishError);
+    } else {
+      logger.info(
+        `Vehicle modification update event published to topic: ${key} (${publishResult} subscribers)`
+      );
+    }
+
+    return !setError && !publishError;
+  } catch (error) {
+    logger.error("Error in publishVehicleModificationUpdate:", error);
+    return false;
+  }
+};
+
+/**
+ * Publishes a vehicle update notification specifically
+ * @param {string} vinno - The vehicle VIN number
+ * @param {string} action - The action performed ("added", "updated", "removed")
+ * @param {object} redisSvc - Redis service instance
+ * @param {object} logger - Logger instance
+ * @returns {Promise<boolean>} - Success status
+ */
+export const publishVehicleCreationUpdate = async (
+  vinno,
+  action,
+  redisSvc,
+  logger
+) => {
+  return await publishVehicleModificationUpdate(
+    vinno,
+    action,
+    redisSvc,
+    logger
+  );
+};

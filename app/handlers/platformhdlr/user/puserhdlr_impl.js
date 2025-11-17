@@ -2128,6 +2128,7 @@ export default class PUserHdlrImpl {
         );
       }
     } else if (customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
+      accountname = processedcustomername;
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
       const existingemail =
         await this.userSvcI.CheckEmailExists(customercontactemail);

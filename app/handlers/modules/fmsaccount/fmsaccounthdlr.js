@@ -3476,6 +3476,28 @@ export default class FmsAccountHdlr {
         endtime: convertedendtime
       });
 
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
       const userPerms = await this.permissionSvc.GetUserFleetPermissions(
         req.userid,
         accountid
@@ -3935,6 +3957,28 @@ export default class FmsAccountHdlr {
         }
       );
 
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
       const userPerms = await this.permissionSvc.GetUserFleetPermissions(
         userid,
         accountid
@@ -4029,13 +4073,24 @@ export default class FmsAccountHdlr {
         }
       );
 
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
       if (endtime - starttime > 1000 * 60 * 60 * 24 * 95) {
         return APIResponseBadRequest(
           req,
           res,
           "INPUT_ERROR",
           null,
-          "Time range is too long"
+          "Time range is too long selected range should be <= 95 days"
         );
       }
 
@@ -4139,13 +4194,24 @@ export default class FmsAccountHdlr {
           endtime: Number(req.query.endtime || 0),
         });
 
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
       if (endtime - starttime > 1000 * 60 * 60 * 24 * 95) {
         return APIResponseBadRequest(
           req,
           res,
           "INPUT_ERROR",
           null,
-          "Time range is too long"
+          "Time range is too long selected range should be <= 95 days"
         );
       }
 
@@ -4250,13 +4316,24 @@ export default class FmsAccountHdlr {
           recursive: req.query.recursive === "true",
         });
 
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
       if (endtime - starttime > 1000 * 60 * 60 * 24 * 95) {
         return APIResponseBadRequest(
           req,
           res,
           "INPUT_ERROR",
           null,
-          "Time range is too long"
+          "Time range is too long selected range should be <= 95 days"
         );
       }
 
@@ -4819,6 +4896,29 @@ export default class FmsAccountHdlr {
         starttime: Number(req.query.starttime || 0),
         endtime: Number(req.query.endtime || 0),
       });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 35 days"
+        );
+        return;
+      }
+
 
       const startepoch = this.ValidateEpochTime(starttime, "starttime");
       const endepoch = this.ValidateEpochTime(endtime, "endtime");

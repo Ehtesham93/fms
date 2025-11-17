@@ -828,8 +828,12 @@ export default class ModelHdlr {
               "Family Name can only contain letters, numbers, spaces, hyphens, and underscores",
           })
           .optional(),
-
-        modelfamilyinfo: z.record(z.any()).optional(),
+        modelfamilyinfo: z.object({
+          chargestationtype: z
+          .array(z.string())
+          .min(1, { message: "Please select a charging station type" }),
+          dosanddonts: z.string().optional(),
+        }),
 
         isenabled: z.coerce
           .boolean({ message: "isenabled must be a boolean" })

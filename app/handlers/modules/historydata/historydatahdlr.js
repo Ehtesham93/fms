@@ -207,6 +207,17 @@ export default class HistoryDataHdlr {
         return;
       }
 
+      if (endtime - starttime > 31 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 31 days"
+        );
+        return;
+      }
+
       let result = await this.historyDataHdlrImpl.GetGPSHistoryDataLogic(
         accountid,
         vinno,
@@ -296,6 +307,17 @@ export default class HistoryDataHdlr {
         return;
       }
 
+      if (endtime - starttime > 31 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 31 days"
+        );
+        return;
+      }
+
       let result = await this.historyDataHdlrImpl.GetCANHistoryDataLogic(
         accountid,
         vinno,
@@ -381,6 +403,17 @@ export default class HistoryDataHdlr {
           "INVALID_TIME_RANGE",
           {},
           "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 31 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 31 days"
         );
         return;
       }

@@ -1299,23 +1299,16 @@ export default class FmsAccountSvcDB {
   async getAllRoles(accountid) {
     try {
       let query = `
-        SELECT roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby FROM roles
-        WHERE accountid = $1
+        SELECT r.roleid, r.rolename, r.roletype, r.isenabled, r.createdat, u1.displayname as createdby, r.updatedat, u2.displayname as updatedby 
+        FROM roles r 
+        JOIN users u1 ON r.createdby = u1.userid 
+        JOIN users u2 ON r.updatedby = u2.userid
+        WHERE r.accountid = $1
+        ORDER BY r.createdat
     `;
       let result = await this.pgPoolI.Query(query, [accountid]);
       if (result.rowCount === 0) {
         return null;
-      }
-      result.rows.sort((a, b) => a.createdat - b.createdat);
-      for (let row of result.rows) {
-        if (row.createdby === row.updatedby) {
-          let user = await this.getUserName(row.createdby);
-          row.createdby = user;
-          row.updatedby = user;
-        } else {
-          row.createdby = await this.getUserName(row.createdby);
-          row.updatedby = await this.getUserName(row.updatedby);
-        }
       }
       return result.rows;
     } catch (error) {
@@ -1326,19 +1319,16 @@ export default class FmsAccountSvcDB {
   async getRoleInfo(accountid, roleid) {
     try {
       let query = `
-        SELECT roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby FROM roles
-        WHERE accountid = $1 AND roleid = $2
+        SELECT r.roleid, r.rolename, r.roletype, r.isenabled, r.createdat, u1.displayname as createdby, r.updatedat, u2.displayname as updatedby 
+        FROM roles r 
+        JOIN users u1 ON r.createdby = u1.userid 
+        JOIN users u2 ON r.updatedby = u2.userid
+        WHERE r.accountid = $1 AND r.roleid = $2
     `;
       let result = await this.pgPoolI.Query(query, [accountid, roleid]);
       if (result.rowCount === 0) {
         return null;
       }
-      result.rows[0].createdby = await this.getUserName(
-        result.rows[0].createdby
-      );
-      result.rows[0].updatedby = await this.getUserName(
-        result.rows[0].updatedby
-      );
       return result.rows[0];
     } catch (error) {
       throw new Error("Failed to retrieve role information.");
@@ -1981,9 +1971,11 @@ export default class FmsAccountSvcDB {
       // TODO: check user has permission to list roles for this fleet
       // First, get all roles for the account
       let query = `
-      SELECT roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby 
-      FROM roles
-      WHERE accountid = $1 AND isenabled = true
+      SELECT r.roleid, r.rolename, r.roletype, r.isenabled, r.createdat, u1.displayname as createdby, r.updatedat, u2.displayname as updatedby 
+      FROM roles r 
+      JOIN users u1 ON r.createdby = u1.userid 
+      JOIN users u2 ON r.updatedby = u2.userid
+      WHERE r.accountid = $1 AND r.isenabled = true
     `;
       let allRolesResult = await this.pgPoolI.Query(query, [accountid]);
       if (allRolesResult.rowCount === 0) {
@@ -2006,17 +1998,6 @@ export default class FmsAccountSvcDB {
       let assignableRoles = allRolesResult.rows.filter((role) => {
         return !userRoleIds.includes(role.roleid);
       });
-
-      for (let role of assignableRoles) {
-        if (role.createdby === role.updatedby) {
-          let user = await this.getUserName(role.createdby);
-          role.createdby = user;
-          role.updatedby = user;
-        } else {
-          role.createdby = await this.getUserName(role.createdby);
-          role.updatedby = await this.getUserName(role.updatedby);
-        }
-      }
 
       return assignableRoles;
     } catch (error) {
@@ -2430,9 +2411,9 @@ export default class FmsAccountSvcDB {
         `,
         [accountid]
       );
-      
+
       const userCount = countResult.rows[0]?.user_count || 0;
-      
+
       //Update the 'users' column in account_summary
       await txclient.query(
         `
@@ -2695,7 +2676,7 @@ export default class FmsAccountSvcDB {
       );
 
       //Extract package name (default to 'Lite' if none)
-      const packageName = pkgResult.rows[0]?.pkgname || 'Lite';
+      const packageName = pkgResult.rows[0]?.pkgname || "Lite";
 
       //Update account_summary with the package name
       await txclient.query(
@@ -3868,7 +3849,7 @@ export default class FmsAccountSvcDB {
       );
 
       //Extract package name (default to 'Lite' if none)
-      const packageName = pkgResult.rows[0]?.pkgname || 'Lite';
+      const packageName = pkgResult.rows[0]?.pkgname || "Lite";
 
       //Update account_summary with the package name
       await txclient.query(

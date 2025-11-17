@@ -417,23 +417,16 @@ export default class PUserSvcDB {
   async getAllRoles(accountid) {
     try {
       let query = `
-            SELECT roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby FROM roles
-            WHERE accountid = $1
+            SELECT r.roleid, r.rolename, r.roletype, r.isenabled, r.createdat, u1.displayname as createdby, r.updatedat, u2.displayname as updatedby 
+            FROM roles r 
+            JOIN users u1 ON r.createdby = u1.userid 
+            JOIN users u2 ON r.updatedby = u2.userid
+            WHERE r.accountid = $1
+            ORDER BY r.createdat
         `;
       let result = await this.pgPoolI.Query(query, [accountid]);
       if (result.rowCount === 0) {
         return null;
-      }
-      result.rows.sort((a, b) => a.createdat - b.createdat);
-      for (let row of result.rows) {
-        if (row.createdby === row.updatedby) {
-          let user = await this.getUserName(row.createdby);
-          row.createdby = user;
-          row.updatedby = user;
-        } else {
-          row.createdby = await this.getUserName(row.createdby);
-          row.updatedby = await this.getUserName(row.updatedby);
-        }
       }
       return result.rows;
     } catch (error) {

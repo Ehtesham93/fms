@@ -40,7 +40,7 @@ treo,regulardata,vehicle_phase,vehicle_phase,true,"""2025-09-12T09:05:46.446Z"""
 zeo,regulardata,dte,ets_vcu_dte_km,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,drive_enable,drive_enable,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,tcu_speedmode,ets_vcu_drivemode_sts_enum,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
-zeo,regulardata,kwh,kwh,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
+zeo,regulardata,kwh,ess_pck_availableenergy_kwh,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,bms_hvbatt_connect_sts,bms_hvbatt_connect_sts,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,bms_hvbatt_disconnect_sts,bms_hvbatt_disconnect_sts,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff
 zeo,regulardata,bms_in_keyon,vcu_sts_ign,true,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff,"""2025-09-04T18:43:24.983Z""",ffffffff-ffff-ffff-ffff-ffffffffffff

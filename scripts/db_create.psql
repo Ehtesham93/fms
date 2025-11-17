@@ -356,6 +356,53 @@ CREATE TABLE IF NOT EXISTS
     );
 
 CREATE TABLE IF NOT EXISTS
+    module_history (
+        moduleid uuid NOT NULL,
+        modulename text NOT NULL,
+        moduletype text NOT NULL,
+        modulecode text NOT NULL,
+        moduleinfo jsonb NOT NULL,
+        creditspervehicleday NUMERIC(6, 3) NOT NULL,
+        priority int NOT NULL,
+        isenabled boolean NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        PRIMARY KEY (moduleid, updatedat)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    module_perm_history (
+        moduleid uuid NOT NULL,
+        permid text NOT NULL,
+        isenabled boolean NOT NULL,
+        modperminfo jsonb NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        PRIMARY KEY (moduleid, permid, updatedat)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    package_history (
+        pkgid uuid NOT NULL,
+        pkgname text NOT NULL,
+        pkgtype text NOT NULL,
+        pkginfo jsonb NOT NULL,
+        isenabled boolean NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        PRIMARY KEY (pkgid, updatedat)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    package_module_history (
+        pkgid uuid NOT NULL,
+        moduleid uuid NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        PRIMARY KEY (pkgid, moduleid, updatedat)
+    );
+
+CREATE TABLE IF NOT EXISTS
     account_custom_package_options (
         accountid uuid NOT NULL,
         pkgid uuid NOT NULL,
@@ -1198,6 +1245,12 @@ CREATE TABLE IF NOT EXISTS
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_deleteduser_userid ON deleteduser (deleteduser_id);
+
+CREATE INDEX IF NOT EXISTS idx_package_history_pkgid_updatedat ON package_history (pkgid, updatedat DESC);
+
+CREATE INDEX IF NOT EXISTS idx_package_module_history_pkgid_changedat ON package_module_history (pkgid, changedat DESC);
+
+CREATE INDEX IF NOT EXISTS idx_package_module_history_moduleid_changedat ON package_module_history (moduleid, changedat DESC);
 
 CREATE INDEX IF NOT EXISTS idx_fleet_tree_accountid_fleetid_isdeleted ON fleet_tree (accountid, fleetid, isdeleted);
 

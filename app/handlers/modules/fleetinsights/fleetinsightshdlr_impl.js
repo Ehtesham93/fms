@@ -68,8 +68,10 @@ export default class FleetInsightsHdlrImpl {
 
       const cityoverview = {};
       vehicles.forEach((v) => {
-        const key = v.vehicle_city || "Unknown";
-        cityoverview[key] = (cityoverview[key] || 0) + 1;
+        const key = v.vehicle_city ?? null;
+        if (key) {
+          cityoverview[key] = (cityoverview[key] || 0) + 1;
+        }
       });
 
       const monthlyDeliveries = {};

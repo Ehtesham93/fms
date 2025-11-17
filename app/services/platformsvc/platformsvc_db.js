@@ -28,17 +28,17 @@ export default class PlatformSvcDB {
   async getAllPlatformModulesInfo() {
     try {
       let query = `
-            SELECT moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, isenabled, priority, createdat, createdby, updatedat, updatedby FROM module 
-            WHERE moduletype = 'platform' ORDER BY priority
+            SELECT m.moduleid, m.modulename, m.moduletype, m.modulecode, m.moduleinfo, m.creditspervehicleday, m.isenabled, m.priority, m.createdat, u1.displayname as createdby, m.updatedat, u2.displayname as updatedby 
+            FROM module m 
+            JOIN users u1 ON m.createdby = u1.userid 
+            JOIN users u2 ON m.updatedby = u2.userid
+            WHERE m.moduletype = 'platform' ORDER BY m.priority
         `;
       let result = await this.pgPoolI.Query(query);
       if (result.rowCount === 0) {
         return null;
       }
-      result.rows.forEach(async (row) => {
-        row.createdby = await this.getUserName(row.createdby);
-        row.updatedby = await this.getUserName(row.updatedby);
-      });
+      
       return result.rows;
     } catch (error) {
       throw new Error("Failed to fetch all platform modules info");
@@ -371,7 +371,7 @@ export default class PlatformSvcDB {
   }
   async listAllVehicles() {
     try {
-      let query = `SELECT vinno, COALESCE(license_plate, vinno) as regno, modelcode FROM vehicle`;
+      let query = `SELECT vinno, COALESCE(license_plate, vinno) as regno, modelcode, mobile, dealer, vehicle_city  FROM vehicle`;
       let result = await this.pgPoolI.Query(query);
       if (result.rowCount === 0) {
         return [];
@@ -926,7 +926,7 @@ export default class PlatformSvcDB {
         this.pgPoolI.Query("SELECT COUNT(*) FROM vehicle"),
         this.pgPoolI.Query("SELECT COUNT(distinct vinno) FROM fleet_vehicle"),
         this.pgPoolI.Query(
-          "SELECT COUNT(distinct vinno) FROM account_vehicle_subscription"
+          "SELECT COUNT(distinct vinno) FROM account_vehicle_subscription WHERE state = 1"
         ),
         this.pgPoolI.Query("SELECT COUNT(*) FROM vehicle_model"),
         this.pgPoolI.Query("SELECT COUNT(*) FROM account"),

@@ -2,10 +2,11 @@ import clhTimeBucketRange from "./historydatasvc_utils.js";
 import { PARAM_FAMILY_CODE_REGULAR_DATA } from "../../../utils/constant.js";
 
 export default class HistoryDataSvcDB {
-  constructor(pgPoolI, clickHouseClient, logger) {
+  constructor(pgPoolI, clickHouseClient, logger, redisSvc) {
     this.pgPoolI = pgPoolI;
     this.clickHouseClient = clickHouseClient;
     this.logger = logger;
+    this.redisSvc = redisSvc;
     this.canmetrics = [
       "cycletime",
       "charger_sts_live",
@@ -509,12 +510,73 @@ export default class HistoryDataSvcDB {
     return mergedData;
   }
 
+  // async getLastestLatLongDataForVins(vinnos) {
+  //   if (!vinnos || vinnos.length === 0) {
+  //     return {};
+  //   }
+
+  //   try {
+  //     const vinList = vinnos.map((vin) => `'${vin}'`).join(",");
+  //     const query = `
+  //       SELECT vin, utctime, gpstime, latitude, longitude 
+  //       FROM lmmdata_latest.gpsdatalatest
+  //       WHERE vin IN (${vinList});
+  //     `;
+
+  //     const result = await this.clickHouseClient.query(query);
+
+  //     if (!result.success) {
+  //       this.logger.error(
+  //         "Failed to query ClickHouse for GPS data:",
+  //         result.error
+  //       );
+  //       throw new Error("Failed to fetch latest GPS data");
+  //     }
+
+  //     const gpsDataMap = {};
+  //     for (let row of result.data) {
+  //       gpsDataMap[row.vin] = {
+  //         latitude: row.latitude,
+  //         longitude: row.longitude,
+  //         utctime: row.utctime,
+  //         gpstime: row.gpstime,
+  //       };
+  //     }
+
+  //     return gpsDataMap;
+  //   } catch (error) {
+  //     this.logger.error("Error fetching latest GPS data:", error);
+  //     return error;
+  //   }
+  // }
+
   async getLastestLatLongDataForVins(vinnos) {
     if (!vinnos || vinnos.length === 0) {
       return {};
     }
 
+    // Fetch from Redis cache
+    const cachedGpsDataMap = {};
+    for (let vin of vinnos) {
+      const redisKey = `gpsinfo.${vin}`;
+      const [cachedData, redisError] = await this.redisSvc.get(redisKey);
+      if (redisError) {
+        this.logger.error("Redis error:", redisError);
+      } else if (cachedData !== null) {
+        const parsed = JSON.parse(cachedData);
+        // Ensure utctime and gpstime are integers for comparison
+        if (parsed.utctime !== undefined) {
+          parsed.utctime = parseInt(parsed.utctime) || 0;
+        }
+        if (parsed.gpstime !== undefined) {
+          parsed.gpstime = parseInt(parsed.gpstime) || 0;
+        }
+        cachedGpsDataMap[vin] = parsed;
+      }
+    }
+
     try {
+      // Fetch from ClickHouse
       const vinList = vinnos.map((vin) => `'${vin}'`).join(",");
       const query = `
         SELECT vin, utctime, gpstime, latitude, longitude 
@@ -532,14 +594,52 @@ export default class HistoryDataSvcDB {
         throw new Error("Failed to fetch latest GPS data");
       }
 
-      const gpsDataMap = {};
+      const clickHouseDataMap = {};
       for (let row of result.data) {
-        gpsDataMap[row.vin] = {
+        clickHouseDataMap[row.vin] = {
           latitude: row.latitude,
           longitude: row.longitude,
-          utctime: row.utctime,
-          gpstime: row.gpstime,
+          utctime: parseInt(row.utctime) || 0,
+          gpstime: parseInt(row.gpstime) || 0,
         };
+      }
+
+      // Merge both sources and return the latest for each VIN
+      const gpsDataMap = {};
+      for (let vin of vinnos) {
+        const cachedData = cachedGpsDataMap[vin];
+        const clickHouseData = clickHouseDataMap[vin];
+
+        if (cachedData && clickHouseData) {
+          // Both sources have data - compare utctime and return the latest
+          const cachedUtctime = cachedData.utctime || 0;
+          const clickHouseUtctime = clickHouseData.utctime || 0;
+          
+          if (cachedUtctime >= clickHouseUtctime) {
+            // Return cached data with only the required fields
+            gpsDataMap[vin] = {
+              latitude: cachedData.latitude,
+              longitude: cachedData.longitude,
+              utctime: cachedData.utctime,
+              gpstime: cachedData.gpstime,
+            };
+          } else {
+            // Return ClickHouse data
+            gpsDataMap[vin] = clickHouseData;
+          }
+        } else if (cachedData) {
+          // Only Redis has data - return with required fields only
+          gpsDataMap[vin] = {
+            latitude: cachedData.latitude,
+            longitude: cachedData.longitude,
+            utctime: cachedData.utctime,
+            gpstime: cachedData.gpstime,
+          };
+        } else if (clickHouseData) {
+          // Only ClickHouse has data
+          gpsDataMap[vin] = clickHouseData;
+        }
+        // If neither has data, skip this VIN (won't be in the map)
       }
 
       return gpsDataMap;
@@ -549,8 +649,115 @@ export default class HistoryDataSvcDB {
     }
   }
 
+
+  // async getLatestCanData(vinnos) {
+  //   try {
+  //     const vinList = vinnos.map((vin) => `'${vin}'`).join(",");
+  //     const query = `
+  //       SELECT * FROM lmmdata_latest.candatalatest
+  //       WHERE vin IN (${vinList})
+  //     `;
+
+  //     const result = await this.clickHouseClient.query(query);
+
+  //     if (!result.success) {
+  //       this.logger.error(
+  //         "Failed to query ClickHouse for GPS data:",
+  //         result.error
+  //       );
+  //       throw new Error("Failed to fetch latest CAN data");
+  //     }
+
+  //     const canDataMap = {};
+  //     for (let row of result.data) {
+  //       const formatted = { ...row };
+
+  //       if (formatted.utctime !== undefined)
+  //         formatted.utctime = parseInt(formatted.utctime) || 0;
+  //       if (formatted.intime !== undefined)
+  //         formatted.intime = parseInt(formatted.intime) || 0;
+  //       if (formatted.proctime !== undefined)
+  //         formatted.proctime = parseInt(formatted.proctime) || 0;
+
+  //       const uint32Fields = [
+  //         "bms_cyclenum",
+  //         "can_soc",
+  //         "soh",
+  //         "brake_switch_status",
+  //         "e_motor_rpm",
+  //         "inv_drivemode_shift",
+  //         "v_mode",
+  //         "battery_ttc",
+  //         "can_dte",
+  //         "can_throttle",
+  //         "veh_immo_resp",
+  //         "service_tt",
+  //         "chargett",
+  //         "connectionhealthtt",
+  //         "tcu_speedmode",
+  //       ];
+  //       uint32Fields.forEach((field) => {
+  //         if (formatted[field] !== undefined) {
+  //           formatted[field] = parseInt(formatted[field]) || 0;
+  //         }
+  //       });
+
+  //       const float32Fields = [
+  //         "charger_temp_live",
+  //         "chargertemp",
+  //         "soc",
+  //         "bms_cell_avg_volt",
+  //         "bms_cell_avg_temp",
+  //         "motortemp",
+  //         "bms_batt_pack_temp",
+  //         "odometer",
+  //         "odometer_new",
+  //         "vehiclespeed",
+  //         "motorpower",
+  //         "percthrottle",
+  //         "kwh",
+  //         "batt_current",
+  //         "aux_batt_volt",
+  //         "bat_voltage",
+  //         "dte",
+  //         "wakeup_command",
+  //       ];
+  //       float32Fields.forEach((field) => {
+  //         if (formatted[field] !== undefined) {
+  //           formatted[field] = parseFloat(formatted[field]) || 0;
+  //         }
+  //       });
+
+  //       canDataMap[row.vin] = formatted;
+  //     }
+
+  //     return canDataMap;
+  //   } catch (error) {
+  //     this.logger.error("Error fetching latest vehicle data:", error);
+  //     throw error;
+  //   }
+  // }
+
   async getLatestCanData(vinnos) {
     try {
+      // Fetch from Redis cache
+      const cachedCanDataMap = {};
+      for (let vin of vinnos) {
+        const redisKey = `caninfo.${vin}`;
+        const [cachedData, redisError] = await this.redisSvc.get(redisKey);
+        if (redisError) {
+          this.logger.error("Redis error:", redisError);
+        } else if (cachedData !== null) {
+          const parsed = JSON.parse(cachedData);
+          // Ensure utctime is an integer for comparison
+          if (parsed.utctime !== undefined) {
+            parsed.utctime = parseInt(parsed.utctime) || 0;
+          }
+          cachedCanDataMap[vin] = parsed;
+        }
+      }
+
+      // Fetch from ClickHouse
       const vinList = vinnos.map((vin) => `'${vin}'`).join(",");
       const query = `
         SELECT * FROM lmmdata_latest.candatalatest
@@ -561,13 +768,13 @@ export default class HistoryDataSvcDB {
 
       if (!result.success) {
         this.logger.error(
-          "Failed to query ClickHouse for GPS data:",
+          "Failed to query ClickHouse for CAN data:",
           result.error
         );
         throw new Error("Failed to fetch latest CAN data");
       }
 
-      const canDataMap = {};
+      const clickHouseDataMap = {};
       for (let row of result.data) {
         const formatted = { ...row };
 
@@ -627,7 +834,28 @@ export default class HistoryDataSvcDB {
           }
         });
 
-        canDataMap[row.vin] = formatted;
+        clickHouseDataMap[row.vin] = formatted;
+      }
+
+      // Merge both sources and return the latest for each VIN
+      const canDataMap = {};
+      for (let vin of vinnos) {
+        const cachedData = cachedCanDataMap[vin];
+        const clickHouseData = clickHouseDataMap[vin];
+
+        if (cachedData && clickHouseData) {
+          // Both sources have data - compare utctime and return the latest
+          const cachedUtctime = cachedData.utctime || 0;
+          const clickHouseUtctime = clickHouseData.utctime || 0;
+          canDataMap[vin] = cachedUtctime >= clickHouseUtctime ? cachedData : clickHouseData;
+        } else if (cachedData) {
+          // Only Redis has data
+          canDataMap[vin] = cachedData;
+        } else if (clickHouseData) {
+          // Only ClickHouse has data
+          canDataMap[vin] = clickHouseData;
+        }
+        // If neither has data, skip this VIN (won't be in the map)
       }
 
       return canDataMap;
@@ -636,4 +864,5 @@ export default class HistoryDataSvcDB {
       throw error;
     }
   }
+
 }

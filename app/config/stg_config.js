@@ -1,6 +1,6 @@
 export default {
   pgdb: {
-    host: "rds-nemo-stage.c55qjjjzouym.ap-south-1.rds.amazonaws.com",
+    host: "lmm.stgdb.nemo3",
     port: 5432,
     database: "lmmintellicar",
     schema: "stgfmscoresch",

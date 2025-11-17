@@ -2,14 +2,16 @@ import HistoryDataSvcDB from "./historydatasvc_db.js";
 import ClickHouseClient from "../../../utils/clickhouse.js";
 
 export default class HistoryDataSvc {
-  constructor(pgPoolI, logger) {
+  constructor(pgPoolI, logger, redisSvc) {
     this.pgPoolI = pgPoolI;
     this.logger = logger;
     this.clickHouseClient = new ClickHouseClient();
+    this.redisSvc = redisSvc;
     this.historyDataSvcDB = new HistoryDataSvcDB(
       pgPoolI,
       this.clickHouseClient,
-      logger
+      logger,
+      redisSvc
     );
   }
 
