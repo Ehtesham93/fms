@@ -17,6 +17,7 @@ import fmsAccountHdlrImpl from "./fmsaccounthdlr_impl.js";
 import PermissionSvc from "../../../services/permsvc/permsvc.js";
 import { INVITE_RATE_LIMIT_PER_HOUR } from "../../../utils/constant.js";
 import { CheckUserPerms } from "../../../utils/permissionutil.js";
+import { Sleep } from "../../../utils/commonutil.js";
 
 export default class FmsAccountHdlr {
   constructor(
@@ -123,8 +124,10 @@ export default class FmsAccountHdlr {
       "/subscription/vehicles",
       this.GetSubscriptionVehicles
     );
-    accountTokenGroup.get("/subscription/vehicles/history",
-      this.GetSubscriptionVehiclesHistory);
+    accountTokenGroup.get(
+      "/subscription/vehicles/history",
+      this.GetSubscriptionVehiclesHistory
+    );
     accountTokenGroup.post(
       "/subscription/intent",
       this.CreateSubscriptionIntent
@@ -275,7 +278,10 @@ export default class FmsAccountHdlr {
     }
 
     this.logger.info(
-      `${operationType} rate limit updated for fingerprint: ${operationFingerprint.substring(0, 8)}...`
+      `${operationType} rate limit updated for fingerprint: ${operationFingerprint.substring(
+        0,
+        8
+      )}...`
     );
   };
 
@@ -345,8 +351,9 @@ export default class FmsAccountHdlr {
         return;
       }
 
-      const accountInfo =
-        await this.fmsAccountSvcI.GetAccountAndPackageInfo(accountid);
+      const accountInfo = await this.fmsAccountSvcI.GetAccountAndPackageInfo(
+        accountid
+      );
 
       if (!accountInfo) {
         APIResponseForbidden(
@@ -408,8 +415,9 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
-      let result =
-        await this.fmsAccountHdlrImpl.ListInvitesOfAccountLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.ListInvitesOfAccountLogic(
+        accountid
+      );
       APIResponseOK(req, res, result, "Invites listed successfully");
     } catch (error) {
       this.logger.error("ListInvitesOfAccount error: ", error);
@@ -824,8 +832,9 @@ export default class FmsAccountHdlr {
       //   );
       // }
 
-      let result =
-        await this.fmsAccountHdlrImpl.GetAccountOverviewLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.GetAccountOverviewLogic(
+        accountid
+      );
       APIResponseOK(req, res, result, "Account overview fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountOverview error: ", error);
@@ -987,8 +996,9 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
-      let result =
-        await this.fmsAccountHdlrImpl.GetChargeStationTypesLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.GetChargeStationTypesLogic(
+        accountid
+      );
       APIResponseOK(
         req,
         res,
@@ -1536,8 +1546,9 @@ export default class FmsAccountHdlr {
         accountid: req.accountid,
       });
 
-      let result =
-        await this.fmsAccountHdlrImpl.ListSubscribedVehiclesLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.ListSubscribedVehiclesLogic(
+        accountid
+      );
       APIResponseOK(
         req,
         res,
@@ -3103,8 +3114,9 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result =
-        await this.fmsAccountHdlrImpl.GetAccountSubscriptionsLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.GetAccountSubscriptionsLogic(
+        accountid
+      );
       APIResponseOK(req, res, result, "Subscriptions fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountSubscriptions error: ", error);
@@ -3338,8 +3350,9 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result =
-        await this.fmsAccountHdlrImpl.GetSubscriptionHistoryLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.GetSubscriptionHistoryLogic(
+        accountid
+      );
       APIResponseOK(
         req,
         res,
@@ -3411,8 +3424,9 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result =
-        await this.fmsAccountHdlrImpl.GetSubscriptionVehiclesLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.GetSubscriptionVehiclesLogic(
+        accountid
+      );
       APIResponseOK(
         req,
         res,
@@ -3465,7 +3479,7 @@ export default class FmsAccountHdlr {
         endtime: z
           .number({ message: "Invalid End Time format" })
           .min(1000000000000, { message: "End Time is invalid" })
-          .max(9999999999999, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
       });
       let convertedstarttime = parseInt(req.query.starttime);
       let convertedendtime = parseInt(req.query.endtime);
@@ -3473,7 +3487,7 @@ export default class FmsAccountHdlr {
       let { accountid, starttime, endtime } = validateAllInputs(schema, {
         accountid: req.accountid,
         starttime: convertedstarttime,
-        endtime: convertedendtime
+        endtime: convertedendtime,
       });
 
       if (starttime >= endtime) {
@@ -3519,7 +3533,11 @@ export default class FmsAccountHdlr {
       }
 
       let result =
-        await this.fmsAccountHdlrImpl.GetSubscriptionVehiclesHistoryLogic(accountid, starttime, endtime);
+        await this.fmsAccountHdlrImpl.GetSubscriptionVehiclesHistoryLogic(
+          accountid,
+          starttime,
+          endtime
+        );
       APIResponseOK(
         req,
         res,
@@ -3891,8 +3909,9 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result =
-        await this.fmsAccountHdlrImpl.GetAccountCreditsLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.GetAccountCreditsLogic(
+        accountid
+      );
       APIResponseOK(req, res, result, "Account credits fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountCredits error: ", error);
@@ -4656,8 +4675,9 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result =
-        await this.fmsAccountHdlrImpl.GetSharedVehiclesLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.GetSharedVehiclesLogic(
+        accountid
+      );
       APIResponseOK(req, res, result, "Shared vehicles fetched successfully");
     } catch (error) {
       this.logger.error("GetTaggedOutVehicles error: ", error);
@@ -4781,8 +4801,9 @@ export default class FmsAccountHdlr {
         );
       }
 
-      let result =
-        await this.fmsAccountHdlrImpl.GetVehiclesSharedToMeLogic(accountid);
+      let result = await this.fmsAccountHdlrImpl.GetVehiclesSharedToMeLogic(
+        accountid
+      );
       APIResponseOK(
         req,
         res,
@@ -4918,7 +4939,6 @@ export default class FmsAccountHdlr {
         );
         return;
       }
-
 
       const startepoch = this.ValidateEpochTime(starttime, "starttime");
       const endepoch = this.ValidateEpochTime(endtime, "endtime");

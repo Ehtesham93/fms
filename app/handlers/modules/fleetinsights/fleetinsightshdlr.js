@@ -1050,7 +1050,7 @@ export default class FleetInsightsHdlr {
         );
         return;
       }
-      
+
       if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
         APIResponseBadRequest(
           req,
