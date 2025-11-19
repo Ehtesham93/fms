@@ -13,7 +13,7 @@ export default class PublicHdlrImpl {
     this.logger = logger;
 
     this.inMemCacheI = inMemCacheI;
-    this.OTP_CACHE_TTL = 110;
+    this.OTP_CACHE_TTL = 30;
   }
 
   getDeviceFingerprint = (req) => {
@@ -142,7 +142,9 @@ export default class PublicHdlrImpl {
       const rateLimitKey = `otp_rate_limit:${fingerprint}`;
 
       if (this.inMemCacheI.has(rateLimitKey)) {
-        const error = new Error("Too many OTP requests, try after 1 min.");
+        const error = new Error(
+          "Too many OTP requests. Please try after 1 min"
+        );
         error.errcode = "RATE_LIMIT_EXCEEDED";
         throw error;
       }
@@ -213,17 +215,18 @@ export default class PublicHdlrImpl {
       // }
 
       let verifyid = uuidv4();
-      this.inMemCacheI.set(rateLimitKey, true, this.OTP_CACHE_TTL);
 
       const message = `Login_OTP_for_Mahindra_Nemo at ${verifyid} , please check - Intellicar`;
       try {
         await SendSms(mobile, message);
       } catch (err) {
         if (err.errcode === "TOO_MANY_OTP_REQUESTS") {
-          err.message = "Too many OTP requests, try after 1 min.";
+          err.message = "Too many OTP requests. Please try after sometime";
         }
         throw err;
       }
+
+      this.inMemCacheI.set(rateLimitKey, true, this.OTP_CACHE_TTL);
 
       return {
         verifyid: verifyid,

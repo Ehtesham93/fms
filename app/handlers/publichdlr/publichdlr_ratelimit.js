@@ -38,7 +38,7 @@ export default class PublicRateLimiter {
       otpMinuteLimiter: rateLimit({
         windowMs: rateLimitConfig.otp.perMinute.windowMs,
         max: rateLimitConfig.otp.perMinute.max,
-        message: "Too many OTP requests. Try again later.",
+        message: "Too many OTP requests. Try after 1 min",
         handler: createLimiterHandler("OTP per-minute"),
         standardHeaders: true,
         legacyHeaders: false,
@@ -48,7 +48,7 @@ export default class PublicRateLimiter {
       otpHourLimiter: rateLimit({
         windowMs: rateLimitConfig.otp.perHour.windowMs,
         max: rateLimitConfig.otp.perHour.max,
-        message: "Too many OTP requests. Try again later.",
+        message: "Too many OTP requests. Try after 1 hour",
         handler: createLimiterHandler("OTP per-hour"),
         standardHeaders: true,
         legacyHeaders: false,
@@ -58,7 +58,7 @@ export default class PublicRateLimiter {
       otpDayLimiter: rateLimit({
         windowMs: rateLimitConfig.otp.perDay.windowMs,
         max: rateLimitConfig.otp.perDay.max,
-        message: "Too many OTP requests. Try again later.",
+        message: "Too many OTP requests. Try after 1 day",
         handler: createLimiterHandler("OTP per-day"),
         standardHeaders: true,
         legacyHeaders: false,
