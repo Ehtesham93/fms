@@ -19,6 +19,7 @@ import {
 } from "../../utils/validationutil.js";
 import PublicHdlrImpl from "./publichdlr_impl.js";
 import PublicRateLimiter from "./publichdlr_ratelimit.js";
+import { getLoggableRequest } from "../../utils/commonutil.js";
 
 export default class PublicHdlr {
   constructor(
@@ -146,127 +147,149 @@ export default class PublicHdlr {
   }
 
   handleError = (error, req, res, defaultErrorCode, defaultMessage) => {
-    this.logger.error(`API Error: ${error?.stack || error?.message || error}`);
-
-    if (error.errcode === "INPUT_ERROR") {
-      return APIResponseBadRequest(
-        req,
-        res,
-        error.errcode,
-        error.errdata || {},
-        error.message
+    try {
+      let reqLog = getLoggableRequest(req);
+      this.logger.error(
+        `API Error: ${error?.stack || error?.message || error}`,
+        reqLog
       );
-    }
 
-    if (error.errcode === "RATE_LIMIT_EXCEEDED") {
-      return APIResponseBadRequest(req, res, error.errcode, {}, error.message);
-    }
+      if (
+        error.errcode === "INPUT_ERROR" ||
+        error.errcode === "CAPTCHA_FAILED" ||
+        error.errcode === "RATE_LIMIT_EXCEEDED" ||
+        error.errcode === "TOO_MANY_OTP_REQUESTS" ||
+        error.errcode === "SMS_SEND_FAILED" ||
+        error.errcode === "INVALID_MOBILE" ||
+        error.errcode === "USER_NOT_FOUND"
+      ) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata || {},
+          error.message
+        );
+      }
 
-    const userFriendlyErrors = {
-      USER_NOT_FOUND: {
-        code: "USER_NOT_FOUND",
-        message: "User with this contact doesn't exist",
-      },
-      INVALID_CREDENTIALS: {
-        code: "INVALID_CREDENTIALS",
-        message: "Invalid email or password",
-      },
-      INVALID_OTP: {
-        code: "INVALID_OTP",
-        message: "Invalid OTP",
-      },
-      INVALID_MPIN: {
-        code: "INVALID_MPIN",
-        message: "Invalid MPIN",
-      },
-      ACCOUNT_DISABLED: {
-        code: "ACCOUNT_DISABLED",
-        message: "Account is disabled",
-      },
-      ACCOUNT_DELETED: {
-        code: "ACCOUNT_DELETED",
-        message: "Account is deleted",
-      },
-      USER_IS_NOT_SUPERADMIN: {
-        code: "USER_IS_NOT_SUPERADMIN",
-        message:
-          "You don't have the required permissions to access this resource.",
-      },
-      MPIN_NOT_SET: {
-        code: "MPIN_NOT_SET",
-        message: "MPIN is not set for this account",
-      },
-      MPIN_DISABLED: {
-        code: "MPIN_DISABLED",
-        message: "MPIN authentication is disabled for this account",
-      },
-      INVALID_RESET_TOKEN: {
-        code: "INVALID_RESET_TOKEN",
-        message: "Password reset link is invalid or has expired",
-      },
-      RESET_TOKEN_EXPIRED: {
-        code: "RESET_TOKEN_EXPIRED",
-        message: "Password reset link has expired",
-      },
-      RESET_TOKEN_USED: {
-        code: "RESET_TOKEN_USED",
-        message: "Password reset link has already been used",
-      },
-      SIGNUP_FAILED: {
-        code: "SIGNUP_FAILED",
-        message: "Failed to signup with invite",
-      },
-      AUTH_SERVICE_ERROR: {
-        code: "AUTH_SERVICE_ERROR",
-        message: "Failed to create user in auth service",
-      },
-      EMAIL_NOT_FOUND: {
-        code: "EMAIL_NOT_FOUND",
-        message: "User with this email doesn't exist",
-      },
-      PASSWORD_SAME_AS_OLD: {
-        code: "PASSWORD_SAME_AS_OLD",
-        message: "New password cannot be the same as the old password",
-      },
-      PASSWORD_EXPIRED: {
-        code: "PASSWORD_EXPIRED",
-        message:
-          "Your password has expired. Please reset your password to continue.",
-      },
-    };
+      if (error.errcode === "RATE_LIMIT_EXCEEDED") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          {},
+          error.message
+        );
+      }
 
-    const errorMessage = error.message || error.toString();
+      const userFriendlyErrors = {
+        USER_NOT_FOUND: {
+          code: "USER_NOT_FOUND",
+          message: "User with this contact doesn't exist",
+        },
+        INVALID_CREDENTIALS: {
+          code: "INVALID_CREDENTIALS",
+          message: "Invalid email or password",
+        },
+        INVALID_OTP: {
+          code: "INVALID_OTP",
+          message: "Invalid OTP",
+        },
+        INVALID_MPIN: {
+          code: "INVALID_MPIN",
+          message: "Invalid MPIN",
+        },
+        ACCOUNT_DISABLED: {
+          code: "ACCOUNT_DISABLED",
+          message: "Account is disabled",
+        },
+        ACCOUNT_DELETED: {
+          code: "ACCOUNT_DELETED",
+          message: "Account is deleted",
+        },
+        USER_IS_NOT_SUPERADMIN: {
+          code: "USER_IS_NOT_SUPERADMIN",
+          message:
+            "You don't have the required permissions to access this resource.",
+        },
+        MPIN_NOT_SET: {
+          code: "MPIN_NOT_SET",
+          message: "MPIN is not set for this account",
+        },
+        MPIN_DISABLED: {
+          code: "MPIN_DISABLED",
+          message: "MPIN authentication is disabled for this account",
+        },
+        INVALID_RESET_TOKEN: {
+          code: "INVALID_RESET_TOKEN",
+          message: "Password reset link is invalid or has expired",
+        },
+        RESET_TOKEN_EXPIRED: {
+          code: "RESET_TOKEN_EXPIRED",
+          message: "Password reset link has expired",
+        },
+        RESET_TOKEN_USED: {
+          code: "RESET_TOKEN_USED",
+          message: "Password reset link has already been used",
+        },
+        SIGNUP_FAILED: {
+          code: "SIGNUP_FAILED",
+          message: "Failed to signup with invite",
+        },
+        AUTH_SERVICE_ERROR: {
+          code: "AUTH_SERVICE_ERROR",
+          message: "Failed to create user in auth service",
+        },
+        EMAIL_NOT_FOUND: {
+          code: "EMAIL_NOT_FOUND",
+          message: "User with this email doesn't exist",
+        },
+        PASSWORD_SAME_AS_OLD: {
+          code: "PASSWORD_SAME_AS_OLD",
+          message: "New password cannot be the same as the old password",
+        },
+        PASSWORD_EXPIRED: {
+          code: "PASSWORD_EXPIRED",
+          message:
+            "Your password has expired. Please reset your password to continue.",
+        },
+      };
 
-    if (errorMessage.startsWith("ACCOUNT_LOCKED:")) {
-      const remainingTime = errorMessage.split(":")[1];
-      return APIResponseBadRequest(
+      const errorMessage = error.message || error.toString();
+
+      if (errorMessage.startsWith("ACCOUNT_LOCKED:")) {
+        const remainingTime = errorMessage.split(":")[1];
+        return APIResponseBadRequest(
+          req,
+          res,
+          "ACCOUNT_LOCKED",
+          { remainingTimeMinutes: parseInt(remainingTime) },
+          `Account temporarily locked due to multiple unsuccessful login attempts. Try Again in ${remainingTime} minutes.`
+        );
+      }
+
+      const friendlyError = userFriendlyErrors[errorMessage];
+
+      if (friendlyError) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          friendlyError.code,
+          {},
+          friendlyError.message
+        );
+      }
+
+      return APIResponseInternalErr(
         req,
         res,
-        "ACCOUNT_LOCKED",
-        { remainingTimeMinutes: parseInt(remainingTime) },
-        `Account temporarily locked due to multiple unsuccessful login attempts. Try Again in ${remainingTime} minutes.`
-      );
-    }
-
-    const friendlyError = userFriendlyErrors[errorMessage];
-
-    if (friendlyError) {
-      return APIResponseBadRequest(
-        req,
-        res,
-        friendlyError.code,
+        defaultErrorCode,
         {},
-        friendlyError.message
+        defaultMessage
       );
+    } catch (error) {
+      console.error("PublicHdlr::handleError::error: ", error);
     }
-
-    return APIResponseInternalErr(
-      req,
-      res,
-      defaultErrorCode,
-      {},
-      defaultMessage
-    );
   };
 
   ExtractOptionalUserIdFromToken = async (req) => {
@@ -316,18 +339,7 @@ export default class PublicHdlr {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
 
-      // TODO: Remove this once we have a proper captcha implementation
       if (captchaToken) {
-        if (!captchaToken) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_MISSING",
-            {},
-            "Please complete the security verification to continue."
-          );
-        }
-
         const isValidCaptcha = await ValidateCaptcha(
           captchaToken,
           remoteIp,
@@ -335,13 +347,11 @@ export default class PublicHdlr {
         );
 
         if (!isValidCaptcha) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_FAILED",
-            {},
-            "Security verification failed. Please try again."
-          );
+          throw {
+            errcode: "CAPTCHA_FAILED",
+            errdata: {},
+            message: "Security verification failed. Please try again.",
+          };
         }
       }
 
@@ -363,7 +373,6 @@ export default class PublicHdlr {
       let result = await this.publicHdlrImpl.CheckContactLogic(contact);
       APIResponseOK(req, res, result, "Contact verified successfully");
     } catch (error) {
-      this.logger.error("CheckContact error: ", error);
       return this.handleError(
         error,
         req,
@@ -379,18 +388,7 @@ export default class PublicHdlr {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
 
-      // TODO: Remove this once we have a proper captcha implementation
       if (captchaToken) {
-        if (!captchaToken) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_MISSING",
-            {},
-            "Please complete the security verification to continue."
-          );
-        }
-
         const isValidCaptcha = await ValidateCaptcha(
           captchaToken,
           remoteIp,
@@ -398,13 +396,11 @@ export default class PublicHdlr {
         );
 
         if (!isValidCaptcha) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_FAILED",
-            {},
-            "Security verification failed. Please try again."
-          );
+          throw {
+            errcode: "CAPTCHA_FAILED",
+            errdata: {},
+            message: "Security verification failed. Please try again.",
+          };
         }
       }
 
@@ -429,44 +425,13 @@ export default class PublicHdlr {
         "OTP sent successfully to your mobile number"
       );
     } catch (error) {
-      this.logger.error("MobileSendOtp error: ", error);
-      if (error.errcode === "RATE_LIMIT_EXCEEDED") {
-        return APIResponseBadRequest(
-          req,
-          res,
-          error.errcode,
-          {},
-          error.message
-        );
-      } else if (
-        error.errcode === "TOO_MANY_OTP_REQUESTS" ||
-        error.errcode === "SMS_SEND_FAILED" ||
-        error.errcode === "INVALID_MOBILE"
-      ) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          error.errcode,
-          {},
-          error.message
-        );
-      } else if (error.message === "USER_NOT_FOUND") {
-        return APIResponseBadRequest(
-          req,
-          res,
-          "USER_NOT_FOUND",
-          {},
-          "User not found with this mobile number"
-        );
-      } else {
-        return this.handleError(
-          error,
-          req,
-          res,
-          "MOBILE_SEND_OTP_ERR",
-          "We couldn't send the OTP to your mobile number. Please try again."
-        );
-      }
+      return this.handleError(
+        error,
+        req,
+        res,
+        "MOBILE_SEND_OTP_ERR",
+        "We couldn't send the OTP to your mobile number. Please try again."
+      );
     }
   };
 
@@ -493,7 +458,7 @@ export default class PublicHdlr {
       let expiresin = TOKEN_EXPIRY_TIME;
       let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
-      // TODO: Remove this once we have a proper OTP verification implementation
+      // TODO: Add mobile number for which we want different expiry time
       if (mobile == "8814010926" || mobile == "7795772862") {
         expiresin = 30;
       }
@@ -531,7 +496,6 @@ export default class PublicHdlr {
         "Successfully signed in with your mobile number"
       );
     } catch (error) {
-      this.logger.error("MobileSignIn error: ", error);
       return this.handleError(
         error,
         req,
@@ -591,7 +555,6 @@ export default class PublicHdlr {
 
       APIResponseOK(req, res, result, "Admin access granted successfully");
     } catch (error) {
-      this.logger.error("GetSuperAdminToken error: ", error);
       if (error.message === "USER_IS_NOT_SUPERADMIN") {
         return APIResponseForbidden(
           req,
@@ -617,18 +580,7 @@ export default class PublicHdlr {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
 
-      // TODO: Remove this once we have a proper captcha implementation
       if (captchaToken) {
-        if (!captchaToken) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_MISSING",
-            {},
-            "Please complete the security verification to continue."
-          );
-        }
-
         const isValidCaptcha = await ValidateCaptcha(
           captchaToken,
           remoteIp,
@@ -636,13 +588,11 @@ export default class PublicHdlr {
         );
 
         if (!isValidCaptcha) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_FAILED",
-            {},
-            "Security verification failed. Please try again."
-          );
+          throw {
+            errcode: "CAPTCHA_FAILED",
+            errdata: {},
+            message: "Security verification failed. Please try again.",
+          };
         }
       }
 
@@ -696,7 +646,6 @@ export default class PublicHdlr {
 
       APIResponseOK(req, res, result, "Successfully signed in with your email");
     } catch (error) {
-      this.logger.error("UserEmailSignIn error: ", error);
       return this.handleError(
         error,
         req,
@@ -751,7 +700,6 @@ export default class PublicHdlr {
 
       APIResponseOK(req, res, result, "Successfully signed in with your email");
     } catch (error) {
-      this.logger.error("GetTestUserToken error: ", error);
       return this.handleError(
         error,
         req,
@@ -846,7 +794,6 @@ export default class PublicHdlr {
         "Welcome! Your account has been created successfully"
       );
     } catch (error) {
-      this.logger.error("SignupWithInvite error: ", error);
       return this.handleError(
         error,
         req,
@@ -878,7 +825,6 @@ export default class PublicHdlr {
       );
       APIResponseOK(req, res, result, "Invite link is valid and ready to use");
     } catch (error) {
-      this.logger.error("ValidateInvite error: ", error);
       return this.handleError(
         error,
         req,
@@ -894,18 +840,7 @@ export default class PublicHdlr {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
 
-      // TODO: Remove this once we have a proper captcha implementation
       if (captchaToken) {
-        if (!captchaToken) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_MISSING",
-            {},
-            "Please complete the security verification to continue."
-          );
-        }
-
         const isValidCaptcha = await ValidateCaptcha(
           captchaToken,
           remoteIp,
@@ -913,13 +848,11 @@ export default class PublicHdlr {
         );
 
         if (!isValidCaptcha) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_FAILED",
-            {},
-            "Security verification failed. Please try again."
-          );
+          throw {
+            errcode: "CAPTCHA_FAILED",
+            errdata: {},
+            message: "Security verification failed. Please try again.",
+          };
         }
       }
 
@@ -956,7 +889,6 @@ export default class PublicHdlr {
         "Password reset instructions have been sent to your email"
       );
     } catch (error) {
-      this.logger.error("ForgotPassword error: ", error);
       return this.handleError(
         error,
         req,
@@ -1028,7 +960,6 @@ export default class PublicHdlr {
         "Your password has been reset successfully"
       );
     } catch (error) {
-      this.logger.error("ResetPassword error: ", error);
       return this.handleError(
         error,
         req,
@@ -1044,18 +975,7 @@ export default class PublicHdlr {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
 
-      // TODO: Remove this once we have a proper captcha implementation
       if (captchaToken) {
-        if (!captchaToken) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_MISSING",
-            {},
-            "Please complete the security verification to continue."
-          );
-        }
-
         const isValidCaptcha = await ValidateCaptcha(
           captchaToken,
           remoteIp,
@@ -1063,13 +983,11 @@ export default class PublicHdlr {
         );
 
         if (!isValidCaptcha) {
-          return APIResponseBadRequest(
-            req,
-            res,
-            "CAPTCHA_FAILED",
-            {},
-            "Security verification failed. Please try again."
-          );
+          throw {
+            errcode: "CAPTCHA_FAILED",
+            errdata: {},
+            message: "Security verification failed. Please try again.",
+          };
         }
       }
 
@@ -1091,7 +1009,6 @@ export default class PublicHdlr {
       );
       APIResponseOK(req, res, result, result.message);
     } catch (error) {
-      this.logger.error("ValidateResetToken error: ", error);
       return this.handleError(
         error,
         req,
@@ -1107,7 +1024,6 @@ export default class PublicHdlr {
       res.clearCookie("token");
       APIResponseOK(req, res, {}, "You have been signed out successfully");
     } catch (error) {
-      this.logger.error("DeleteSession error: ", error);
       return this.handleError(
         error,
         req,
@@ -1172,7 +1088,6 @@ export default class PublicHdlr {
 
       APIResponseOK(req, res, result, "Successfully signed in with your MPIN");
     } catch (error) {
-      this.logger.error("MpinSignIn error: ", error);
       return this.handleError(
         error,
         req,
@@ -1189,13 +1104,11 @@ export default class PublicHdlr {
       const remoteIp = req.ip;
 
       if (!captchaToken) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          "CAPTCHA_MISSING",
-          {},
-          "Please complete the security verification to continue."
-        );
+        throw {
+          errcode: "CAPTCHA_MISSING",
+          errdata: {},
+          message: "Please complete the security verification to continue.",
+        };
       }
 
       const isValidCaptcha = await ValidateCaptcha(
@@ -1205,13 +1118,11 @@ export default class PublicHdlr {
       );
 
       if (!isValidCaptcha) {
-        return APIResponseBadRequest(
-          req,
-          res,
-          "CAPTCHA_FAILED",
-          {},
-          "Security verification failed. Please try again."
-        );
+        throw {
+          errcode: "CAPTCHA_FAILED",
+          errdata: {},
+          message: "Security verification failed. Please try again.",
+        };
       }
 
       let schema = z.object({
@@ -1244,7 +1155,6 @@ export default class PublicHdlr {
         "Your password has been changed successfully"
       );
     } catch (error) {
-      this.logger.error("ChangePassword error: ", error);
       return this.handleError(
         error,
         req,

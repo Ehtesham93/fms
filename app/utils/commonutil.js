@@ -75,7 +75,11 @@ export function ValidatePermissionId(permissionid) {
     return false;
   }
   // if permissionid is not alphanumeric, return false
-  if (!/^[a-zA-Z0-9]+$/.test(parts[0]) || !/^[a-zA-Z0-9]+$/.test(parts[1]) || !/^[a-zA-Z0-9]+$/.test(parts[2])) {
+  if (
+    !/^[a-zA-Z0-9]+$/.test(parts[0]) ||
+    !/^[a-zA-Z0-9]+$/.test(parts[1]) ||
+    !/^[a-zA-Z0-9]+$/.test(parts[2])
+  ) {
     return false;
   }
   return true;
@@ -87,15 +91,16 @@ export function GetRoleNameFromId(invitesinfo, roledetails, accountid) {
   if (invitesinfo.roleids) {
     for (let i = 0; i < invitesinfo.roleids.length; i++) {
       let roleid = invitesinfo.roleids[i];
-      let role = roledetails.find(role => role.roleid === roleid);
+      let role = roledetails.find((role) => role.roleid === roleid);
 
-      let rolename = 'Unknown';
+      let rolename = "Unknown";
 
       if (role) {
-        if (role.roleid === 'ffffffff-ffff-ffff-ffff-ffffffffffff') {
-          rolename = accountid === 'ffffffff-ffff-ffff-ffff-ffffffffffff'
-            ? 'Super Admin'
-            : 'Admin';
+        if (role.roleid === "ffffffff-ffff-ffff-ffff-ffffffffffff") {
+          rolename =
+            accountid === "ffffffff-ffff-ffff-ffff-ffffffffffff"
+              ? "Super Admin"
+              : "Admin";
         } else {
           rolename = role.rolename;
         }
@@ -109,15 +114,47 @@ export function GetRoleNameFromId(invitesinfo, roledetails, accountid) {
   }
 }
 
-export function EmailMobileValidation (accountinfo) {
-  if ((accountinfo && accountinfo.emailList && !Array.isArray(accountinfo.emailList)) || (accountinfo && accountinfo.mobileList && !Array.isArray(accountinfo.mobileList))
+export function EmailMobileValidation(accountinfo) {
+  if (
+    (accountinfo &&
+      accountinfo.emailList &&
+      !Array.isArray(accountinfo.emailList)) ||
+    (accountinfo &&
+      accountinfo.mobileList &&
+      !Array.isArray(accountinfo.mobileList))
   ) {
-    return { isvalid: false, message: "Invalid list, please provide array of emails or mobile numbers" }
+    return {
+      isvalid: false,
+      message: "Invalid list, please provide array of emails or mobile numbers",
+    };
   }
 
-  if ((accountinfo && accountinfo.emailList && accountinfo.emailList.length > 11) || (accountinfo && accountinfo.mobileList && accountinfo.mobileList.length > 11)) {
-    return { isvalid: false, message: "Email or Mobile list should not be more than 11" }
+  if (
+    (accountinfo &&
+      accountinfo.emailList &&
+      accountinfo.emailList.length > 11) ||
+    (accountinfo &&
+      accountinfo.mobileList &&
+      accountinfo.mobileList.length > 11)
+  ) {
+    return {
+      isvalid: false,
+      message: "Email or Mobile list should not be more than 11",
+    };
   }
 
   return { isvalid: true };
+}
+
+export function getLoggableRequest(req) {
+  return {
+    userid: req.userid || "Unknown User",
+    method: req.method,
+    url: req.url,
+    headers: req.headers,
+    body: req.body,
+    userAgent: req.get("User-Agent"),
+    referrer: req.get("Referrer"),
+    ip: req.ip,
+  };
 }

@@ -14,26 +14,8 @@ export function apiresponse(err, data, msg) {
   };
 }
 
-export function APIResponseSvc(req, res, resp, succmsg) {
-  if (resp[1] != null) {
-    return ApiResponseFabErr(req, res, resp[1]);
-  } else {
-    return APIResponseOK(req, res, resp[0], succmsg);
-  }
-}
-
 export function APIResponseOK(req, res, data, msg) {
   res.status(200).send(apiresponse(null, data, msg));
-}
-
-export function ApiResponseFabErr(req, res, faberrI) {
-  return APIResponseInternalErr(
-    req,
-    res,
-    faberrI.errcode,
-    faberrI.errdata,
-    faberrI.errmsg
-  );
 }
 
 export function APIResponseError(req, res, statuscode, errcode, errdata, msg) {

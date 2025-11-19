@@ -149,7 +149,11 @@ export default class PublicHdlrImpl {
 
       let userdetails = await this.userSvcI.GetUserIdByMobile(mobile);
       if (!userdetails) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User with this mobile number doesn't exist",
+        };
       }
       // // COMMENTED OUT BECAUSE OF NEW USER CREATION LOGIC
       // let userid = userdetails ? userdetails.userid : null;
@@ -238,13 +242,14 @@ export default class PublicHdlrImpl {
   ) => {
     try {
       let userDetails = await this.userSvcI.GetUserIdByMobile(mobile);
-      if (!userDetails) {
-        throw new Error("USER_NOT_FOUND");
+      if (!userDetails || !userDetails.userid) {
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User with this mobile number doesn't exist",
+        };
       }
       let userid = userDetails.userid;
-      if (!userid) {
-        throw new Error("USER_NOT_FOUND");
-      }
 
       const lockStatus = await this.userSvcI.IsUserLocked(userid);
       if (lockStatus.islocked) {
@@ -306,7 +311,11 @@ export default class PublicHdlrImpl {
       // Get user details
       let user = await this.userSvcI.GetUserDetails(userid);
       if (!user) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User doesn't exist",
+        };
       }
 
       // Check if user is enabled
@@ -415,7 +424,11 @@ export default class PublicHdlrImpl {
       // get user details
       let user = await this.userSvcI.GetUserDetails(useridpass.userid);
       if (!user) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User doesn't exist",
+        };
       }
 
       // check if user is enabled
@@ -541,7 +554,11 @@ export default class PublicHdlrImpl {
       // get user details
       let user = await this.userSvcI.GetUserDetails(useridpass.userid);
       if (!user) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User doesn't exist",
+        };
       }
 
       // check if user is enabled
@@ -662,7 +679,11 @@ export default class PublicHdlrImpl {
       // get user details
       let user = await this.userSvcI.GetUserDetails(useridpass.userid);
       if (!user) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User doesn't exist",
+        };
       }
 
       // check if user is enabled
@@ -770,7 +791,11 @@ export default class PublicHdlrImpl {
 
       const user = await this.userSvcI.GetUserDetails(userid);
       if (!user) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User with this email doesn't exist",
+        };
       }
 
       if (!user.isenabled) {
@@ -919,7 +944,11 @@ export default class PublicHdlrImpl {
     try {
       let userMobileData = await this.userSvcI.GetUserIdByMobile(mobile);
       if (!userMobileData) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User with this mobile number doesn't exist",
+        };
       }
 
       if (!userMobileData.has_mpin) {
@@ -967,7 +996,11 @@ export default class PublicHdlrImpl {
 
       let user = await this.userSvcI.GetUserDetails(userid);
       if (!user) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User doesn't exist",
+        };
       }
 
       if (!user.isenabled) {
@@ -1032,7 +1065,11 @@ export default class PublicHdlrImpl {
 
       let user = await this.userSvcI.GetUserDetails(useridpass.userid);
       if (!user) {
-        throw new Error("USER_NOT_FOUND");
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User doesn't exist",
+        };
       }
 
       if (!user.isenabled) {

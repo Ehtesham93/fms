@@ -116,7 +116,7 @@ export default {
       perMinute: { windowMs: 60 * 1000, max: 500 },
     },
     general: {
-      perMinute: { windowMs: 60 * 1000, max: 1000 },
+      perMinute: { windowMs: 60 * 1000, max: 60000 },
     },
     admin: {
       perMinute: { windowMs: 60 * 1000, max: 10 },

@@ -1,3 +1,8 @@
+import {
+  CONSOLE_MODULE_CODE,
+  ADMIN_PERMISSION,
+} from "../../../utils/constant.js";
+
 export default class ModuleSvcDB {
   /**
    *
@@ -285,6 +290,27 @@ export default class ModuleSvcDB {
   async updateModulePerm(moduleid, permid, updateFields, updatedby) {
     try {
       let currtime = new Date();
+      // check if we are updating console module's all.all.all permission
+      let query = `
+        SELECT moduleid FROM module WHERE modulecode = $1 and moduleid = $2
+      `;
+      let result = await this.pgPoolI.Query(query, [
+        CONSOLE_MODULE_CODE,
+        moduleid,
+      ]);
+      if (result.rowCount !== 0) {
+        if (permid === ADMIN_PERMISSION) {
+          throw {
+            errcode: "INPUT_ERROR",
+            errdata: {
+              moduleid: moduleid,
+              permid: permid,
+            },
+            message: "Cannot update console module's all.all.all permission",
+          };
+        }
+      }
+
       let fields = {
         ...updateFields,
         updatedat: currtime,
@@ -308,19 +334,22 @@ export default class ModuleSvcDB {
       values.push(moduleid);
       values.push(permid);
 
-      let query = `
+      query = `
       UPDATE module_perm
       SET ${keys.join(", ")}
       WHERE moduleid = $${values.length - 1} AND permid = $${values.length}
     `;
 
-      let result = await this.pgPoolI.Query(query, values);
+      result = await this.pgPoolI.Query(query, values);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update module permission");
       }
 
       return true;
     } catch (error) {
+      if (error.errcode) {
+        throw error;
+      }
       throw new Error("Failed to update module permission");
     }
   }
@@ -341,6 +370,32 @@ export default class ModuleSvcDB {
         );
         error.errcode = "PERMISSION_ASSOCIATED_WITH_ROLES";
         throw error;
+      }
+
+      query = `SELECT modulecode FROM module WHERE moduleid = $1`;
+      result = await txclient.query(query, [moduleid]);
+      if (result.rowCount === 0) {
+        throw {
+          errcode: "INPUT_ERROR",
+          errdata: {
+            moduleid: moduleid,
+          },
+          message: "Module not found",
+        };
+      }
+      const module = result.rows[0];
+      if (
+        module.modulecode === CONSOLE_MODULE_CODE &&
+        permid === ADMIN_PERMISSION
+      ) {
+        throw {
+          errcode: "INPUT_ERROR",
+          errdata: {
+            moduleid: moduleid,
+            permid: permid,
+          },
+          message: "Cannot delete console module's all.all.all permission",
+        };
       }
 
       query = `SELECT COUNT(*) as count FROM module_perm WHERE permid = $1`;

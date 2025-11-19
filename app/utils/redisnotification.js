@@ -101,6 +101,7 @@ export const publishVehicleUpdate = async (
 export const  publishVehicleModificationUpdate = async (
   vinno,
   action,
+  message,
   redisSvc,
   logger
 ) => {
@@ -108,16 +109,16 @@ export const  publishVehicleModificationUpdate = async (
     // Create the data to store and publish
     const updateData = {
       timestamp: new Date().toISOString(),
-      vinno: vinno,
+      message: message,
       action: action,
     };
 
     const envPrefix = getEnvironmentPrefix();
-    const key = `${envPrefix}vehicle.creation.${vinno}.${action}`;
-    const message = JSON.stringify(updateData);
+    const key = `${envPrefix}vehicle.${vinno}.${action}`;
+    const redismessage = JSON.stringify(updateData);
 
     // Set the key with the data (persistent state)
-    const [setResult, setError] = await redisSvc.set(key, message);
+    const [setResult, setError] = await redisSvc.set(key, redismessage);
     if (setError) {
       logger.error(`Failed to set key ${key}:`, setError);
     } else {
@@ -125,7 +126,7 @@ export const  publishVehicleModificationUpdate = async (
     }
 
     // Publish to the same key as topic (real-time notification)
-    const [publishResult, publishError] = await redisSvc.publish(key, message);
+    const [publishResult, publishError] = await redisSvc.publish(key, redismessage);
     if (publishError) {
       logger.error(`Failed to publish to topic ${key}:`, publishError);
     } else {

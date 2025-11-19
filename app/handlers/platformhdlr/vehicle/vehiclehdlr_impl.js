@@ -42,7 +42,9 @@ export default class VehicleHdlrImpl {
       throw new Error("Failed to create vehicle");
     }
 
-    await publishVehicleModificationUpdate(vinno, "added", this.redisSvc, this.logger);
+    const message = {previousvinno: vinno, updatedvinno: vinno, message: 'Vehicle created sucessfully'}
+
+    await publishVehicleModificationUpdate(vinno, "added", message, this.redisSvc, this.logger);
     return {
       vinno: vinno,
       modelcode: modelcode,
@@ -171,6 +173,10 @@ export default class VehicleHdlrImpl {
       throw new Error("Failed to update vehicle info");
     }
 
+    const message = {previousvinno: vinno, updatedvinno: vinno, message: 'Vehicle info updated sucessfully'}
+
+    await publishVehicleModificationUpdate(vinno, "infoupdate", message, this.redisSvc, this.logger);
+
     return {
       vinno: vinno,
       updatedFields: Object.keys(fieldsToUpdate),
@@ -242,6 +248,10 @@ export default class VehicleHdlrImpl {
       this.logger.error("Failed to delete vehicle");
       throw new Error("Failed to delete vehicle");
     }
+
+    const message = {previousvinno: vinno, updatedvinno: null, message: 'Vehicle deleted sucessfully'}
+
+    await publishVehicleModificationUpdate(vinno, "deleted", message, this.redisSvc, this.logger);
 
     return {
       vinno: vinno,

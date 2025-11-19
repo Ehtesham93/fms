@@ -71,3 +71,6 @@ export const DEFAULT_PACKAGE_INFO = {
 
 export const FLEET_INVITE_EXPIRY_TIME = 7 * 24 * 60 * 60 * 1000;
 export const BATTERY_THRESOLD = 20;
+
+export const CONSOLE_MODULE_CODE = "consolemgmt";
+export const ADMIN_PERMISSION = "all.all.all";

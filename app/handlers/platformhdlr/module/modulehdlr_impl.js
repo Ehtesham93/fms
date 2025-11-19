@@ -204,7 +204,7 @@ export default class ModuleHdlrImpl {
       this.logger.error("Failed to update module permission");
       throw new Error("Failed to update module permission");
     }
-
+    // TOOD: why are we returning the updatedby name?
     const updatedbyname = await this.userSvcI.getUserName(updatedby);
 
     return {
