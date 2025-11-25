@@ -5,10 +5,11 @@ import config from "../../../config/config.js";
 import { errors } from "cassandra-driver";
 
 export default class VehicleHdlrImpl {
-  constructor(platformSvcI, historyDataSvcI, metaSvcI, logger) {
+  constructor(platformSvcI, historyDataSvcI, metaSvcI, fmsAccountSvcI, logger) {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
     this.metaSvcI = metaSvcI;
+    this.fmsAccountSvcI = fmsAccountSvcI;
     this.logger = logger;
     this.onboardingType = "onboarding";
   }
@@ -393,6 +394,110 @@ export default class VehicleHdlrImpl {
       return null;
     }
   };
+
+
+  TagVehicleLogic = async (
+    srcaccountid,
+    dstaccountid,
+    vinnos,
+    allow_retag,
+    taggedby
+  ) => {
+    // const originalcount = vinnos.length;
+
+    // if (originalcount !== uniquevins.length) {
+    //   return {
+    //     status: "error",
+    //     message: `Duplicate VINs found and filtered out. Original: ${originalcount}, Unique: ${uniquevins.length}`,
+    //     details: {
+    //       originalcount,
+    //       uniquevins: uniquevins.length,
+    //       duplicatecount: originalcount - uniquevins.length,
+    //     },
+    //   };
+    // }
+
+    const uniquevins = [...new Set(vinnos)];
+    let result = await this.fmsAccountSvcI.TagVehicle(
+      srcaccountid,
+      dstaccountid,
+      uniquevins,
+      allow_retag,
+      taggedby
+    );
+
+    if (!result) {
+      return {
+        status: "error",
+        message: "Failed to tag vehicles",
+        details: {
+          srcaccountid,
+          dstaccountid,
+          vinnos: uniquevins,
+        },
+      };
+    }
+
+    await publishVehicleUpdate(
+      dstaccountid,
+      "tagged",
+      this.redisSvc,
+      this.logger
+    );
+
+    return result;
+  };
+
+  UntagVehicleLogic = async (
+    srcaccountid,
+    dstaccountid,
+    vinnos,
+    untaggedby
+  ) => {
+    // const originalcount = vinnos.length;
+
+    // if (originalcount !== uniquevins.length) {
+    //   return {
+    //     status: "error",
+    //     message: `Duplicate VINs found and filtered out. Original: ${originalcount}, Unique: ${uniquevins.length}`,
+    //     details: {
+    //       originalcount,
+    //       uniquevins: uniquevins.length,
+    //       duplicatecount: originalcount - uniquevins.length,
+    //     },
+    //   };
+    // }
+
+    const uniquevins = [...new Set(vinnos)];
+    let result = await this.fmsAccountSvcI.UntagVehicle(
+      srcaccountid,
+      dstaccountid,
+      uniquevins,
+      untaggedby
+    );
+
+    if (!result) {
+      return {
+        status: "error",
+        message: "Failed to untag vehicles",
+        details: {
+          srcaccountid,
+          dstaccountid,
+          vinnos: uniquevins,
+        },
+      };
+    }
+
+    await publishVehicleUpdate(
+      dstaccountid,
+      "untagged",
+      this.redisSvc,
+      this.logger
+    );
+
+    return result;
+  };
+
 
   preprocessingText = (name) => {
     if (!name || typeof name !== "string") {

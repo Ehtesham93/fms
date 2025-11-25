@@ -10,7 +10,7 @@ import { validateAllInputs } from "../../../utils/validationutil.js";
 import VehicleHdlrImpl from "./vehiclehdlr_impl.js";
 
 export default class VehicleHdlr {
-  constructor(platformSvcI, historyDataSvcI, metaSvcI, logger) {
+  constructor(platformSvcI, historyDataSvcI, fmsAccountSvcI, metaSvcI, logger) {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
     this.metaSvcI = metaSvcI;
@@ -18,6 +18,7 @@ export default class VehicleHdlr {
       platformSvcI,
       historyDataSvcI,
       metaSvcI,
+      fmsAccountSvcI,
       logger
     );
     this.logger = logger;
@@ -38,6 +39,10 @@ export default class VehicleHdlr {
     // vehicle-history
     router.get("/:vinno/getlatestdata", this.GetVehicleLatestData);
     router.post("/:vinno/getcangpsdata", this.GetVehicleCANGPSData);
+
+    // tag vehicles
+    router.post("/tagvehicle", this.TagVehicle);
+    router.put("/untagvehicle", this.UntagVehicle);
 
     // dms-vehicle onboarding
     router.post("/onboardvehicle", this.OnboardVehicle);
@@ -639,6 +644,227 @@ export default class VehicleHdlr {
           "GET_VEHICLE_CANGPS_DATA_ERR",
           e.toString(),
           "Get vehicle CAN+GPS data failed"
+        );
+      }
+    }
+  };
+
+  TagVehicle = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.vehicle.admin",
+          "consolemgmt.vehicle.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get vehicle CAN+GPS data."
+        );
+      }
+      
+      let schema = z.object({
+        taggedby: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        srcaccountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        dstaccountid: z
+          .string({ message: "Invalid Destination Account ID format" })
+          .uuid({ message: "Invalid Destination Account ID format" }),
+        vinnos: z
+          .array(
+            z
+              .string({ message: "VIN No must be a string" })
+              .min(1, { message: "VIN No cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "VIN No can only contain letters, numbers, and spaces",
+              })
+              .max(128, {
+                message: "VIN No must be at most 128 characters long",
+              })
+          )
+          .min(1, { message: "VINs array must contain at least one VIN" }),
+        allow_retag: z
+          .boolean({ message: "allow_retag must be a boolean" })
+          .default(false),
+      });
+
+      let { taggedby, srcaccountid, dstaccountid, vinnos, allow_retag } =
+        validateAllInputs(schema, {
+          taggedby: req.userid,
+          srcaccountid: req.body.srcaccountid,
+          dstaccountid: req.body.dstaccountid,
+          vinnos: req.body.vinnos,
+          allow_retag: req.body.allow_retag,
+        });
+
+      // Validate that source and destination accounts are different
+      if (srcaccountid === dstaccountid) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "SAME_ACCOUNT_ERROR",
+          null,
+          "Source and destination accounts cannot be the same"
+        );
+      }
+
+      let result = await this.vehicleHdlrImpl.TagVehicleLogic(
+        srcaccountid,
+        dstaccountid,
+        vinnos,
+        allow_retag,
+        taggedby
+      );
+
+      if (result.status === "error") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TAG_VEHICLE_FAILED",
+          result.message,
+          result
+        );
+        return;
+      }
+
+      APIResponseOK(req, res, result, "Vehicles tagged successfully");
+    } catch (error) {
+      this.logger.error("TagVehicle error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(req, res, error, null, "Failed to tag vehicles");
+      }
+    }
+  };
+
+  UntagVehicle = async (req, res, next) => {
+    try {
+
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.admin",
+          "consolemgmt.vehicle.admin",
+          "consolemgmt.vehicle.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get vehicle CAN+GPS data."
+        );
+      }
+
+      let schema = z.object({
+        untaggedby: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        srcaccountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        dstaccountid: z
+          .string({ message: "Invalid Destination Account ID format" })
+          .uuid({ message: "Invalid Destination Account ID format" }),
+        vinnos: z
+          .array(
+            z
+              .string({ message: "VIN No must be a string" })
+              .min(1, { message: "VIN No cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "VIN No can only contain letters, numbers, and spaces",
+              })
+              .max(128, {
+                message: "VIN No must be at most 128 characters long",
+              })
+          )
+          .min(1, { message: "VINs array must contain at least one VIN" }),
+      });
+
+      let { untaggedby, srcaccountid, dstaccountid, vinnos } = validateAllInputs(
+        schema,
+        {
+          untaggedby: req.userid,
+          srcaccountid: req.body.srcaccountid,
+          dstaccountid: req.body.dstaccountid,
+          vinnos: req.body.vinnos,
+        }
+      );
+
+      let result = await this.vehicleHdlrImpl.UntagVehicleLogic(
+        srcaccountid,
+        dstaccountid,
+        vinnos,
+        untaggedby
+      );
+
+      if (result.status === "error") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "UNTAG_VEHICLE_FAILED",
+          result.message,
+          result
+        );
+        return;
+      }
+
+      APIResponseOK(req, res, result, "Vehicles untagged successfully");
+    } catch (error) {
+      this.logger.error("UntagVehicle error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else if (
+        error.errcode === "FLEET_NOT_FOUND" ||
+        error.errcode === "INVALID_FLEET_ID_FORMAT" ||
+        error.errcode === "ROOT_FLEET_NOT_FOUND"
+      ) {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          "Fleet not found or does not belong to this account"
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          error,
+          null,
+          "Failed to untag vehicles"
         );
       }
     }

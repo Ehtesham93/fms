@@ -1931,21 +1931,21 @@ export default class Tripsinsighthdlr {
       }
 
       let result;
-      // const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
-      // const redisKey = `${fullUrl}.${starttime}.${endtime}.${category}`;
-      // const redisSvc = this.redisSvc;
-      // try {
-      //   const [cachedData, redisError] = await redisSvc.get(redisKey);
-      //   if (redisError) {
-      //     this.logger.error("Redis error:", redisError);
-      //   } else if (cachedData !== null) {
-      //     result = JSON.parse(cachedData);
-      //     APIResponseOK(req, res, result, "SUCCESS");
-      //     return;
-      //   }
-      // } catch (redisErr) {
-      //   this.logger.error("Redis connection error:", redisErr);
-      // }
+      const fullUrl = req.protocol + "://" + req.get("host") + req.originalUrl;
+      const redisKey = `${fullUrl}.${starttime}.${endtime}.${category}`;
+      const redisSvc = this.redisSvc;
+      try {
+        const [cachedData, redisError] = await redisSvc.get(redisKey);
+        if (redisError) {
+          this.logger.error("Redis error:", redisError);
+        } else if (cachedData !== null) {
+          result = JSON.parse(cachedData);
+          APIResponseOK(req, res, result, "SUCCESS");
+          return;
+        }
+      } catch (redisErr) {
+        this.logger.error("Redis connection error:", redisErr);
+      }
 
       result =
         await this.tripsinsightssvcHdlrImpl.GetFleetOverviewListLogic(
@@ -1957,25 +1957,25 @@ export default class Tripsinsighthdlr {
           recursive
         );
 
-      // if (result instanceof Error) {
-      //   result = [];
-      // }
-      // if (result && Object.keys(result).length > 0) {
-      //   try {
-      //     const [setResult, setError] = await redisSvc.set(
-      //       redisKey,
-      //       JSON.stringify(result),
-      //       1800
-      //     );
-      //     if (setError) {
-      //       this.logger.error("Failed to cache data:", setError);
-      //     } else {
-      //       console.log("Data cached successfully");
-      //     }
-      //   } catch (cacheErr) {
-      //     this.logger.error("Failed to cache data:", cacheErr);
-      //   }
-      // }
+      if (result instanceof Error) {
+        result = [];
+      }
+      if (result && Object.keys(result).length > 0) {
+        try {
+          const [setResult, setError] = await redisSvc.set(
+            redisKey,
+            JSON.stringify(result),
+            1800
+          );
+          if (setError) {
+            this.logger.error("Failed to cache data:", setError);
+          } else {
+            console.log("Data cached successfully");
+          }
+        } catch (cacheErr) {
+          this.logger.error("Failed to cache data:", cacheErr);
+        }
+      }
 
       APIResponseOK(
         req,

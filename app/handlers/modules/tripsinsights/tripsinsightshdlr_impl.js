@@ -895,6 +895,208 @@ export default class TripsinsighthdlrImpl {
     }
   };
 
+
+    // Common helper function to calculate status for any metric with three-tier logic
+    calculateStatusForMetric = (value, category) => {
+      const BOOST_MODE_THRESHOLD = 30;
+      const ECO_MODE_THRESHOLD = 70;
+      const IDLE_TIME_THRESHOLD = 5; // minutes - base threshold
+      const SHORT_TRIP_PERCENTAGE_THRESHOLD = 30;
+      
+      // Define ranges for "within_threshold" (average) status based on thresholds
+      // For percentage-based metrics: use threshold as the good/bad boundary, with 40% range for average
+      const ECO_MODE_GOOD_MIN = ECO_MODE_THRESHOLD; // >= 70% = good (below_threshold)
+      const ECO_MODE_BAD_MAX = ECO_MODE_THRESHOLD - 40; // < 30% = bad (above_threshold)
+      // 30-70% = average (within_threshold)
+      
+      const BOOST_MODE_GOOD_MAX = BOOST_MODE_THRESHOLD; // <= 30% = good (below_threshold)
+      const BOOST_MODE_BAD_MIN = BOOST_MODE_THRESHOLD + 40; // > 70% = bad (above_threshold)
+      // 30-70% = average (within_threshold)
+      
+      const SHORT_TRIPS_GOOD_MAX = SHORT_TRIP_PERCENTAGE_THRESHOLD; // <= 30% = good (below_threshold)
+      const SHORT_TRIPS_BAD_MIN = SHORT_TRIP_PERCENTAGE_THRESHOLD + 40; // > 70% = bad (above_threshold)
+      // 30-70% = average (within_threshold)
+      
+      // For idle_time: use threshold (5) as base, with multipliers for good/bad boundaries
+      // Good: < 2x threshold (10min), Bad: > 4x threshold (20min), Average: 2x-4x threshold (10-20min)
+      const IDLE_TIME_GOOD_MAX = IDLE_TIME_THRESHOLD * 2; // < 10min = good (below_threshold)
+      const IDLE_TIME_BAD_MIN = IDLE_TIME_THRESHOLD * 4; // > 20min = bad (above_threshold)
+      // 10-20min = average (within_threshold)
+  
+      switch (category) {
+        case "eco_mode":
+          // Higher is better for eco mode
+          // >= ECO_MODE_THRESHOLD (70%) = good (below_threshold), < (ECO_MODE_THRESHOLD - 40) (30%) = bad (above_threshold), 30-70% = average (within_threshold)
+          if (value >= ECO_MODE_GOOD_MIN) {
+            return "below_threshold"; // Good
+          } else if (value < ECO_MODE_BAD_MAX) {
+            return "above_threshold"; // Bad
+          } else {
+            return "within_threshold"; // Average
+          }
+  
+        case "boost_mode":
+          // Lower is better for boost mode
+          // <= BOOST_MODE_THRESHOLD (30%) = good (below_threshold), > (BOOST_MODE_THRESHOLD + 40) (70%) = bad (above_threshold), 30-70% = average (within_threshold)
+          if (value <= BOOST_MODE_GOOD_MAX) {
+            return "below_threshold"; // Good
+          } else if (value > BOOST_MODE_BAD_MIN) {
+            return "above_threshold"; // Bad
+          } else {
+            return "within_threshold"; // Average
+          }
+  
+        case "short_trips":
+          // Lower is better for short trips percentage
+          // <= SHORT_TRIP_PERCENTAGE_THRESHOLD (30%) = good (below_threshold), > (SHORT_TRIP_PERCENTAGE_THRESHOLD + 40) (70%) = bad (above_threshold), 30-70% = average (within_threshold)
+          if (value <= SHORT_TRIPS_GOOD_MAX) {
+            return "below_threshold"; // Good
+          } else if (value > SHORT_TRIPS_BAD_MIN) {
+            return "above_threshold"; // Bad
+          } else {
+            return "within_threshold"; // Average
+          }
+  
+        case "idle_time":
+          // Lower is better for idle time
+          // < (IDLE_TIME_THRESHOLD * 2) (10min) = good (below_threshold), > (IDLE_TIME_THRESHOLD * 4) (20min) = bad (above_threshold), 10-20min = average (within_threshold)
+          if (value < IDLE_TIME_GOOD_MAX) {
+            return "below_threshold"; // Good
+          } else if (value > IDLE_TIME_BAD_MIN) {
+            return "above_threshold"; // Bad
+          } else {
+            return "within_threshold"; // Average
+          }
+  
+        default:
+          return "within_threshold";
+      }
+    };
+
+
+  // Common function to fetch and calculate fleet metrics
+  // This ensures both GetFleetOverviewLogic and GetFleetOverviewListLogic use the same calculations
+  getFleetMetricsData = async (accountid, fleetid, starttime, endtime, recursive = false) => {
+    try {
+      // Fetch vehicles
+      const vehicles = await this.fmsAccountSvcI.GetVehicles(
+        accountid,
+        fleetid,
+        recursive
+      );
+
+      if (!vehicles || vehicles.length === 0) {
+        return {
+          vehicles: [],
+          allTripData: [],
+          tripData: [],
+          metrics: null,
+          vinregnoMap: {},
+        };
+      }
+
+      const vinNumbers = vehicles.map((vehicle) => vehicle.vinno);
+      const vinregnoMap = {};
+      vehicles.forEach((v) => {
+        vinregnoMap[v.vinno] = v.regno;
+      });
+
+      // Fetch all trip data
+      let allTripData = await this.tripsinsightssvcI.GetAllTripsByFleet(
+        vinNumbers,
+        starttime,
+        endtime
+      );
+
+      if (!allTripData) allTripData = [];
+
+      // Filter trips with distance > 2km (same as GetFleetOverviewLogic)
+      const tripData = allTripData.filter((trip) => {
+        const distance = (trip.endodo || 0) - (trip.startodo || 0);
+        return distance > 2;
+      });
+
+      // Calculate metrics using the same logic
+      const metrics = this.calculateFleetMetrics(tripData, allTripData);
+
+      return {
+        vehicles,
+        allTripData,
+        tripData,
+        metrics,
+        vinregnoMap,
+      };
+    } catch (error) {
+      this.logger.error("Error in getFleetMetricsData:", error);
+      throw error;
+    }
+  };
+
+  // Common function to calculate fleet metrics - used by both functions
+  calculateFleetMetrics = (tripData, allTripData) => {
+    const SHORT_TRIP_DISTANCE = 2;
+
+    let totalBoostDistance = 0;
+    let totalDistance = 0;
+    let totalIdleTime = 0;
+
+    tripData.forEach((trip) => {
+      const distance = (trip.endodo || 0) - (trip.startodo || 0);
+      const boostDistance = trip.boostdist || 0;
+      const idleTime = trip.idletime || 0;
+
+      if (distance > 0) {
+        totalDistance += distance;
+        totalBoostDistance += Math.min(boostDistance, distance);
+      }
+
+      totalIdleTime += idleTime;
+    });
+
+    let shortTrips = 0;
+    let totalAllTrips = allTripData.length;
+    let totalAllDistance = 0;
+
+    allTripData.forEach((trip) => {
+      const distance = (trip.endodo || 0) - (trip.startodo || 0);
+
+      if (distance > 0) {
+        totalAllDistance += distance;
+
+        if (distance < SHORT_TRIP_DISTANCE) {
+          shortTrips++;
+        }
+      }
+    });
+
+    const boostModePercentage =
+      totalDistance > 0 ? (totalBoostDistance / totalDistance) * 100 : 0;
+    const ecoModePercentage = 100 - boostModePercentage;
+    const averageIdleTimePerTrip =
+      tripData.length > 0 ? totalIdleTime / tripData.length / (1000 * 60) : 0;
+    const shortTripPercentage =
+      totalAllTrips > 0 ? (shortTrips / totalAllTrips) * 100 : 0;
+
+    // Calculate status using common function
+    const boostStatus = this.calculateStatusForMetric(boostModePercentage, "boost_mode");
+    const ecoStatus = this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
+    const idleStatus = this.calculateStatusForMetric(averageIdleTimePerTrip, "idle_time");
+    const shortTripsStatus = this.calculateStatusForMetric(shortTripPercentage, "short_trips");
+
+    return {
+      boostModePercentage,
+      ecoModePercentage,
+      averageIdleTimePerTrip,
+      shortTripPercentage,
+      totalAllDistance,
+      totalAllTrips,
+      boostStatus,
+      ecoStatus,
+      idleStatus,
+      shortTripsStatus,
+    };
+  };
+
   GetFleetOverviewLogic = async (
     accountid,
     fleetid,
@@ -903,11 +1105,15 @@ export default class TripsinsighthdlrImpl {
     recursive = false
   ) => {
     try {
-      let vehicles = await this.fmsAccountSvcI.GetVehicles(
+      // Use common function to get data and metrics
+      const { vehicles, allTripData, tripData, metrics } = await this.getFleetMetricsData(
         accountid,
         fleetid,
+        starttime,
+        endtime,
         recursive
       );
+
       if (!vehicles || vehicles.length === 0) {
         this.logger.info("No vehicles found in the fleet");
         return {
@@ -915,16 +1121,6 @@ export default class TripsinsighthdlrImpl {
           drilldowndata: this.getDefaultDrillDown(),
         };
       }
-
-      const vinNumbers = vehicles.map((vehicle) => vehicle.vinno);
-
-      let allTripData = await this.tripsinsightssvcI.GetAllTripsByFleet(
-        vinNumbers,
-        starttime,
-        endtime
-      );
-
-      if (!allTripData) allTripData = [];
 
       if (allTripData.length === 0) {
         this.logger.info("No trip data found for the fleet");
@@ -934,12 +1130,8 @@ export default class TripsinsighthdlrImpl {
         };
       }
 
-      const tripData = allTripData.filter((trip) => {
-        const distance = (trip.endodo || 0) - (trip.startodo || 0);
-        return distance > 2;
-      });
-
-      const insights = this.calculateAllFleetInsights(tripData, allTripData);
+      // Generate insights using calculated metrics
+      const insights = this.buildInsightsFromMetrics(metrics);
 
       const dateEpochMap = {};
       let currentEpoch = parseInt(starttime);
@@ -962,7 +1154,6 @@ export default class TripsinsighthdlrImpl {
         endtime,
         dateEpochMap
       );
-
 
       return {
         insights,
@@ -991,35 +1182,26 @@ export default class TripsinsighthdlrImpl {
     try {
       if (!fleetid) throw new Error("Fleet ID is required");
   
-      const vehicles =
-        (await this.fmsAccountSvcI.GetVehicles(
-          accountid,
-          fleetid,
-          recursive
-        )) || [];
+      // Use common function to get data and metrics
+      const { vehicles, allTripData, tripData, metrics, vinregnoMap } = await this.getFleetMetricsData(
+        accountid,
+        fleetid,
+        starttime,
+        endtime,
+        recursive
+      );
+
       if (!vehicles || vehicles.length === 0) {
         return this.buildDefaultDateStructure(starttime, endtime);
       }
-  
-      const vinNumbers = vehicles.map((v) => v.vinno);
-      const vinregnoMap = {};
-      vehicles.forEach((v) => {
-        vinregnoMap[v.vinno] = v.regno;
-      });
-  
-      let allTripData = await this.tripsinsightssvcI.GetAllTripsByFleet(
-        vinNumbers,
-        starttime,
-        endtime
-      );
   
       if (!allTripData || allTripData.length === 0) {
         return this.buildDefaultDateStructure(starttime, endtime);
       }
   
-      // Filter trips based on category
+      // Filter trips based on category - use the same metrics to determine if trip matches
       const filteredTrips = allTripData.filter((trip) => {
-        return this.matchesTripCategory(trip, category);
+        return this.matchesTripCategory(trip, category, metrics);
       });
   
       // Build default date structure first
@@ -1044,7 +1226,7 @@ export default class TripsinsighthdlrImpl {
         const duration = (trip.movingtime || 0) + (trip.idletime || 0);
         const socconsumed = (trip.startsoc || 0) - (trip.endsoc || 0);
         
-        // Calculate boost/eco mode percentages
+        // Calculate boost/eco mode percentages for this trip
         const boostDistance = trip.boostdist || 0;
         const boostModePercentage = distance > 0 
           ? Math.round((Math.min(boostDistance, distance) / distance) * 100)
@@ -1054,13 +1236,19 @@ export default class TripsinsighthdlrImpl {
         // Calculate idle time in minutes
         const idleTimeMinutes = (trip.idletime || 0) / (1000 * 60);
   
-        // Calculate status based on category and thresholds
-        const status = this.calculateTripStatus(trip, category, {
-          boostModePercentage,
-          ecoModePercentage,
-          idleTimeMinutes,
-          distance,
-        });
+        // Calculate status using the same common function
+        let status;
+        if (category === "boost_mode") {
+          status = this.calculateStatusForMetric(boostModePercentage, "boost_mode");
+        } else if (category === "eco_mode") {
+          status = this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
+        } else if (category === "idle_time") {
+          status = this.calculateStatusForMetric(idleTimeMinutes, "idle_time");
+        } else if (category === "short_trips") {
+          status = distance < 2 ? this.calculateStatusForMetric(100, "short_trips") : this.calculateStatusForMetric(0, "short_trips");
+        } else {
+          status = "within_threshold";
+        }
 
         tripsByDate[dateKey].push({
           vin: trip.vin,
@@ -1085,12 +1273,186 @@ export default class TripsinsighthdlrImpl {
       throw error;
     }
   };
-  
-  // Helper method to check if trip matches category
-  matchesTripCategory = (trip, category) => {
+
+  // Build insights from calculated metrics
+  buildInsightsFromMetrics = (metrics) => {
+    if (!metrics) {
+      return this.getDefaultInsights();
+    }
+
     const BOOST_MODE_THRESHOLD = 30;
     const ECO_MODE_THRESHOLD = 70;
-    const IDLE_TIME_THRESHOLD = 5; // minutes
+    const IDLE_TIME_THRESHOLD = 5;
+    const SHORT_TRIP_DISTANCE = 2;
+    const SHORT_TRIP_PERCENTAGE_THRESHOLD = 30;
+
+    const {
+      boostModePercentage,
+      ecoModePercentage,
+      averageIdleTimePerTrip,
+      shortTripPercentage,
+      totalAllDistance,
+      totalAllTrips,
+      boostStatus,
+      ecoStatus,
+      idleStatus,
+      shortTripsStatus,
+    } = metrics;
+
+    const insights = [];
+
+    // 1. Boost Mode Insight
+    const isBoostModeHigh = boostStatus === "above_threshold";
+    const isBoostModeGood = boostStatus === "below_threshold";
+    insights.push({
+      displayname: "Boost Mode Usage",
+      type: isBoostModeHigh ? "warning" : isBoostModeGood ? "success" : "info",
+      category: "boost_mode",
+      title: isBoostModeHigh
+        ? "High Boost Mode Usage"
+        : isBoostModeGood
+        ? "Optimal Boost Mode Usage"
+        : "Moderate Boost Mode Usage",
+      message: isBoostModeHigh
+        ? "Hey! Too much boost mode could impact realised range!"
+        : isBoostModeGood
+        ? "Great! Boost mode usage is within optimal range"
+        : "Boost mode usage is moderate, consider optimizing further",
+      details: `${Math.round(
+        boostModePercentage
+      )}% boost mode usage (ideal is ${BOOST_MODE_THRESHOLD}%)`,
+      value: `${Math.round(boostModePercentage)}%`,
+      threshold: `Ideal is ${BOOST_MODE_THRESHOLD}%`,
+      rawvalue: Math.round(boostModePercentage),
+      status: boostStatus,
+      priority: isBoostModeHigh ? "high" : isBoostModeGood ? "low" : "medium",
+    });
+
+    // 2. Eco Mode Insight
+    const isEcoModeGood = ecoStatus === "below_threshold";
+    const isEcoModeBad = ecoStatus === "above_threshold";
+    
+    if (isEcoModeGood) {
+      insights.push({
+        displayname: "Eco Mode Usage",
+        type: "success",
+        category: "eco_mode",
+        title: "Excellent Eco Driving",
+        message: `Hey! Well done - more than ${Math.round(
+          ecoModePercentage
+        )}% of your drives are Eco`,
+        details: `${Math.round(
+          ecoModePercentage
+        )}% eco mode usage (ideal is ${ECO_MODE_THRESHOLD}%)`,
+        value: `${Math.round(ecoModePercentage)}%`,
+        threshold: `Ideal is ${ECO_MODE_THRESHOLD}%`,
+        rawvalue: Math.round(ecoModePercentage),
+        status: ecoStatus,
+        priority: "low",
+      });
+    } else if (ecoStatus === "within_threshold") {
+      insights.push({
+        displayname: "Eco Mode Usage",
+        type: "info",
+        category: "eco_mode",
+        title: "Eco mode shows promise, a bit more refinement is needed",
+        message: "Consider using eco mode more frequently for better efficiency",
+        details: `${Math.round(
+          ecoModePercentage
+        )}% eco mode usage (ideal is ${ECO_MODE_THRESHOLD}%)`,
+        value: `${Math.round(ecoModePercentage)}%`,
+        threshold: `Ideal is ${ECO_MODE_THRESHOLD}%`,
+        rawvalue: Math.round(ecoModePercentage),
+        status: ecoStatus,
+        priority: "medium",
+      });
+    } else {
+      insights.push({
+        displayname: "Eco Mode Usage",
+        type: "warning",
+        category: "eco_mode",
+        title:
+          "Insufficient use of Eco mode, could be undermining overall efficiency.",
+        message: `Hey! Your ECO mode usage is low - Only ${Math.round(
+          ecoModePercentage
+        )}% of your drives are Eco`,
+        details: `${Math.round(
+          ecoModePercentage
+        )}% eco mode usage (ideal is ${ECO_MODE_THRESHOLD}%)`,
+        value: `${Math.round(ecoModePercentage)}%`,
+        threshold: `Ideal is ${ECO_MODE_THRESHOLD}%`,
+        rawvalue: Math.round(ecoModePercentage),
+        status: ecoStatus,
+        priority: "high",
+      });
+    }
+
+    // 3. Idle Time Insight
+    const isIdleTimeHigh = idleStatus === "above_threshold";
+    const isIdleTimeGood = idleStatus === "below_threshold";
+    const formattedIdleTime = formatEpochToDuration(
+      averageIdleTimePerTrip * 60 * 1000
+    );
+    insights.push({
+      displayname: "Idle Time",
+      type: isIdleTimeHigh ? "warning" : isIdleTimeGood ? "success" : "info",
+      category: "idle_time",
+      title: isIdleTimeHigh
+        ? "High Idling Time"
+        : isIdleTimeGood
+        ? "Optimal Idling Time"
+        : "Moderate Idling Time",
+      message: isIdleTimeHigh
+        ? "Hey! Idling time is high – this impacts energy efficiency!"
+        : isIdleTimeGood
+        ? "Great! Idling time is within optimal range"
+        : "Idling time is moderate, consider optimizing further",
+      details: `${
+        formattedIdleTime || "0 min"
+      } average idle time per trip (ideal is ${IDLE_TIME_THRESHOLD} min)`,
+      value: formattedIdleTime || "0 min",
+      threshold: `Ideal is ${IDLE_TIME_THRESHOLD} min`,
+      rawvalue: Math.round(averageIdleTimePerTrip),
+      status: idleStatus,
+      priority: isIdleTimeHigh ? "medium" : isIdleTimeGood ? "low" : "medium",
+    });
+
+    // 4. Short Trips Insight
+    const isShortTripsHigh = shortTripsStatus === "above_threshold";
+    const isShortTripsGood = shortTripsStatus === "below_threshold";
+    const averageTripDistance =
+      totalAllTrips > 0 ? totalAllDistance / totalAllTrips : 0;
+    insights.push({
+      displayname: "Short Trips",
+      type: isShortTripsHigh ? "warning" : isShortTripsGood ? "success" : "info",
+      category: "short_trips",
+      title: isShortTripsHigh
+        ? "Frequent Short Trips"
+        : isShortTripsGood
+        ? "Good Average Trip Distance"
+        : "Moderate Short Trips",
+      message: isShortTripsHigh
+        ? "Hey! Frequent short trips detected – these affect efficiency and battery health."
+        : isShortTripsGood
+        ? "Trip Distance are well distributed for optimal efficiency"
+        : "Some short trips detected, consider optimizing trip patterns",
+      details: `${Math.round(
+        shortTripPercentage
+      )}% short trips (<${SHORT_TRIP_DISTANCE}km), average: ${
+        Math.round(averageTripDistance * 100) / 100
+      }km (ideal is ${SHORT_TRIP_PERCENTAGE_THRESHOLD}%)`,
+      value: `${Math.round(shortTripPercentage)}%`,
+      threshold: `Ideal is ${SHORT_TRIP_PERCENTAGE_THRESHOLD}%`,
+      rawvalue: Math.round(shortTripPercentage),
+      status: shortTripsStatus,
+      priority: isShortTripsHigh ? "medium" : isShortTripsGood ? "low" : "medium",
+    });
+
+    return insights;
+  };
+
+  // Update matchesTripCategory to optionally use fleet metrics for consistency
+  matchesTripCategory = (trip, category, fleetMetrics = null) => {
     const SHORT_TRIP_DISTANCE = 2; // km
   
     const distance = (trip.endodo || 0) - (trip.startodo || 0);
@@ -1102,7 +1464,8 @@ export default class TripsinsighthdlrImpl {
       case "boost_mode":
         if (distance > 0) {
           const boostModePercentage = (Math.min(boostDistance, distance) / distance) * 100;
-          return boostModePercentage > BOOST_MODE_THRESHOLD;
+          const status = this.calculateStatusForMetric(boostModePercentage, "boost_mode");
+          return status === "above_threshold"; // Only show trips that are above threshold (bad)
         }
         return false;
   
@@ -1110,55 +1473,58 @@ export default class TripsinsighthdlrImpl {
         if (distance > 0) {
           const boostModePercentage = (Math.min(boostDistance, distance) / distance) * 100;
           const ecoModePercentage = 100 - boostModePercentage;
-          return ecoModePercentage >= ECO_MODE_THRESHOLD;
+          const status = this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
+          return status === "above_threshold"; // Only show trips that are above threshold (bad - low eco mode)
         }
         return false;
   
       case "idle_time":
-        return idleTimeMinutes > IDLE_TIME_THRESHOLD;
+        // Show trips with idle time >= 10 minutes (average or bad)
+        // This way we show trips that need attention, not just the worst ones
+        const status = this.calculateStatusForMetric(idleTimeMinutes, "idle_time");
+        return status === "above_threshold" || status === "within_threshold";
+        // OR if you want to show ALL trips with idle time issues (>= 10 min):
+        // return idleTimeMinutes >= 10;
   
       case "short_trips":
-        return distance > 0 && distance < SHORT_TRIP_DISTANCE;
+        if (distance > 0 && distance < SHORT_TRIP_DISTANCE) {
+          return true; // Short trips are always considered "bad"
+        }
+        return false;
   
       default:
         return false;
     }
   };
-  
-  // Helper method to calculate status for trip
+
+  // Update calculateTripStatus to use common function
   calculateTripStatus = (trip, category, metrics) => {
-    const BOOST_MODE_THRESHOLD = 30;
-    const ECO_MODE_THRESHOLD = 70;
-    const IDLE_TIME_THRESHOLD = 5; // minutes
-    const SHORT_TRIP_DISTANCE = 2; // km
-  
     const { boostModePercentage, ecoModePercentage, idleTimeMinutes, distance } = metrics;
-  
+
     switch (category) {
       case "boost_mode":
-        return boostModePercentage > BOOST_MODE_THRESHOLD
-          ? "above_threshold"
-          : "within_threshold";
-  
+        return this.calculateStatusForMetric(boostModePercentage, "boost_mode");
+
       case "eco_mode":
-        return ecoModePercentage >= ECO_MODE_THRESHOLD
-          ? "above_threshold"
-          : "below_threshold";
-  
+        return this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
+
       case "idle_time":
-        return idleTimeMinutes > IDLE_TIME_THRESHOLD
-          ? "above_threshold"
-          : "within_threshold";
-  
+        return this.calculateStatusForMetric(idleTimeMinutes, "idle_time");
+
       case "short_trips":
-        return distance < SHORT_TRIP_DISTANCE
-          ? "above_threshold"
-          : "within_threshold";
-  
+        // For short trips, if distance < 2km, it's a short trip (bad)
+        if (distance < 2) {
+          return "above_threshold"; // Bad
+        } else {
+          return "below_threshold"; // Good
+        }
+
       default:
         return "within_threshold";
     }
   };
+
+
   
   // Helper method to build default date structure with empty arrays
   buildDefaultDateStructure = (starttime, endtime) => {
@@ -1451,7 +1817,7 @@ export default class TripsinsighthdlrImpl {
     const ECO_MODE_THRESHOLD = 70;
     const IDLE_TIME_THRESHOLD = 5;
     const SHORT_TRIP_DISTANCE = 2;
-    const SHORT_TRIP_PERCENTAGE_THRESHOLD = 50;
+    const SHORT_TRIP_PERCENTAGE_THRESHOLD = 30;
 
     const dayWiseData = {};
     const start = new Date(parseInt(starttime));
@@ -1575,16 +1941,18 @@ export default class TripsinsighthdlrImpl {
       // Get epoch range for this date
       const { startepoch, endepoch } = dateEpochMap[dateKey] || { startepoch: null, endepoch: null };
 
+      const boostStatus = this.calculateStatusForMetric(boostModePercentage, "boost_mode");
+      const ecoStatus = this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
+      const idleStatus = this.calculateStatusForMetric(averageIdleTimePerTrip, "idle_time");
+      const shortTripsStatus = this.calculateStatusForMetric(shortTripPercentage, "short_trips");
+
       drillDown.boost_mode.dailydata.push({
         date: dateKey,
         startepoch,
         endepoch,
         value: `${Math.round(boostModePercentage)}%`,
         rawvalue: Math.round(boostModePercentage),
-        status:
-          boostModePercentage > BOOST_MODE_THRESHOLD
-            ? "above_threshold"
-            : "within_threshold",
+        status: boostStatus,
         trips: dayData.tripData.length,
         details: `${Math.round(boostModePercentage)}% boost mode usage`,
       });
@@ -1595,10 +1963,7 @@ export default class TripsinsighthdlrImpl {
         endepoch,
         value: `${Math.round(ecoModePercentage)}%`,
         rawvalue: Math.round(ecoModePercentage),
-        status:
-          ecoModePercentage >= ECO_MODE_THRESHOLD
-            ? "above_threshold"
-            : "below_threshold",
+        status: ecoStatus,
         trips: dayData.tripData.length,
         details: `${Math.round(ecoModePercentage)}% eco mode usage`,
       });
@@ -1612,10 +1977,7 @@ export default class TripsinsighthdlrImpl {
         endepoch,
         value: formattedIdleTime || "0 min",
         rawvalue: Math.round(averageIdleTimePerTrip),
-        status:
-          averageIdleTimePerTrip > IDLE_TIME_THRESHOLD
-            ? "above_threshold"
-            : "within_threshold",
+        status: idleStatus,
         trips: dayData.tripData.length,
         details: `${formattedIdleTime || "0 min"} average idle time`,
       });
@@ -1626,10 +1988,7 @@ export default class TripsinsighthdlrImpl {
         endepoch,
         value: `${Math.round(shortTripPercentage)}%`,
         rawvalue: Math.round(shortTripPercentage),
-        status:
-          shortTripPercentage > SHORT_TRIP_PERCENTAGE_THRESHOLD
-            ? "above_threshold"
-            : "within_threshold",
+        status: shortTripsStatus,
         trips: dayData.allTripData.length,
         details: `${Math.round(
           shortTripPercentage
@@ -1638,177 +1997,6 @@ export default class TripsinsighthdlrImpl {
     });
 
     return drillDown;
-  };
-
-  calculateAllFleetInsights = (tripData, allTripData) => {
-    const BOOST_MODE_THRESHOLD = 30;
-    const ECO_MODE_THRESHOLD = 70;
-    const ECO_MODE_THRESHOLD_LOW = 50;
-    const IDLE_TIME_THRESHOLD = 5;
-    const SHORT_TRIP_DISTANCE = 2;
-    const SHORT_TRIP_PERCENTAGE_THRESHOLD = 30;
-
-    let totalBoostDistance = 0;
-    let totalDistance = 0;
-    let totalIdleTime = 0;
-
-    tripData.forEach((trip) => {
-      const distance = (trip.endodo || 0) - (trip.startodo || 0);
-      const boostDistance = trip.boostdist || 0;
-      const idleTime = trip.idletime || 0;
-
-      if (distance > 0) {
-        totalDistance += distance;
-        totalBoostDistance += Math.min(boostDistance, distance);
-      }
-
-      totalIdleTime += idleTime;
-    });
-
-    let shortTrips = 0;
-    let totalAllTrips = allTripData.length;
-    let totalAllDistance = 0;
-
-    allTripData.forEach((trip) => {
-      const distance = (trip.endodo || 0) - (trip.startodo || 0);
-
-      if (distance > 0) {
-        totalAllDistance += distance;
-
-        if (distance < SHORT_TRIP_DISTANCE) {
-          shortTrips++;
-        }
-      }
-    });
-
-    const boostModePercentage =
-      totalDistance > 0 ? (totalBoostDistance / totalDistance) * 100 : 0;
-    const ecoModePercentage = 100 - boostModePercentage;
-    const averageIdleTimePerTrip =
-      tripData.length > 0 ? totalIdleTime / tripData.length / (1000 * 60) : 0;
-    const shortTripPercentage =
-      totalAllTrips > 0 ? (shortTrips / totalAllTrips) * 100 : 0;
-
-    const insights = [];
-
-    // 1. Boost Mode Insight
-    const isBoostModeHigh = boostModePercentage > BOOST_MODE_THRESHOLD;
-    insights.push({
-      displayname: "Boost Mode Usage",
-      type: isBoostModeHigh ? "warning" : "success",
-      category: "boost_mode",
-      title: isBoostModeHigh
-        ? "High Boost Mode Usage"
-        : "Optimal Boost Mode Usage",
-      message: isBoostModeHigh
-        ? "Hey! Too much boost mode could impact realised range!"
-        : "Great! Boost mode usage is within optimal range",
-      details: `${Math.round(
-        boostModePercentage
-      )}% boost mode usage (ideal is ${BOOST_MODE_THRESHOLD}%)`,
-      value: `${Math.round(boostModePercentage)}%`,
-      threshold: `Ideal is ${BOOST_MODE_THRESHOLD}%`,
-      rawvalue: Math.round(boostModePercentage),
-      status: isBoostModeHigh ? "above_threshold" : "within_threshold",
-      priority: isBoostModeHigh ? "high" : "low",
-    });
-
-    // 2. Eco Mode Insight
-    if (ecoModePercentage > ECO_MODE_THRESHOLD_LOW) {
-      const isEcoModeGood = ecoModePercentage >= ECO_MODE_THRESHOLD;
-      insights.push({
-        displayname: "Eco Mode Usage",
-        type: isEcoModeGood ? "success" : "info",
-        category: "eco_mode",
-        title: isEcoModeGood
-          ? "Excellent Eco Driving"
-          : "Eco mode shows promise, a bit more refinement is needed",
-        message: isEcoModeGood
-          ? `Hey! Well done - more than ${Math.round(
-              ecoModePercentage
-            )}% of your drives are Eco`
-          : "Consider using eco mode more frequently for better efficiency",
-        details: `${Math.round(
-          ecoModePercentage
-        )}% eco mode usage (ideal is ${ECO_MODE_THRESHOLD}%)`,
-        value: `${Math.round(ecoModePercentage)}%`,
-        threshold: `Ideal is ${ECO_MODE_THRESHOLD}%`,
-        rawvalue: Math.round(ecoModePercentage),
-        status: isEcoModeGood ? "above_threshold" : "below_threshold",
-        priority: isEcoModeGood ? "low" : "medium",
-      });
-    } else {
-      insights.push({
-        displayname: "Eco Mode Usage",
-        type: "warning",
-        category: "eco_mode",
-        title:
-          "Insufficient use of Eco mode, could be undermining overall efficiency.",
-        message: `Hey! Your ECO mode usage is low - Only ${Math.round(
-          ecoModePercentage
-        )}% of your drives are Eco`,
-        details: `${Math.round(
-          ecoModePercentage
-        )}% eco mode usage (ideal is ${ECO_MODE_THRESHOLD}%)`,
-        value: `${Math.round(ecoModePercentage)}%`,
-        threshold: `Ideal is ${ECO_MODE_THRESHOLD}%`,
-        rawvalue: Math.round(ecoModePercentage),
-        status: "below_threshold",
-        priority: "high",
-      });
-    }
-
-    // 3. Idle Time Insight
-    const isIdleTimeHigh = averageIdleTimePerTrip > IDLE_TIME_THRESHOLD;
-    const formattedIdleTime = formatEpochToDuration(
-      averageIdleTimePerTrip * 60 * 1000
-    );
-    insights.push({
-      displayname: "Idle Time",
-      type: isIdleTimeHigh ? "warning" : "success",
-      category: "idle_time",
-      title: isIdleTimeHigh ? "High Idling Time" : "Optimal Idling Time",
-      message: isIdleTimeHigh
-        ? "Hey! Idling time is high – this impacts energy efficiency!"
-        : "Great! Idling time is within optimal range",
-      details: `${
-        formattedIdleTime || "0 min"
-      } average idle time per trip (ideal is ${IDLE_TIME_THRESHOLD} min)`,
-      value: formattedIdleTime || "0 min",
-      threshold: `Ideal is ${IDLE_TIME_THRESHOLD} min`,
-      rawvalue: Math.round(averageIdleTimePerTrip),
-      status: isIdleTimeHigh ? "above_threshold" : "within_threshold",
-      priority: isIdleTimeHigh ? "medium" : "low",
-    });
-
-    // 4. Short Trips Insight - Now using ALL trip data
-    const isShortTripsHigh =
-      shortTripPercentage > SHORT_TRIP_PERCENTAGE_THRESHOLD;
-    const averageTripDistance =
-      totalAllTrips > 0 ? totalAllDistance / totalAllTrips : 0;
-    insights.push({
-      displayname: "Short Trips",
-      type: isShortTripsHigh ? "warning" : "success",
-      category: "short_trips",
-      title: isShortTripsHigh
-        ? "Frequent Short Trips"
-        : "Good Average Trip Distance",
-      message: isShortTripsHigh
-        ? "Hey! Frequent short trips detected – these affect efficiency and battery health."
-        : "Trip Distance are well distributed for optimal efficiency",
-      details: `${Math.round(
-        shortTripPercentage
-      )}% short trips (<${SHORT_TRIP_DISTANCE}km), average: ${
-        Math.round(averageTripDistance * 100) / 100
-      }km (ideal is ${SHORT_TRIP_PERCENTAGE_THRESHOLD}%)`,
-      value: `${Math.round(shortTripPercentage)}%`,
-      threshold: `Ideal is ${SHORT_TRIP_PERCENTAGE_THRESHOLD}%`,
-      rawvalue: Math.round(shortTripPercentage),
-      status: isShortTripsHigh ? "above_threshold" : "within_threshold",
-      priority: isShortTripsHigh ? "medium" : "low",
-    });
-
-    return insights;
   };
 
   getDefaultInsights = () => {
@@ -1956,15 +2144,6 @@ export default class TripsinsighthdlrImpl {
 
           const actualBoostDistance = Math.min(boostDistance, tripDistance);
           const ecoDistance = Math.max(0, tripDistance - actualBoostDistance);
-          
-          let boostRange = 0;
-          let ecoRange = 0;
-          if (boostSocUsage > 0) {
-            boostRange = (actualBoostDistance * 100) / boostSocUsage;
-          }
-          if (ecoSocUsage > 0) {
-            ecoRange = (ecoDistance * 100) / ecoSocUsage;
-          }
 
           if (tripDistance > 0) {
             drivingModeUsage[dateKey].totaldistance += tripDistance;
@@ -1972,15 +2151,30 @@ export default class TripsinsighthdlrImpl {
             drivingModeUsage[dateKey].ecodistance += ecoDistance;
             drivingModeUsage[dateKey].boostsocusage += boostSocUsage;
             drivingModeUsage[dateKey].ecosocusage += ecoSocUsage;
-            drivingModeUsage[dateKey].boostrange += boostRange;
-            drivingModeUsage[dateKey].ecorange += ecoRange;
           }
         }
       });
     }
 
+    // Calculate range AFTER aggregating all trips for each day
     Object.keys(drivingModeUsage).forEach((dateKey) => {
       const dayData = drivingModeUsage[dateKey];
+      
+      // Calculate boost range: (total boost distance * 100) / total boost SOC usage
+      if (dayData.boostsocusage > 0) {
+        dayData.boostrange = (dayData.boostdistance * 100) / dayData.boostsocusage;
+      } else {
+        dayData.boostrange = 0;
+      }
+      
+      // Calculate eco range: (total eco distance * 100) / total eco SOC usage
+      if (dayData.ecosocusage > 0) {
+        dayData.ecorange = (dayData.ecodistance * 100) / dayData.ecosocusage;
+      } else {
+        dayData.ecorange = 0;
+      }
+      
+      // Calculate percentages
       if (dayData.totaldistance > 0) {
         const boostPercentage = Math.min(
           100,
@@ -1998,6 +2192,8 @@ export default class TripsinsighthdlrImpl {
       dayData.totaldistance = Math.round(dayData.totaldistance * 100) / 100;
       dayData.boostdistance = Math.round(dayData.boostdistance * 100) / 100;
       dayData.ecodistance = Math.round(dayData.ecodistance * 100) / 100;
+      dayData.boostrange = Math.round(dayData.boostrange * 100) / 100;
+      dayData.ecorange = Math.round(dayData.ecorange * 100) / 100;
     });
 
     return drivingModeUsage;

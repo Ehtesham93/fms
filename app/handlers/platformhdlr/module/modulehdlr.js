@@ -667,6 +667,8 @@ export default class ModuleHdlr {
       this.logger.error("DeleteModule error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if(e.code === '23503' && e.constraint === 'module_perm_permid_fkey'){
+        return APIResponseBadRequest(req, res, 'PERMISSION_ASSOCIATED_WITH_MODULES', null, "Cannot delete module. Remove assigned permissions and try again.");
       } else {
         return APIResponseInternalErr(
           req,

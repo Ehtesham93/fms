@@ -1487,11 +1487,18 @@ export default class ModelSvcDB {
 
   async getModelCodeByNameAndVariant(modelname, modelvariant) {
     try {
+
+      const modelcode = `${modelname
+        .toLowerCase()
+        .replace(/\s+/g, "")}_${modelvariant
+        .toLowerCase()
+        .replace(/\s+/g, "")}`;
+
       let query = `
         SELECT modelcode FROM vehicle_model 
-        WHERE modelname = $1 AND modelvariant = $2
+        WHERE modelcode = $1
       `;
-      let result = await this.pgPoolI.Query(query, [modelname, modelvariant]);
+      let result = await this.pgPoolI.Query(query, [modelcode]);
 
       if (result.rowCount === 0) {
         return null;
