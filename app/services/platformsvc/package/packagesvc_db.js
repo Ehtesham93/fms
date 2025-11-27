@@ -116,6 +116,98 @@ export default class PackageSvcDB {
     }
   }
 
+  async logPackageHistory(pkg, updatedby, updateFields){
+    try{
+      const finalUpdatedBy = updatedby ?? pkg.updatedby;
+      let currtime = new Date();
+      query = `
+              INSERT INTO package (pkgid, pkgname, pkgtype, pkginfo, isenabled, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `;
+        result = await this.pgPoolI.Query(query, [
+          pkg.pkgid,
+          pkg.pkgname,
+          pkg.pkgtype,
+          pkg.pkginfo,
+          pkg.isenabled,
+          currtime,
+          finalUpdatedBy,
+        ]);
+    }
+    catch(error){
+      this.logger.error("package history insert failed", { package: pkg.pkgid, err });
+    }
+  }
+
+  async getPackageHistory(pkgid, starttime, endtime){
+    try{
+      let query = `
+        SELECT * FROM package_history WHERE pkgid = $1
+      `;
+      let params = [pkgid];
+      let paramIndex = 2;
+      if (starttime !== undefined && starttime !== null) {
+        query += ` AND updatedat >= $${paramIndex}`;
+        params.push(new Date(starttime));
+        paramIndex++;
+      }
+      if (endtime !== undefined && endtime !== null) {
+        query += ` AND updatedat <= $${paramIndex}`;
+        params.push(new Date(endtime));
+        paramIndex++;
+      }
+      query += ` ORDER BY updatedat DESC`;
+      let result = await this.pgPoolI.Query(query, params);
+      return result.rows;
+    }
+    catch(error){
+      throw new Error("Failed to retrieve package history");
+    }
+  }
+
+  async logPackagePermHistory(pkgid, moduleid, updatedby){
+    try{
+      let currtime = new Date();
+      query = `
+              INSERT INTO package (pkgid, moduleid, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `;
+          result = await this.pgPoolI.Query(query, [
+            pkgid,
+            moduleid,
+            currtime,
+            updatedby,
+          ]);
+    }
+    catch(error){
+      this.logger.error("package perm history insert failed", { pacakge: pkg.pkgid, err });
+    }
+  }
+
+  async getPackagePermHistory(pkgid, moduleid, starttime, endtime){
+    try{
+      let query = `
+        SELECT * FROM package_perm_history WHERE pkgid = $1 AND moduleid = $2
+      `;
+      let params = [pkgid, moduleid];
+      let paramIndex = 3;
+      if (starttime !== undefined && starttime !== null) {
+        query += ` AND updatedat >= $${paramIndex}`;
+        params.push(new Date(starttime));
+        paramIndex++;
+      }
+      if (endtime !== undefined && endtime !== null) {
+        query += ` AND updatedat <= $${paramIndex}`;
+        params.push(new Date(endtime));
+        paramIndex++;
+      }
+      query += ` ORDER BY updatedat DESC`;
+      let result = await this.pgPoolI.Query(query, params);
+      return result.rows;
+    }
+    catch(error){
+      throw new Error("Failed to retrieve package perm history");
+    }
+  }
+
   async updatePackage(pkgid, updateFields, updatedby) {
     try {
       let currtime = new Date();

@@ -458,4 +458,7 @@ export default class AccountSvc {
   async GetAccountSummary(){
     return await this.accountSvcDB.getAccountSummary();
   }
+  async ListAllAccounts() {
+    return await this.accountSvcDB.listAllAccounts();
+  }
 }

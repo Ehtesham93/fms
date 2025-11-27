@@ -11,6 +11,22 @@ export default class ModuleSvc {
     return await this.moduleSvcDB.createModule(module);
   }
 
+  async LogModuleHistory(module, updatedby) {
+    return await this.moduleSvcDB.logModuleHistory(module, updatedby);
+  }
+
+  async LogModulePermHistory(moduleid, permid, updatedby, updateFields){
+    return await this.moduleSvcDB.logModulePermHistory(moduleid, permid, updatedby, updateFields);
+  }
+
+  async GetModuleHistory( starttime, endtime) {
+    return await this.moduleSvcDB.getModuleHistory( starttime, endtime);
+  }
+
+  async GetModulePermHistory(starttime, endtime) {
+    return await this.moduleSvcDB.getModulePermHistory(starttime, endtime);
+  }
+
   async GetAllModulesInfo() {
     return await this.moduleSvcDB.getAllModulesInfo();
   }

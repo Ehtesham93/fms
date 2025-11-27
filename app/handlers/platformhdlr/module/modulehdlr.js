@@ -38,6 +38,8 @@ export default class ModuleHdlr {
       this.DeleteModulePerm
     );
     router.delete(`/:moduleid(${UUID_PATTERN})`, this.DeleteModule);
+    router.get(`/history`, this.GetModuleHistory);
+    router.get(`/perm/history`, this.GetModulePermHistory);
   }
 
   GetModuleTypes = async (req, res, next) => {
@@ -677,6 +679,131 @@ export default class ModuleHdlr {
           e.toString(),
           "Delete module failed"
         );
+      }
+    }
+  };
+
+  GetModuleHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get module history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
+      let result = await this.moduleHdlrImpl.GetModuleHistoryLogic( starttime, endtime);
+      APIResponseOK(req, res, result, "Module history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetModuleHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "GET_MODULE_HISTORY_ERR", e.toString(), "Get module history failed");
+      }
+    }
+  };
+
+  GetModulePermHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get module perm history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+      let result = await this.moduleHdlrImpl.GetModulePermHistoryLogic( starttime, endtime);
+      APIResponseOK(req, res, result, "Module perm history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetModulePermHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "GET_MODULE_PERM_HISTORY_ERR", e.toString(), "Get module perm history failed");
       }
     }
   };

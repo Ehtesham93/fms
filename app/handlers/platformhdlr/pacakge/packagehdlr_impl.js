@@ -37,7 +37,10 @@ export default class PlatformHdlrImpl {
       isenabled: isenabled,
     };
     let res = await this.platformSvcI.CreatePackage(pkg, createdby);
-    if (!res) {
+    if (res) {
+      await this.platformSvcI.LogPackageHistory(pkg, createdby);
+    }
+    else{
       this.logger.error("Failed to create package");
       throw new Error("Failed to create package");
     }
@@ -64,7 +67,10 @@ export default class PlatformHdlrImpl {
       filteredFields,
       updatedby
     );
-    if (!res) {
+    if (res) {
+      await this.platformSvcI.LogPackageHistory(pkgid, updateFields, updatedby);
+    }
+    else{
       this.logger.error("Failed to update package");
       throw new Error("Failed to update package");
     }
@@ -128,7 +134,10 @@ export default class PlatformHdlrImpl {
       deselectedmodules,
       updatedby
     );
-    if (!success) {
+    if (success) {
+      await this.platformSvcI.LogPackageModulesHistory(pkgid, moduleid, updatedby);
+    }
+    else{
       this.logger.error("Failed to update package modules");
       throw new Error("Failed to update package modules");
     }

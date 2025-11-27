@@ -151,6 +151,8 @@ export default class AccountHdlr {
     router.get("/listdone", this.ListDoneAccounts);
     router.get("/summary", this.GetAccountSummary);
     router.post("/isaccountnameavailable", this.IsAccountNameAvailable);
+    router.get("/listallaccounts", this.ListAllAccounts);
+    router.post("/createcorporateaccount", this.CreateCorporateAccount);
   }
 
   CreateAccount = async (req, res, next) => {
@@ -220,6 +222,14 @@ export default class AccountHdlr {
     } catch (error) {
       this.logger.error("CreateAccount error: ", error);
       if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (error.errcode === "ACCOUNT_ALREADY_EXISTS") {
         APIResponseBadRequest(
           req,
           res,
@@ -2445,4 +2455,131 @@ export default class AccountHdlr {
       }
     }
   };
+  ListAllAccounts = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.account.view",
+          "consolemgmt.account.admin",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to list accounts."
+        );
+      }
+      let result = await this.accountHdlrImpl.ListAllAccountsLogic();
+      APIResponseOK(req, res, result, "Accounts fetched successfully");
+    } catch (e) {
+      this.logger.error("ListAccounts error: ", e);
+      APIResponseInternalErr(
+        req,
+        res,
+        "LIST_ACCOUNTS_ERR",
+        e.toString(),
+        "List accounts failed"
+      );
+    }
+  };
+
+  CreateCorporateAccount = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, ["consolemgmt.account.admin"], "all")
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to create account."
+        );
+      }
+
+      const schema = z.object({
+        accountname: z
+          .string({ message: "Invalid Account Name format" })
+          .nonempty({ message: "Account Name cannot be empty" })
+          .max(128, {
+            message: "Account Name must be at most 128 characters long",
+          })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Account name can only contain letters, numbers, spaces, hyphens, and underscores",
+          }),
+        isenabled: z
+          .boolean({ message: "isenabled must be a boolean" })
+          .optional(),
+        mobile: z
+          .string({ message: "Mobile must be a string" })
+          .regex(/^[6-9]\d{9}$/, {
+            message:
+              "Mobile number must be exactly 10 digits and start with 6 to 9",
+          })
+          .optional(),
+        email: z
+          .string({ message: "Email must be a string" })
+          .email({ message: "Invalid Email format" })
+          .optional(),
+        createdby: z
+          .string({ message: "Created by must be a string" })
+          .uuid({ message: "Invalid Created by format" })
+          .optional(),
+      });
+
+      const { accountname, isenabled, mobile, email, createdby } =
+        validateAllInputs(schema, {
+          accountname: req.body.accountname,
+          isenabled: req.body.isenabled,
+          mobile: req.body.mobile,
+          email: req.body.email,
+          createdby: req.userid,
+        });
+
+      let result = await this.accountHdlrImpl.CreateCorporateAccountLogic(
+        accountname,
+        email,
+        mobile,
+        isenabled,
+        createdby
+      );
+      if (result.alreadyExists) {
+        delete result.alreadyExists;
+        return APIResponseOK(req, res, result, "Account already exists");
+      } else {
+        return APIResponseOK(req, res, result, "Account created successfully");
+      }
+    } catch (error) {
+      this.logger.error("CreateAccount error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else if (error.errcode === "ACCOUNT_ALREADY_EXISTS") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "CREATE_ACCOUNT_ERR",
+          error.toString(),
+          "Create account failed"
+        );
+      }
+    }
+  };
+
 }

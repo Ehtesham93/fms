@@ -1057,4 +1057,89 @@ export default class AccountHdlrImpl {
       throw error;
     }
   };
+
+  ListAllAccountsLogic = async () => {
+    let accounts = await this.accountSvcI.ListAllAccounts();
+    return accounts;
+  };
+
+
+  preprocessingAccountName = (name) => {
+    return name
+      .toUpperCase() // Convert to uppercase
+      .replace(/[^A-Z0-9\s]/g, " ") // Replace anything other than alphabets, numbers, and spaces with space
+      .replace(/\s+/g, " ") // Replace multiple whitespaces with single space
+      .trim(); // Trim leading and trailing whitespaces
+  };
+
+  CreateCorporateAccountLogic = async (
+    accountname,
+    email,
+    mobile,
+    isenabled = true,
+    createdby,
+  ) => {
+    const accountid = uuidv4();
+    const rootfleetid = uuidv4();
+    const rootfleetparentid = uuidv4();
+    const accounttype = CUSTOMER_ACCOUNT_TYPE;
+    const rootfleetname = ROOT_FLEET_NAME;
+    const accountinfo = {
+      email: email,
+      mobile: mobile,
+    };
+    const processedaccountname = this.preprocessingAccountName(accountname);
+    let account = {
+      accountid: accountid,
+      rootfleetid: rootfleetid,
+      rootFleetParentId: rootfleetparentid,
+      rootFleetName: rootfleetname,
+      accountname: processedaccountname,
+      accounttype: accounttype,
+      accountinfo: accountinfo,
+      isenabled: isenabled,
+      createdby: createdby,
+    };
+
+    try {
+      const res = await this.accountSvcI.CreateAccount(account);
+      if (!res) {
+        this.logger.error("Failed to create account");
+        throw new Error("Failed to create account");
+      }
+    } catch (error) {
+      if (error.errcode === "ACCOUNT_ALREADY_EXISTS") {
+        const existingaccount = await this.platformSvcI.GetAccountByName(processedaccountname);
+        if (!existingaccount) {
+          throw new Error("Account not found");
+        }
+        
+        return {
+          accountid: existingaccount.accountid,
+          account: {
+            accountid: existingaccount.accountid,
+            accountname: existingaccount.accountname,
+            email: existingaccount.accountinfo.email,
+            mobile: existingaccount.accountinfo.mobile,
+            isenabled: existingaccount.isenabled,
+            createdat: existingaccount.createdat,
+          },
+          action: "ACCOUNT_ALREADY_EXISTS",
+          alreadyExists: true,
+        };  
+      } else {
+        throw error;
+      }
+    }
+    
+    delete account.rootfleetid;
+    delete account.rootFleetParentId;
+    delete account.rootFleetName;
+    delete account.accounttype
+    return {
+      accountid: accountid,
+      account: account,
+      action: "ACCOUNT_CREATED",
+    };
+  };
 }

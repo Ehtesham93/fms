@@ -34,7 +34,11 @@ export default class ModuleHdlrImpl {
       createdby: createdby,
     };
     let res = await this.moduleSvcI.CreateModule(module);
-    if (!res) {
+    if (res) {
+      let createdModule = await this.moduleSvcI.GetModuleInfo(moduleid);
+      await this.moduleSvcI.LogModuleHistory(createdModule, createdby);
+    }
+    else{
       this.logger.error("Failed to create module");
       throw new Error("Failed to create module");
     }
@@ -61,6 +65,7 @@ export default class ModuleHdlrImpl {
 
   GetModuleLogic = async (moduleid) => {
     let module = await this.moduleSvcI.GetModuleInfo(moduleid);
+    console.log(module);
     if (!module) {
       this.logger.error("Module not found");
       throw new Error("Module not found");
@@ -113,24 +118,17 @@ export default class ModuleHdlrImpl {
       processedFields,
       updatedby
     );
-    if (!res) {
-      this.logger.error("Failed to update module");
-      throw new Error("Failed to update module");
+    if (res) {
+      let updatedModule = await this.moduleSvcI.GetModuleInfo(moduleid);
+      await this.moduleSvcI.LogModuleHistory(updatedModule, updatedby);
     }
-
-    let updatedModule = await this.moduleSvcI.GetModuleInfo(moduleid);
-    if (!updatedModule) {
+    else{
       this.logger.error("Failed to fetch updated module");
       throw new Error("Failed to fetch updated module");
     }
 
-    updatedModule.creditspervehicleday = Number(
-      updatedModule.creditspervehicleday
-    );
-
     return {
       moduleid: moduleid,
-      module: updatedModule,
     };
   };
 
@@ -151,7 +149,15 @@ export default class ModuleHdlrImpl {
       moduleperminfo,
       createdby
     );
-    if (!res) {
+    if (res) {
+      await this.moduleSvcI.LogModulePermHistory(
+        moduleid,
+        permid,
+        createdby,
+        { isenabled: isenabled }
+      );
+    }
+    else{
       this.logger.error("Failed to add module permission");
       throw new Error("Failed to add module permission");
     }
@@ -170,7 +176,15 @@ export default class ModuleHdlrImpl {
       permids,
       createdby
     );
-    if (!res) {
+    if (res) {
+      await this.moduleSvcI.LogModulePermHistory(
+        moduleid,
+        permids,
+        createdby,
+        {}
+      );
+    }
+    else{
       this.logger.error("Failed to add module permissions");
       throw new Error("Failed to add module permissions");
     }
@@ -200,7 +214,15 @@ export default class ModuleHdlrImpl {
       filteredFields,
       updatedby
     );
-    if (!res) {
+    if (res) {
+      await this.moduleSvcI.LogModulePermHistory(
+        moduleid,
+        permid,
+        updatedby,
+        filteredFields
+      );
+    }
+    else{
       this.logger.error("Failed to update module permission");
       throw new Error("Failed to update module permission");
     }
@@ -218,7 +240,16 @@ export default class ModuleHdlrImpl {
 
   DeleteModulePermLogic = async (moduleid, permid, updatedby) => {
     let res = await this.moduleSvcI.DeleteModulePerm(moduleid, permid);
-    if (!res) {
+
+    if (res) {
+      await this.moduleSvcI.LogModulePermHistory(
+        moduleid,
+        permid,
+        updatedby,
+        {}
+      );
+    }
+    else{
       this.logger.error("Failed to delete module permission");
       throw new Error("Failed to delete module permission");
     }
@@ -242,9 +273,12 @@ export default class ModuleHdlrImpl {
         "Cannot delete module. It is assigned to one or more packages"
       );
     }
-
+    let moduleinfo = await this.moduleSvcI.GetModuleInfo(moduleid);
     let res = await this.moduleSvcI.DeleteModule(moduleid, deletedby);
-    if (!res) {
+    if (res) {
+      await this.moduleSvcI.LogModuleHistory(moduleinfo, deletedby);
+    }
+    else{
       throw new Error("Failed to delete module");
     }
 
@@ -254,5 +288,21 @@ export default class ModuleHdlrImpl {
       deletedat: new Date(),
       deletedby: deletedby,
     };
+  };
+
+  GetModuleHistoryLogic = async ( starttime, endtime) => {
+    let history = await this.moduleSvcI.GetModuleHistory( starttime, endtime);
+    if (!history) {
+      history = [];
+    }
+    return history;
+  };
+
+  GetModulePermHistoryLogic = async (starttime, endtime) => {
+    let history = await this.moduleSvcI.GetModulePermHistory(starttime, endtime);
+    if (!history) {
+      history = [];
+    }
+    return history;
   };
 }

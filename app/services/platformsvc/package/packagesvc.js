@@ -20,6 +20,22 @@ export default class PackageSvc {
     return await this.packageSvcDB.createPackage(pkg, createdby);
   }
 
+  async LogPackageHistory(pkg, updatedby){
+    return await this.packageSvcDB.logPackageHistory(pkg, updatedby);
+  }
+
+  async LogPackagePermHistory(pkgid, permid, updatedby){
+    return await this.packageSvcDB.logPackagePermHistory(pkgid, permid, updatedby);
+  }
+
+  async GetPackageHistory(pkgid, starttime, endtime){
+    return await this.packageSvcDB.getPackageHistory(pkgid, starttime, endtime);
+  }
+
+  async GetPackagePermHistory(pkgid, moduleid, starttime, endtime){
+    return await this.packageSvcDB.getPackagePermHistory(pkgid, moduleid, starttime, endtime);
+  }
+
   async UpdatePackage(pkgid, updateFields, updatedby) {
     return await this.packageSvcDB.updatePackage(
       pkgid,

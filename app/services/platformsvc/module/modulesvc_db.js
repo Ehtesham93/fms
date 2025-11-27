@@ -67,6 +67,99 @@ export default class ModuleSvcDB {
     }
   }
 
+  async logModuleHistory(module, updatedby) {
+    try {
+      const finalUpdatedBy = updatedby ?? module.updatedby;
+      const finalUpdatedAt = module.updatedat ?? module.createdat;
+      let query = `
+            INSERT INTO module_history (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, priority, isenabled, updatedat, updatedby) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `;
+      const result = await this.pgPoolI.Query(query, [
+        module.moduleid,
+        module.modulename,
+        module.moduletype,
+        module.modulecode,
+        module.moduleinfo,
+        module.creditspervehicleday,
+        module.priority,
+        module.isenabled,
+        finalUpdatedAt,
+        finalUpdatedBy,
+      ]); 
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log module history");
+      }
+      return true;
+    } catch (error) {
+      this.logger.error("module history insert failed", { moduleid: module.moduleid, err });
+    }
+  }
+
+  async logModulePermHistory(moduleid, permid, updatedby, updateFields) {
+    try{
+      let currtime = new Date();
+      let query = `SELECT modperminfo from module_perm where moduleid = $1 AND permid = $2`;
+      const {rows} = await this.pgPoolI.Query(query, [
+        moduleid,
+        permid
+      ]);
+      const modperminfo = rows[0]?.modperminfo || null;
+
+      query = `
+        INSERT INTO module_perm_history (
+          moduleid,
+          permid,
+          isenabled,
+          modperminfo,
+          updatedat,
+          updatedby
+        )
+        VALUES ($1,$2,$3,$4,$5,$6)
+      `;
+      await this.pgPoolI.Query(query, [
+        moduleid,
+        permid,
+        updateFields.isenabled,
+        modperminfo,
+        currtime,
+        updatedby,
+      ]);
+    }
+    catch(error){
+      this.logger.error("module history insert failed", { moduleid, permid, err });
+    }
+  }
+
+  async getModuleHistory(starttime, endtime){
+    try{
+      let query = `
+        SELECT mh.moduleid, mh.modulename, mh.moduletype, mh.modulecode, mh.moduleinfo, mh.creditspervehicleday, mh.priority, mh.isenabled, mh.updatedat , u.displayname as updatedby FROM module_history as mh JOIN users as u ON mh.updatedby = u.userid
+        WHERE mh.updatedat >= $1 AND mh.updatedat <= $2 ORDER BY mh.updatedat DESC
+      `;
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      return result.rows;
+    }
+    catch(error){
+      throw new Error("Failed to retrieve module history");
+    }
+  }
+
+  async getModulePermHistory(starttime, endtime){
+    try{
+      let query = `
+        SELECT mph.moduleid, mph.permid, mph.isenabled, mph.modperminfo, mph.updatedat , u.displayname as updatedby FROM module_perm_history as mph JOIN users as u ON mph.updatedby = u.userid
+        WHERE mph.updatedat >= $1 AND mph.updatedat <= $2 ORDER BY mph.updatedat DESC
+      `;
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      return result.rows;
+    }
+    catch(error){
+      throw new Error("Failed to retrieve module perm history");
+    }
+  }
+
+  
   async getAllModulesInfo() {
     try {
       let query = `

@@ -135,12 +135,12 @@ export default class TripsinsighthdlrImpl {
             if (distance > 0) batchTotalDistance += distance;
 
             let startkwh =
-              trip.startdata && typeof trip.startdata.kwh === "number"
-                ? trip.startdata.kwh
+              trip.startkwh && typeof trip.startkwh === "number"
+                ? trip.startkwh
                 : null;
             let endkwh =
-              trip.enddata && typeof trip.enddata.kwh === "number"
-                ? trip.enddata.kwh
+              trip.endkwh && typeof trip.endkwh === "number"
+                ? trip.endkwh
                 : null;
             if (startkwh !== null && endkwh !== null) {
               batchTotalEnergy += Math.abs(endkwh - startkwh);
@@ -150,11 +150,19 @@ export default class TripsinsighthdlrImpl {
               (trip.movingtime || 0) + (trip.idletime || 0)
             );
             const socconsumed = (trip.startsoc || 0) - (trip.endsoc || 0);
-            const boostmode =
-              distance > 0 ? (trip.boostdist || 0) / distance : 0;
-            const ecomode = 100 - Math.round(boostmode * 100);
+
+            let boostmode = 0;
+            if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+              boostmode = (trip.boostsocusage / socconsumed) * 100;
+            } else if (distance > 0) {
+              // Fallback to distance-based calculation
+              boostmode = (trip.boostduration / duration) * 100;
+            }
+            boostmode = Math.max(0, Math.min(100, boostmode));
+            const ecomode = 100 - Math.round(boostmode);
             const maxspeed =
               typeof trip.maxspeed === "number" ? trip.maxspeed : 0;
+            const idleTime = formatEpochToDuration(trip.idletime || 0);
 
             batchVehicles[vin].trips.push({
               starttime: formatEpochToDateTime(trip.starttime),
@@ -169,6 +177,7 @@ export default class TripsinsighthdlrImpl {
               duration,
               ecomode: `${ecomode}%`,
               boostmode: `${Math.round(boostmode * 100)}%`,
+              idleTime: idleTime,
               // Add original epoch timestamp for sorting
               _startEpoch: trip.starttime,
             });
@@ -275,8 +284,15 @@ export default class TripsinsighthdlrImpl {
 
         const socconsumed = trip.startsoc - trip.endsoc;
 
-        const boostmode = distance > 0 ? (trip.boostdist || 0) / distance : 0;
-        const ecomode = 100 - Math.round(boostmode * 100);
+        let boostmode = 0;
+        if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+          boostmode = (trip.boostsocusage / socconsumed) * 100;
+        } else if (duration > 0) {
+          // Fallback to duration-based calculation
+          boostmode = (trip.boostduration / duration) * 100;
+        }
+        boostmode = Math.max(0, Math.min(100, boostmode));
+        const ecomode = 100 - Math.round(boostmode);
 
         const calcrange =
           typeof trip.calcrange === "number" ? trip.calcrange : 0;
@@ -359,8 +375,15 @@ export default class TripsinsighthdlrImpl {
 
         const socconsumed = trip.startsoc - trip.endsoc;
 
-        const boostmode = distance > 0 ? (trip.boostdist || 0) / distance : 0;
-        const ecomode = 100 - Math.round(boostmode * 100);
+        let boostmode = 0;
+        if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+          boostmode = (trip.boostsocusage / socconsumed) * 100;
+        } else if (duration > 0) {
+          // Fallback to duration-based calculation
+          boostmode = (trip.boostduration / duration) * 100;
+        }
+        boostmode = Math.max(0, Math.min(100, boostmode));
+        const ecomode = 100 - Math.round(boostmode);
 
         const calcrange =
           typeof trip.calcrange === "number" ? trip.calcrange : 0;
@@ -544,6 +567,10 @@ export default class TripsinsighthdlrImpl {
       }
 
       const vinNumbers = vehicles.map((vehicle) => vehicle.vinno);
+      const vinToModelDisplayNameMap = {};
+      vehicles.forEach((vehicle) => {
+        vinToModelDisplayNameMap[vehicle.vinno] = vehicle.modeldisplayname || "";
+      });
 
       let tripData = await this.tripsinsightssvcI.GetTripsByFleet(
         vinNumbers,
@@ -577,7 +604,7 @@ export default class TripsinsighthdlrImpl {
               }
               activevehiclecount[dateKey].add(trip.vin);
 
-              const modelKey = `${vehicle.vehiclemodel} ${vehicle.vehiclevariant}`;
+              const modelKey = `${vinToModelDisplayNameMap[trip.vin] || ""}`;
               if (!activevehiclemodelwise[dateKey]) {
                 activevehiclemodelwise[dateKey] = {};
               }
@@ -810,7 +837,8 @@ export default class TripsinsighthdlrImpl {
       );
       const drivingmodeusage = this.calculateDrivingModeUsage(
         starttime,
-        tripData
+        tripData,
+        vinNumbers.length
       );
       // TODO: Implement range comparison
       const rangecomparison = {};
@@ -973,77 +1001,28 @@ export default class TripsinsighthdlrImpl {
       }
     };
 
-
-  // Common function to fetch and calculate fleet metrics
-  // This ensures both GetFleetOverviewLogic and GetFleetOverviewListLogic use the same calculations
-  getFleetMetricsData = async (accountid, fleetid, starttime, endtime, recursive = false) => {
-    try {
-      // Fetch vehicles
-      const vehicles = await this.fmsAccountSvcI.GetVehicles(
-        accountid,
-        fleetid,
-        recursive
-      );
-
-      if (!vehicles || vehicles.length === 0) {
-        return {
-          vehicles: [],
-          allTripData: [],
-          tripData: [],
-          metrics: null,
-          vinregnoMap: {},
-        };
-      }
-
-      const vinNumbers = vehicles.map((vehicle) => vehicle.vinno);
-      const vinregnoMap = {};
-      vehicles.forEach((v) => {
-        vinregnoMap[v.vinno] = v.regno;
-      });
-
-      // Fetch all trip data
-      let allTripData = await this.tripsinsightssvcI.GetAllTripsByFleet(
-        vinNumbers,
-        starttime,
-        endtime
-      );
-
-      if (!allTripData) allTripData = [];
-
-      // Filter trips with distance > 2km (same as GetFleetOverviewLogic)
-      const tripData = allTripData.filter((trip) => {
-        const distance = (trip.endodo || 0) - (trip.startodo || 0);
-        return distance > 2;
-      });
-
-      // Calculate metrics using the same logic
-      const metrics = this.calculateFleetMetrics(tripData, allTripData);
-
-      return {
-        vehicles,
-        allTripData,
-        tripData,
-        metrics,
-        vinregnoMap,
-      };
-    } catch (error) {
-      this.logger.error("Error in getFleetMetricsData:", error);
-      throw error;
-    }
-  };
-
   // Common function to calculate fleet metrics - used by both functions
   calculateFleetMetrics = (tripData, allTripData) => {
     const SHORT_TRIP_DISTANCE = 2;
 
+    let totalIdleTime = 0;
+    let totalBoostSocUsage = 0;
+    let totalSocUsage = 0;
     let totalBoostDistance = 0;
     let totalDistance = 0;
-    let totalIdleTime = 0;
-
+    let totalBoostDuration = 0;
+    let totalDuration = 0;
+    
+    // Use already-calculated boostmode/ecomode from GetTripsByFleetLogic
+    // But we need raw data for accurate aggregate calculation
     tripData.forEach((trip) => {
       const distance = (trip.endodo || 0) - (trip.startodo || 0);
       const boostDistance = trip.boostdist || 0;
       const idleTime = trip.idletime || 0;
+      const boostSocUsage = trip.boostsocusage || 0;
+      const tripSocUsage = (trip.startsoc || 0) - (trip.endsoc || 0);
+      const boostDuration = trip.boostduration || 0;
+      const tripDuration = (trip.movingtime || 0) + (trip.idletime || 0);
 
       if (distance > 0) {
         totalDistance += distance;
@@ -1051,6 +1030,10 @@ export default class TripsinsighthdlrImpl {
       }
 
       totalIdleTime += idleTime;
+      totalBoostSocUsage += boostSocUsage;
+      totalSocUsage += tripSocUsage;
+      totalBoostDuration += boostDuration;
+      totalDuration += tripDuration;
     });
 
     let shortTrips = 0;
@@ -1069,9 +1052,19 @@ export default class TripsinsighthdlrImpl {
       }
     });
 
-    const boostModePercentage =
-      totalDistance > 0 ? (totalBoostDistance / totalDistance) * 100 : 0;
-    const ecoModePercentage = 100 - boostModePercentage;
+    // Calculate aggregate boost mode percentage using SOC-based approach (primary)
+    // Fallback to duration-based, then distance-based
+    let boostModePercentage = 0;
+    if (totalSocUsage > 0 && totalBoostSocUsage > 0) {
+      boostModePercentage = (totalBoostSocUsage / totalSocUsage) * 100;
+    } else if (totalDuration > 0 && totalBoostDuration > 0) {
+      boostModePercentage = (totalBoostDuration / totalDuration) * 100;
+    } else if (totalDistance > 0) {
+      boostModePercentage = (totalBoostDistance / totalDistance) * 100;
+    }
+    boostModePercentage = Math.max(0, Math.min(100, boostModePercentage));
+    const ecoModePercentage = 100 - Math.round(boostModePercentage);
+    
     const averageIdleTimePerTrip =
       tripData.length > 0 ? totalIdleTime / tripData.length / (1000 * 60) : 0;
     const shortTripPercentage =
@@ -1097,6 +1090,7 @@ export default class TripsinsighthdlrImpl {
     };
   };
 
+  // Update GetFleetOverviewLogic to use processed trips
   GetFleetOverviewLogic = async (
     accountid,
     fleetid,
@@ -1105,12 +1099,13 @@ export default class TripsinsighthdlrImpl {
     recursive = false
   ) => {
     try {
-      // Use common function to get data and metrics
-      const { vehicles, allTripData, tripData, metrics } = await this.getFleetMetricsData(
+      // Get all processed trips from GetTripsByFleetLogic
+      const allTripData = await this.GetTripsByFleetLogic(accountid, fleetid, starttime, endtime, recursive);
+      
+      // Get vehicles for vehicle count
+      const vehicles = await this.fmsAccountSvcI.GetVehicles(
         accountid,
         fleetid,
-        starttime,
-        endtime,
         recursive
       );
 
@@ -1122,7 +1117,7 @@ export default class TripsinsighthdlrImpl {
         };
       }
 
-      if (allTripData.length === 0) {
+      if (!allTripData || allTripData.length === 0) {
         this.logger.info("No trip data found for the fleet");
         return {
           insights: this.getDefaultInsights(),
@@ -1130,9 +1125,19 @@ export default class TripsinsighthdlrImpl {
         };
       }
 
+      // Filter trips with distance > 2km for metrics calculation
+      const tripData = allTripData.filter((trip) => {
+        const distance = (trip.endodo || 0) - (trip.startodo || 0);
+        return distance > 2;
+      });
+
+      // Calculate metrics using the trip data
+      const metrics = this.calculateFleetMetrics(tripData, allTripData);
+
       // Generate insights using calculated metrics
       const insights = this.buildInsightsFromMetrics(metrics);
 
+      // Build date epoch map for drilldown
       const dateEpochMap = {};
       let currentEpoch = parseInt(starttime);
       const endEpoch = parseInt(endtime);
@@ -1147,7 +1152,8 @@ export default class TripsinsighthdlrImpl {
         currentEpoch += ONE_DAY_MS;
       }
 
-      const drilldowndata = this.calculateMetricDrillDown(
+      // Calculate drilldown using trip data
+      const drilldowndata = this.calculateMetricDrillDownFromProcessedTrips(
         tripData,
         allTripData,
         starttime,
@@ -1171,6 +1177,7 @@ export default class TripsinsighthdlrImpl {
     }
   };
 
+  // Update GetFleetOverviewListLogic to use processed trips
   GetFleetOverviewListLogic = async (
     accountid,
     fleetid,
@@ -1182,8 +1189,19 @@ export default class TripsinsighthdlrImpl {
     try {
       if (!fleetid) throw new Error("Fleet ID is required");
   
-      // Use common function to get data and metrics
-      const { vehicles, allTripData, tripData, metrics, vinregnoMap } = await this.getFleetMetricsData(
+      // Fetch vehicles
+      const vehicles = await this.fmsAccountSvcI.GetVehicles(
+        accountid,
+        fleetid,
+        recursive
+      );
+
+      if (!vehicles || vehicles.length === 0) {
+        return this.buildDefaultDateStructure(starttime, endtime);
+      }
+
+      // Fetch trip data using GetTripsByFleetLogic
+      const allTrips = await this.GetTripsByFleetLogic(
         accountid,
         fleetid,
         starttime,
@@ -1191,78 +1209,93 @@ export default class TripsinsighthdlrImpl {
         recursive
       );
 
-      if (!vehicles || vehicles.length === 0) {
+      if (!allTrips || allTrips.length === 0) {
         return this.buildDefaultDateStructure(starttime, endtime);
       }
-  
-      if (!allTripData || allTripData.length === 0) {
-        return this.buildDefaultDateStructure(starttime, endtime);
+
+      // Build date epoch map
+      const dateEpochMap = {};
+      let currentEpoch = parseInt(starttime);
+      const endEpoch = parseInt(endtime);
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+      while (currentEpoch <= endEpoch) {
+        const dateKey = this.formatDateToIST(new Date(currentEpoch));
+        const startepoch = currentEpoch;
+        const endepoch = currentEpoch + (ONE_DAY_MS - 1000);
+        dateEpochMap[dateKey] = { startepoch, endepoch };
+        currentEpoch += ONE_DAY_MS;
       }
-  
-      // Filter trips based on category - use the same metrics to determine if trip matches
-      const filteredTrips = allTripData.filter((trip) => {
-        return this.matchesTripCategory(trip, category, metrics);
-      });
-  
-      // Build default date structure first
+
+      // Build default date structure
       const tripsByDate = this.buildDefaultDateStructure(starttime, endtime);
-  
-      // Populate with filtered trips
-      for (const trip of filteredTrips) {
-        // Only include trips that fall within the requested time range
-        if (trip.starttime < parseInt(starttime) || trip.starttime >= parseInt(endtime)) {
-          continue;
-        }
-  
-        const tripDate = new Date(parseInt(trip.starttime));
-        const dateKey = this.formatDateToIST(tripDate);
-  
-        // Additional safety check: only add to dates that exist in the structure
-        if (!tripsByDate[dateKey]) {
-          continue;
-        }
-  
-        const distance = (trip.endodo || 0) - (trip.startodo || 0);
-        const duration = (trip.movingtime || 0) + (trip.idletime || 0);
-        const socconsumed = (trip.startsoc || 0) - (trip.endsoc || 0);
-        
-        // Calculate boost/eco mode percentages for this trip
-        const boostDistance = trip.boostdist || 0;
-        const boostModePercentage = distance > 0 
-          ? Math.round((Math.min(boostDistance, distance) / distance) * 100)
-          : 0;
-        const ecoModePercentage = 100 - boostModePercentage;
-        
-        // Calculate idle time in minutes
-        const idleTimeMinutes = (trip.idletime || 0) / (1000 * 60);
-  
-        // Calculate status using the same common function
-        let status;
-        if (category === "boost_mode") {
-          status = this.calculateStatusForMetric(boostModePercentage, "boost_mode");
-        } else if (category === "eco_mode") {
-          status = this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
-        } else if (category === "idle_time") {
-          status = this.calculateStatusForMetric(idleTimeMinutes, "idle_time");
-        } else if (category === "short_trips") {
-          status = distance < 2 ? this.calculateStatusForMetric(100, "short_trips") : this.calculateStatusForMetric(0, "short_trips");
-        } else {
-          status = "within_threshold";
+
+      // Process each trip: group by date and calculate status
+      allTrips.forEach((trip) => {
+        // Skip trips outside time range
+        if (!trip.starttime || trip.starttime < parseInt(starttime) || trip.starttime >= parseInt(endtime)) {
+          return;
         }
 
-        tripsByDate[dateKey].push({
-          vin: trip.vin,
-          regno: vinregnoMap[trip.vin] || trip.vin,
-          starttime: formatEpochToDateTime(trip.starttime),
-          endtime: formatEpochToDateTime(trip.endtime),
-          duration: formatEpochToDuration(duration),
-          distance: `${distance.toFixed(2)} km`,
-          startsoc: `${trip.startsoc}%`,
-          endsoc: `${trip.endsoc}%`,
-          socconsumed: `${socconsumed}%`,
-          status: status,
-        });
-      }
+        const tripDate = new Date(parseInt(trip.starttime));
+        const dateKey = this.formatDateToIST(tripDate);
+        
+        if (!tripsByDate[dateKey]) {
+          return; // Skip if date not in range
+        }
+
+        // Calculate status for this individual trip based on category
+        let status;
+        let shouldInclude = false;
+
+        if (category === "boost_mode") {
+          // Only include trips with distance > 2km for boost/eco mode
+          if (trip.distance > 2) {
+            // boostmode is already a percentage (0-100) from GetTripsByFleetLogic
+            const boostModePercentage = trip.boostmode || 0;
+            status = this.calculateStatusForMetric(boostModePercentage, "boost_mode");
+            shouldInclude = true;
+          }
+        } else if (category === "eco_mode") {
+          // Only include trips with distance > 2km for boost/eco mode
+          if (trip.distance > 2) {
+            // ecomode is already a percentage (0-100) from GetTripsByFleetLogic
+            const ecoModePercentage = trip.ecomode || 0;
+            status = this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
+            shouldInclude = true;
+          }
+        } else if (category === "idle_time") {
+          // Convert idletime from milliseconds to minutes
+          const idleTimeMinutes = trip.idletime ? trip.idletime / (1000 * 60) : 0;
+          status = this.calculateStatusForMetric(idleTimeMinutes, "idle_time");
+          shouldInclude = true;
+        } else if (category === "short_trips") {
+          // Only include short trips (< 2km)
+          if (trip.distance > 0 && trip.distance < 2) {
+            status = this.calculateStatusForMetric(100, "short_trips");
+            shouldInclude = true;
+          }
+        } else {
+          status = "within_threshold";
+          shouldInclude = true;
+        }
+
+        // Add trip to date structure if it should be included
+        if (shouldInclude) {
+          tripsByDate[dateKey].push({
+            vin: trip.vin,
+            regno: trip.regno || `${trip.vin}`,
+            starttime: formatEpochToDateTime(trip.starttime),
+            endtime: formatEpochToDateTime(trip.endtime),
+            duration: trip.durationformatted || formatEpochToDuration(trip.duration || 0),
+            distance: trip.distancekm || `${trip.distance || 0} km`,
+            startsoc: `${trip.startsoc || 0}%`,
+            endsoc: `${trip.endsoc || 0}%`,
+            socconsumed: trip.socconsumedpercent || `${trip.socconsumed || 0}%`,
+            status: status,
+          });
+        }
+      });
   
       return tripsByDate;
     } catch (error) {
@@ -1450,81 +1483,6 @@ export default class TripsinsighthdlrImpl {
 
     return insights;
   };
-
-  // Update matchesTripCategory to optionally use fleet metrics for consistency
-  matchesTripCategory = (trip, category, fleetMetrics = null) => {
-    const SHORT_TRIP_DISTANCE = 2; // km
-  
-    const distance = (trip.endodo || 0) - (trip.startodo || 0);
-    const boostDistance = trip.boostdist || 0;
-    const idleTime = trip.idletime || 0;
-    const idleTimeMinutes = idleTime / (1000 * 60);
-  
-    switch (category) {
-      case "boost_mode":
-        if (distance > 0) {
-          const boostModePercentage = (Math.min(boostDistance, distance) / distance) * 100;
-          const status = this.calculateStatusForMetric(boostModePercentage, "boost_mode");
-          return status === "above_threshold"; // Only show trips that are above threshold (bad)
-        }
-        return false;
-  
-      case "eco_mode":
-        if (distance > 0) {
-          const boostModePercentage = (Math.min(boostDistance, distance) / distance) * 100;
-          const ecoModePercentage = 100 - boostModePercentage;
-          const status = this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
-          return status === "above_threshold"; // Only show trips that are above threshold (bad - low eco mode)
-        }
-        return false;
-  
-      case "idle_time":
-        // Show trips with idle time >= 10 minutes (average or bad)
-        // This way we show trips that need attention, not just the worst ones
-        const status = this.calculateStatusForMetric(idleTimeMinutes, "idle_time");
-        return status === "above_threshold" || status === "within_threshold";
-        // OR if you want to show ALL trips with idle time issues (>= 10 min):
-        // return idleTimeMinutes >= 10;
-  
-      case "short_trips":
-        if (distance > 0 && distance < SHORT_TRIP_DISTANCE) {
-          return true; // Short trips are always considered "bad"
-        }
-        return false;
-  
-      default:
-        return false;
-    }
-  };
-
-  // Update calculateTripStatus to use common function
-  calculateTripStatus = (trip, category, metrics) => {
-    const { boostModePercentage, ecoModePercentage, idleTimeMinutes, distance } = metrics;
-
-    switch (category) {
-      case "boost_mode":
-        return this.calculateStatusForMetric(boostModePercentage, "boost_mode");
-
-      case "eco_mode":
-        return this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
-
-      case "idle_time":
-        return this.calculateStatusForMetric(idleTimeMinutes, "idle_time");
-
-      case "short_trips":
-        // For short trips, if distance < 2km, it's a short trip (bad)
-        if (distance < 2) {
-          return "above_threshold"; // Bad
-        } else {
-          return "below_threshold"; // Good
-        }
-
-      default:
-        return "within_threshold";
-    }
-  };
-
-
   
   // Helper method to build default date structure with empty arrays
   buildDefaultDateStructure = (starttime, endtime) => {
@@ -1812,7 +1770,7 @@ export default class TripsinsighthdlrImpl {
     }
   };
 
-  calculateMetricDrillDown = (tripData, allTripData, starttime, endtime, dateEpochMap = {}) => {
+  calculateMetricDrillDownFromProcessedTrips = (processedTripData, processedAllTripData, starttime, endtime, dateEpochMap = {}) => {
     const BOOST_MODE_THRESHOLD = 30;
     const ECO_MODE_THRESHOLD = 70;
     const IDLE_TIME_THRESHOLD = 5;
@@ -1834,7 +1792,7 @@ export default class TripsinsighthdlrImpl {
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    tripData.forEach((trip) => {
+    processedTripData.forEach((trip) => {
       if (trip.starttime) {
         const tripDate = new Date(parseInt(trip.starttime));
         const dateKey = this.formatDateToIST(tripDate);
@@ -1844,7 +1802,7 @@ export default class TripsinsighthdlrImpl {
       }
     });
 
-    allTripData.forEach((trip) => {
+    processedAllTripData.forEach((trip) => {
       if (trip.starttime) {
         const tripDate = new Date(parseInt(trip.starttime));
         const dateKey = this.formatDateToIST(tripDate);
@@ -1901,17 +1859,30 @@ export default class TripsinsighthdlrImpl {
       let totalBoostDistance = 0;
       let totalDistance = 0;
       let totalIdleTime = 0;
+      let totalBoostSocUsage = 0;
+      let totalSocUsage = 0;
+      let totalBoostDuration = 0;
+      let totalDuration = 0;
 
       dayData.tripData.forEach((trip) => {
+        // Use the raw trip data fields (endodo, startodo, boostdist, idletime)
         const distance = (trip.endodo || 0) - (trip.startodo || 0);
         const boostDistance = trip.boostdist || 0;
         const idleTime = trip.idletime || 0;
+        const boostSocUsage = trip.boostsocusage || 0;
+        const tripSocUsage = (trip.startsoc || 0) - (trip.endsoc || 0);
+        const boostDuration = trip.boostduration || 0;
+        const tripDuration = (trip.movingtime || 0) + (trip.idletime || 0);
 
         if (distance > 0) {
           totalDistance += distance;
           totalBoostDistance += Math.min(boostDistance, distance);
         }
         totalIdleTime += idleTime;
+        totalBoostSocUsage += boostSocUsage;
+        totalSocUsage += tripSocUsage;
+        totalBoostDuration += boostDuration;
+        totalDuration += tripDuration;
       });
 
       let shortTrips = 0;
@@ -1926,9 +1897,18 @@ export default class TripsinsighthdlrImpl {
         }
       });
 
-      const boostModePercentage =
-        totalDistance > 0 ? (totalBoostDistance / totalDistance) * 100 : 0;
-      const ecoModePercentage = 100 - boostModePercentage;
+      // Calculate aggregate boost mode percentage using SOC-based approach (primary)
+      // Fallback to duration-based, then distance-based
+      let boostModePercentage = 0;
+      if (totalSocUsage > 0 && totalBoostSocUsage > 0) {
+        boostModePercentage = (totalBoostSocUsage / totalSocUsage) * 100;
+      } else if (totalDuration > 0 && totalBoostDuration > 0) {
+        boostModePercentage = (totalBoostDuration / totalDuration) * 100;
+      } else if (totalDistance > 0) {
+        boostModePercentage = (totalBoostDistance / totalDistance) * 100;
+      }
+      boostModePercentage = Math.max(0, Math.min(100, boostModePercentage));
+      const ecoModePercentage = 100 - Math.round(boostModePercentage);
       const averageIdleTimePerTrip =
         dayData.tripData.length > 0
           ? totalIdleTime / dayData.tripData.length / (1000 * 60)
@@ -1990,9 +1970,7 @@ export default class TripsinsighthdlrImpl {
         rawvalue: Math.round(shortTripPercentage),
         status: shortTripsStatus,
         trips: dayData.allTripData.length,
-        details: `${Math.round(
-          shortTripPercentage
-        )}% short trips (<${SHORT_TRIP_DISTANCE}km)`,
+        details: `${Math.round(shortTripPercentage)}% short trips (<2km)`,
       });
     });
 
@@ -2111,7 +2089,7 @@ export default class TripsinsighthdlrImpl {
     return processedActiveVehicles;
   };
 
-  calculateDrivingModeUsage = (starttime, tripData) => {
+  calculateDrivingModeUsage = (starttime, tripData, vinNumbersLength) => {
     const drivingModeUsage = {};
 
     if (tripData && tripData.length > 0) {
@@ -2166,14 +2144,15 @@ export default class TripsinsighthdlrImpl {
       } else {
         dayData.boostrange = 0;
       }
-      
+
+      dayData.boostsocusage = Math.round(((dayData.boostsocusage / vinNumbersLength) * 100) / 100);
       // Calculate eco range: (total eco distance * 100) / total eco SOC usage
       if (dayData.ecosocusage > 0) {
         dayData.ecorange = (dayData.ecodistance * 100) / dayData.ecosocusage;
       } else {
         dayData.ecorange = 0;
       }
-      
+      dayData.ecosocusage = (dayData.ecosocusage / vinNumbersLength) * 100;
       // Calculate percentages
       if (dayData.totaldistance > 0) {
         const boostPercentage = Math.min(
@@ -2190,8 +2169,8 @@ export default class TripsinsighthdlrImpl {
       }
 
       dayData.totaldistance = Math.round(dayData.totaldistance * 100) / 100;
-      dayData.boostdistance = Math.round(dayData.boostdistance * 100) / 100;
-      dayData.ecodistance = Math.round(dayData.ecodistance * 100) / 100;
+      dayData.boostdistance = Math.round((dayData.boostdistance / vinNumbersLength) * 100) / 100;
+      dayData.ecodistance = Math.round((dayData.ecodistance / vinNumbersLength) * 100) / 100;
       dayData.boostrange = Math.round(dayData.boostrange * 100) / 100;
       dayData.ecorange = Math.round(dayData.ecorange * 100) / 100;
     });

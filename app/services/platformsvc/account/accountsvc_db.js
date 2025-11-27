@@ -73,7 +73,10 @@ export default class AccountSvcDB {
             `;
       let result = await txclient.query(query, [account.accountname]);
       if (result.rowCount > 0) {
-        throw new Error("Account already exists with this name");
+        const error = new Error(`Account already exists with accountid: ${result.rows[0].accountid}`);
+        error.errcode = "ACCOUNT_ALREADY_EXISTS";
+        error.errdata = result.rows[0];
+        throw error;
       }
 
       query = `
@@ -2937,6 +2940,25 @@ export default class AccountSvcDB {
       throw new Error(
         `Failed to list pending account reviews: ${error.message}`
       );
+    }
+  }
+
+  async listAllAccounts() {
+    try {
+      let query = `
+        SELECT accountid, accountname, accounttype, accountinfo->> 'email' as email,accountinfo->> 'mobile' as mobile, isenabled, isdeleted, createdat FROM account
+        WHERE isenabled = TRUE 
+          AND isdeleted = FALSE
+        ORDER BY createdat DESC
+      `;
+      let result = await this.pgPoolI.Query(query);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      return result.rows;
+    } catch (error) {
+      this.logger.error("listAllAccounts error:", error);
+      throw error;
     }
   }
 }
