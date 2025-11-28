@@ -2946,7 +2946,7 @@ export default class AccountSvcDB {
   async listAllAccounts() {
     try {
       let query = `
-        SELECT accountid, accountname, accounttype, accountinfo->> 'email' as email,accountinfo->> 'mobile' as mobile, isenabled, isdeleted, createdat FROM account
+        SELECT accountid, accountname, accounttype, accountinfo->'primarycontact'->'emaillist' as email,accountinfo->'primarycontact'->'mobilelist' as mobile, isenabled, isdeleted, createdat FROM account
         WHERE isenabled = TRUE 
           AND isdeleted = FALSE
         ORDER BY createdat DESC

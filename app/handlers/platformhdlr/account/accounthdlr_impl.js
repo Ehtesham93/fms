@@ -1085,8 +1085,7 @@ export default class AccountHdlrImpl {
     const accounttype = CUSTOMER_ACCOUNT_TYPE;
     const rootfleetname = ROOT_FLEET_NAME;
     const accountinfo = {
-      email: email,
-      mobile: mobile,
+      primarycontact: {emaillist: [email], mobilelist: [mobile]}
     };
     const processedaccountname = this.preprocessingAccountName(accountname);
     let account = {
