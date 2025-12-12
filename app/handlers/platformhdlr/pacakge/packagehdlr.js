@@ -25,6 +25,8 @@ export default class PackageHdlr {
     router.get(`/:pkgid(${UUID_PATTERN})`, this.GetPkgInfo);
     router.put(`/:pkgid(${UUID_PATTERN})/modules`, this.UpdatePkgModules);
     router.delete(`/:pkgid(${UUID_PATTERN})`, this.DeletePackage);
+    router.get("/history", this.GetPackageHistory);
+    router.get("/modules/history", this.GetPackageModHistory);
   }
 
   CreatePackageType = async (req, res, next) => {
@@ -421,6 +423,131 @@ export default class PackageHdlr {
           e.toString(),
           "Delete package failed"
         );
+      }
+    }
+  };
+
+  GetPackageHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.package.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get package history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
+      let result = await this.packageHdlrImpl.GetPackageHistoryLogic(starttime, endtime);
+      APIResponseOK(req, res, result, "Package history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetPackageHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "GET_PACKAGE_HISTORY_ERR", e.toString(), "Get package history failed");
+      }
+    }
+  };
+
+  GetPackageModHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get module perm history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+      let result = await this.packageHdlrImpl.GetPackageModHistoryLogic(starttime, endtime);
+      APIResponseOK(req, res, result, "Module perm history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetPackageModHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "GET_MODULE_PERM_HISTORY_ERR", e.toString(), "Get module perm history failed");
       }
     }
   };

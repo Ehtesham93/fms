@@ -795,7 +795,7 @@ export default class ModuleHdlr {
         );
         return;
       }
-      let result = await this.moduleHdlrImpl.GetModulePermHistoryLogic( starttime, endtime);
+      let result = await this.moduleHdlrImpl.GetModulePermHistoryLogic(starttime, endtime);
       APIResponseOK(req, res, result, "Module perm history fetched successfully");
     }
     catch (e) {

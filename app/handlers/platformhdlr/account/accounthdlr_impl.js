@@ -10,6 +10,8 @@ import {
 } from "../../../utils/constant.js";
 import { publishVehicleUpdate } from "../../../utils/redisnotification.js";
 
+import { preprocessingText } from "../../../utils/commonutil.js";
+
 export default class AccountHdlrImpl {
   constructor(
     accountSvcI,
@@ -87,12 +89,10 @@ export default class AccountHdlrImpl {
     };
   };
 
-  ListAccountsLogic = async () => {
-    let accounts = await this.accountSvcI.GetAllAccounts(PLATFORM_ACCOUNT_ID);
-    if (!accounts) {
-      accounts = [];
-    }
-    return { accounts: accounts };
+  ListAccountsLogic = async (searchtext, offset, limit) => {
+    searchtext = preprocessingText(searchtext);
+    let accounts = await this.accountSvcI.GetAllAccounts(PLATFORM_ACCOUNT_ID, offset, limit, searchtext);
+    return accounts;
   };
 
   GetAccountOverviewLogic = async (accountid) => {
@@ -1005,16 +1005,24 @@ export default class AccountHdlrImpl {
     return { vehicles: vehicles };
   };
 
-  ListPendingAccountsLogic = async () => {
-    let accounts = await this.accountSvcI.ListPendingAccounts();
+  ListPendingAccountsLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
+    searchtext = preprocessingText(searchtext);
+    orderbyfield = preprocessingText(orderbyfield);
+    orderbyfield = orderbyfield.toLowerCase();
+    orderbydirection = preprocessingText(orderbydirection);
+    let accounts = await this.accountSvcI.ListPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection);
     if (!accounts) {
       accounts = [];
     }
     return accounts;
   };
 
-  ListDoneAccountsLogic = async () => {
-    let accounts = await this.accountSvcI.ListDoneAccounts();
+  ListDoneAccountsLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
+    searchtext = preprocessingText(searchtext);
+    orderbyfield = preprocessingText(orderbyfield);
+    orderbyfield = orderbyfield.toLowerCase();
+    orderbydirection = preprocessingText(orderbydirection);
+    let accounts = await this.accountSvcI.ListDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection);
     if (!accounts) {
       accounts = [];
     }
@@ -1085,7 +1093,7 @@ export default class AccountHdlrImpl {
     const accounttype = CUSTOMER_ACCOUNT_TYPE;
     const rootfleetname = ROOT_FLEET_NAME;
     const accountinfo = {
-      primarycontact: {emaillist: [email], mobilelist: [mobile]}
+      primarycontact:{emaillist: [email], mobilelist: [mobile]},
     };
     const processedaccountname = this.preprocessingAccountName(accountname);
     let account = {

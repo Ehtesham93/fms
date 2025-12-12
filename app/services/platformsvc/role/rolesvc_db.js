@@ -5,12 +5,16 @@ export default class RoleSvcDB {
   }
 
   async createRole(role) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    } 
     try {
       let currtime = new Date();
       let checkQuery = `
         SELECT roleid FROM roles WHERE accountid = $1 AND rolename = $2
       `;
-      let checkResult = await this.pgPoolI.Query(checkQuery, [
+      let checkResult = await txclient.query(checkQuery, [
         role.accountid,
         role.rolename,
       ]);
@@ -20,7 +24,7 @@ export default class RoleSvcDB {
       let query = `
             INSERT INTO roles (accountid, roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         `;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         role.accountid,
         role.roleid,
         role.rolename,
@@ -34,18 +38,58 @@ export default class RoleSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to create role");
       }
+      await this.logRoleHistory(role, role.createdby, currtime, 'CREATE', {}, txclient);
+      await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
       if (error.message === "ROLE_NAME_ALREADY_EXISTS") {
         throw new Error("ROLE_NAME_ALREADY_EXISTS");
       }
-      throw new Error("Failed to create role");
+      await this.pgPoolI.TxRollback(txclient);
+      throw new Error(`Failed to create role: ${error.message}`);
+    }
+  }
+  
+  async logRoleHistory(role, updatedby, updatedat, action, previousstate, txclient = null) {
+    try {
+      const finalUpdatedBy = updatedby ?? role.updatedby;
+      const finalUpdatedAt = updatedat ?? role.updatedat;
+      const currentstate = action === 'DELETE' 
+        ? {} 
+        : {
+            rolename: role.rolename,
+            roletype: role.roletype,
+            isenabled: role.isenabled,
+          };
+      let query = `
+        INSERT INTO role_history (accountid, roleid, rolename, roletype, isenabled, updatedat, updatedby, action, previousstate, currentstate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `;
+      let result = await txclient.query(query, [role.accountid, role.roleid, role.rolename, role.roletype, role.isenabled, finalUpdatedAt, finalUpdatedBy, action, previousstate, currentstate]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log role history");
+      }
+      return true;
+    } catch (error) {
+      await this.pgPoolI.TxRollback(txclient);
+      throw new Error(`Failed to log role history: ${error.message}`);
     }
   }
 
   async updateRole(roleid, accountid, updateFields, updatedby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     try {
       let currtime = new Date();
+      let previousStateQuery = `
+        SELECT roleid, rolename, roletype, isenabled FROM roles WHERE accountid = $1 AND roleid = $2
+      `;
+      let previousStateResult = await txclient.query(previousStateQuery, [accountid, roleid]);
+      if (previousStateResult.rowCount === 0) {
+        throw new Error("Role not found");
+      }
+      let previousState = previousStateResult.rows[0];
       updateFields.updatedat = currtime;
       updateFields.updatedby = updatedby;
 
@@ -61,13 +105,24 @@ export default class RoleSvcDB {
       }
             `;
       let params = [...values, accountid, roleid];
-      const result = await this.pgPoolI.Query(query, params);
+      const result = await txclient.query(query, params);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update role");
       }
-
+      let role = {
+        accountid: accountid,
+        roleid: roleid,
+        rolename: updateFields.rolename,
+        roletype: updateFields.roletype,
+        isenabled: updateFields.isenabled,
+        updatedat: currtime,
+        updatedby: updatedby,
+      };
+      await this.logRoleHistory(role, updatedby, currtime, 'UPDATE', previousState, txclient);
+      await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
+      await this.pgPoolI.TxRollback(txclient);
       throw new Error(`Failed to update role: ${error.message}`);
     }
   }
@@ -156,6 +211,14 @@ export default class RoleSvcDB {
       throw err;
     }
     try {
+      // Get previous state before any changes
+      let stateQuery = `
+        SELECT * FROM role_perm WHERE accountid = $1 AND roleid = $2
+      `;
+      let stateResult = await txclient.query(stateQuery, [accountid, roleid]);
+      let previousState = stateResult.rows;
+      let previousPermIds = previousState.map(row => row.permid);
+
       if (permsToAdd.length > 0) {
         let values = [];
         const placeholders = permsToAdd
@@ -203,6 +266,21 @@ export default class RoleSvcDB {
         }
       }
 
+      stateResult = await txclient.query(stateQuery, [accountid, roleid]);
+      let currentState = stateResult.rows;
+      let currentPermIds = currentState.map(row => row.permid);
+
+      let removedPerms = previousPermIds.filter(permid => !currentPermIds.includes(permid));
+      let addedPerms = currentPermIds.filter(permid => !previousPermIds.includes(permid));
+
+      for (const permid of removedPerms) {
+        await this.logRolePermHistory(accountid, roleid, permid, updatedby, currtime, 'DISABLE', false, txclient);
+      }
+
+      for (const permid of addedPerms) {
+        await this.logRolePermHistory(accountid, roleid, permid, updatedby, currtime, 'ENABLE', true, txclient);
+      }
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -214,6 +292,24 @@ export default class RoleSvcDB {
         throw rollbackerr;
       }
       throw e;
+    }
+  }
+  
+  async logRolePermHistory(accountid, roleid, permid, updatedby, updatedat, action, isenabled, txclient = null) {
+    try {
+      let query = `
+        INSERT INTO role_perm_history (accountid, roleid, permid, updatedat, updatedby, isenabled, action) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `;
+      let result = await txclient.query(query, [accountid, roleid, permid, updatedat, updatedby, isenabled, action]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log role perm history");
+      }
+      return true;
+    }
+    catch (error) {
+      this.logger.error("role perm history insert failed", { accountid, roleid, permid, err: error });
+      await this.pgPoolI.TxRollback(txclient);
+      throw new Error(`Failed to log role perm history: ${error.message}`);
     }
   }
 
@@ -263,13 +359,13 @@ export default class RoleSvcDB {
     }
     try {
       let query = `
-        SELECT roleid, rolename FROM roles WHERE roleid = $1
+        SELECT accountid, roleid, rolename, roletype, isenabled FROM roles WHERE roleid = $1
       `;
       let result = await txclient.query(query, [roleid]);
       if (result.rowCount === 0) {
         throw new Error("Role not found");
       }
-
+      let previousState = result.rows[0];
       const role = result.rows[0];
 
       query = `
@@ -293,6 +389,7 @@ export default class RoleSvcDB {
         throw new Error("Failed to delete role");
       }
 
+      await this.logRoleHistory(role, deletedby, new Date(), 'DELETE', previousState, txclient);
       await this.pgPoolI.TxCommit(txclient);
       return {
         roleid: roleid,
@@ -303,6 +400,41 @@ export default class RoleSvcDB {
     } catch (e) {
       await this.pgPoolI.TxRollback(txclient);
       throw e;
+    }
+  }
+  async getRoleHistory(starttime, endtime) {
+    try {
+      let query = `
+        SELECT a.accountname, r.roleid, r.rolename, r.roletype, r.isenabled, r.updatedat, u.displayname as updatedby, r.action, r.previousstate, r.currentstate 
+        FROM role_history r 
+        JOIN account a ON r.accountid = a.accountid 
+        JOIN users u ON r.updatedby = u.userid 
+        WHERE r.updatedat >= $1 AND r.updatedat <= $2
+        ORDER BY r.updatedat DESC
+      `;
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      return result.rows;
+
+    } catch (error) {
+      throw new Error("Failed to retrieve role history");
+    }
+  }
+
+  async getRolePermHistory(starttime, endtime) {
+    try {
+      let query = `
+        SELECT a.accountname, r.roleid, r.permid, r.isenabled, r.updatedat, u.displayname as updatedby, r.action 
+        FROM role_perm_history r 
+        JOIN account a ON r.accountid = a.accountid 
+        JOIN users u ON r.updatedby = u.userid 
+        WHERE r.updatedat >= $1 AND r.updatedat <= $2
+        ORDER BY r.updatedat DESC
+      `;
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      return result.rows;
+    }
+    catch (error) {
+      throw new Error("Failed to retrieve role perm history");
     }
   }
 }

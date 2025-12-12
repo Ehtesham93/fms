@@ -16,6 +16,7 @@ import {
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import AccountHdlrImpl from "./accounthdlr_impl.js";
+import { parseQueryInt } from "../../../utils/commonutil.js";
 
 export default class AccountHdlr {
   constructor(
@@ -265,17 +266,51 @@ export default class AccountHdlr {
       //     "You don't have permission to list accounts."
       //   );
       // }
-      let result = await this.accountHdlrImpl.ListAccountsLogic();
+      let schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+      });
+      let { searchtext, offset, limit } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+      });
+      let result = await this.accountHdlrImpl.ListAccountsLogic(searchtext, offset, limit);
       APIResponseOK(req, res, result, "Accounts fetched successfully");
     } catch (e) {
       this.logger.error("ListAccounts error: ", e);
-      APIResponseInternalErr(
-        req,
-        res,
-        "LIST_ACCOUNTS_ERR",
-        e.toString(),
-        "List accounts failed"
-      );
+      if(e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          e.errcode,
+          e.errdata,
+          e.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "LIST_ACCOUNTS_ERR",
+          e.toString(),
+          "List accounts failed"
+        );
+      }
     }
   };
 
@@ -317,8 +352,7 @@ export default class AccountHdlr {
 
   GetAccountSummary = async (req, res, next) => {
     try {
-      let result =
-        await this.accountHdlrImpl.GetAccountSummaryLogic();
+      let result = await this.accountHdlrImpl.GetAccountSummaryLogic();
       APIResponseOK(req, res, result, "Account summary fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountSummary error: ", error);
@@ -2378,7 +2412,50 @@ export default class AccountHdlr {
           "You don't have permission to list pending accounts."
         );
       }
-      let result = await this.accountHdlrImpl.ListPendingAccountsLogic();
+      let schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        orderbyfield: z
+          .string({ message: "Order by field is required" })
+          .optional()
+          .nullable()
+          .default("createdat"),
+        orderbydirection: z
+          .string({ message: "Order by direction is required" })
+          .optional()
+          .nullable()
+          .default("desc"),
+      });
+      let { searchtext, offset, limit, orderbyfield, orderbydirection } =
+        validateAllInputs(schema, {
+          searchtext: req.query.searchtext,
+          offset: parseQueryInt(req.query.offset),
+          limit: parseQueryInt(req.query.limit),
+          orderbyfield: req.query.orderbyfield,
+          orderbydirection: req.query.orderbydirection,
+        });
+      let result = await this.accountHdlrImpl.ListPendingAccountsLogic(
+        searchtext,
+        offset,
+        limit,
+        orderbyfield,
+        orderbydirection
+      );
       APIResponseOK(req, res, result, "Pending accounts listed successfully");
     } catch (e) {
       this.logger.error("ListPendingAccounts error: ", e);
@@ -2412,7 +2489,49 @@ export default class AccountHdlr {
           "You don't have permission to list done accounts."
         );
       }
-      let result = await this.accountHdlrImpl.ListDoneAccountsLogic();
+      let schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        orderbyfield: z
+          .string({ message: "Order by field is required" })
+          .optional()
+          .nullable()
+          .default("createdat"),
+        orderbydirection: z
+          .string({ message: "Order by direction is required" })
+          .optional()
+          .nullable()
+          .default("desc"),
+      });
+      let { searchtext, offset, limit, orderbyfield, orderbydirection } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
+      });
+      let result = await this.accountHdlrImpl.ListDoneAccountsLogic(
+        searchtext,
+        offset,
+        limit,
+        orderbyfield,
+        orderbydirection
+      );
       APIResponseOK(req, res, result, "Done accounts listed successfully");
     } catch (e) {
       this.logger.error("ListDoneAccounts error: ", e);
@@ -2440,7 +2559,9 @@ export default class AccountHdlr {
       let { accountname } = validateAllInputs(schema, {
         accountname: req.body.accountname,
       });
-      let result = await this.accountHdlrImpl.IsAccountNameAvailableLogic(accountname);
+      let result = await this.accountHdlrImpl.IsAccountNameAvailableLogic(
+        accountname
+      );
       if (result) {
         return APIResponseOK(req, res, result, "Account name available");
       } else {
@@ -2581,5 +2702,4 @@ export default class AccountHdlr {
       }
     }
   };
-
 }

@@ -8,17 +8,20 @@ import {
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import VehicleHdlrImpl from "./vehiclehdlr_impl.js";
+import { parseQueryInt } from "../../../utils/commonutil.js";
 
 export default class VehicleHdlr {
-  constructor(platformSvcI, historyDataSvcI, fmsAccountSvcI, metaSvcI, logger) {
+  constructor(platformSvcI, historyDataSvcI, fmsAccountSvcI, metaSvcI, redisSvc, logger) {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
     this.metaSvcI = metaSvcI;
+    this.redisSvc = redisSvc;
     this.vehicleHdlrImpl = new VehicleHdlrImpl(
       platformSvcI,
       historyDataSvcI,
       metaSvcI,
       fmsAccountSvcI,
+      redisSvc,
       logger
     );
     this.logger = logger;
@@ -30,6 +33,7 @@ export default class VehicleHdlr {
     router.delete("/:vinno/delete", this.DeleteVehicle);
     router.get("/list", this.ListVehicles);
     router.get("/listall", this.ListAllVehicles);
+    router.get("/", this.GetVehicles);
     router.get("/:vinno/info", this.GetVehicleInfo);
     router.get("/:vinno/accountinfo", this.GetVehicleAccountDetails);
 
@@ -51,6 +55,7 @@ export default class VehicleHdlr {
     router.get("/listdone", this.ListDoneVehicles);
     router.post("/vehicleserviceonboarding", this.VehicleServiceOnboarding);
     router.post("/retryonboard", this.RetryOnboard);
+    router.post("/search", this.SearchVehicles);
   }
 
   ValidateEpochTime = (timeStr, fieldName) => {
@@ -388,7 +393,6 @@ export default class VehicleHdlr {
     }
   };
 
-
   ListAllVehicles = async (req, res, next) => {
     try {
       let result = await this.vehicleHdlrImpl.ListAllVehiclesLogic();
@@ -408,6 +412,56 @@ export default class VehicleHdlr {
       }
     }
   };
+
+  GetVehicles = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+      });
+      let { searchtext, offset, limit } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+      });
+      let result = await this.vehicleHdlrImpl.GetVehiclesLogic(
+        searchtext,
+        offset,
+        limit
+      );
+      APIResponseOK(req, res, result, "Vehicles listed successfully");
+    } catch (e) {
+      this.logger.error("GetVehicles error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_VEHICLES_ERR",
+          e.toString(),
+          "Get vehicles failed"
+        );
+      }
+    }
+  };
+
+
 
   GetVehicleInfo = async (req, res, next) => {
     try {
@@ -666,7 +720,7 @@ export default class VehicleHdlr {
           "You don't have permission to get vehicle CAN+GPS data."
         );
       }
-      
+
       let schema = z.object({
         taggedby: z
           .string({ message: "Invalid User ID format" })
@@ -765,7 +819,6 @@ export default class VehicleHdlr {
 
   UntagVehicle = async (req, res, next) => {
     try {
-
       if (
         !CheckUserPerms(req.userperms, [
           "consolemgmt.account.admin",
@@ -807,15 +860,13 @@ export default class VehicleHdlr {
           .min(1, { message: "VINs array must contain at least one VIN" }),
       });
 
-      let { untaggedby, srcaccountid, dstaccountid, vinnos } = validateAllInputs(
-        schema,
-        {
+      let { untaggedby, srcaccountid, dstaccountid, vinnos } =
+        validateAllInputs(schema, {
           untaggedby: req.userid,
           srcaccountid: req.body.srcaccountid,
           dstaccountid: req.body.dstaccountid,
           vinnos: req.body.vinnos,
-        }
-      );
+        });
 
       let result = await this.vehicleHdlrImpl.UntagVehicleLogic(
         srcaccountid,
@@ -1051,7 +1102,49 @@ export default class VehicleHdlr {
           "You don't have permission to list pending vehicles."
         );
       }
-      let result = await this.vehicleHdlrImpl.ListPendingVehiclesLogic();
+      let schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        orderbyfield: z
+          .string({ message: "Order by field is required" })
+          .optional()
+          .nullable()
+          .default("createdat"),
+        orderbydirection: z
+          .string({ message: "Order by direction is required" })
+          .optional()
+          .nullable()
+          .default("desc"),
+      });
+      let { searchtext, offset, limit, orderbyfield, orderbydirection } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
+      });
+      let result = await this.vehicleHdlrImpl.ListPendingVehiclesLogic(
+        searchtext,
+        offset,
+        limit,
+        orderbyfield,
+        orderbydirection
+      );
       APIResponseOK(req, res, result, "Pending vehicles listed successfully");
     } catch (e) {
       this.logger.error("ListPendingVehicles error: ", e);
@@ -1085,7 +1178,50 @@ export default class VehicleHdlr {
           "You don't have permission to list done vehicles."
         );
       }
-      let result = await this.vehicleHdlrImpl.ListDoneVehiclesLogic();
+      let schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        orderbyfield: z
+          .string({ message: "Order by field is required" })
+          .optional()
+          .nullable()
+          .default("updatedat"),
+        orderbydirection: z
+          .string({ message: "Order by direction is required" })
+          .optional()
+          .nullable()
+          .default("desc"),
+      });
+      let { searchtext, offset, limit, orderbyfield, orderbydirection } =
+        validateAllInputs(schema, {
+          searchtext: req.query.searchtext,
+          offset: parseQueryInt(req.query.offset),
+          limit: parseQueryInt(req.query.limit),
+          orderbyfield: req.query.orderbyfield,
+          orderbydirection: req.query.orderbydirection,
+        });
+      let result = await this.vehicleHdlrImpl.ListDoneVehiclesLogic(
+        searchtext,
+        offset,
+        limit,
+        orderbyfield,
+        orderbydirection
+      );
       APIResponseOK(req, res, result, "Done vehicles listed successfully");
     } catch (e) {
       this.logger.error("ListDoneVehicles error: ", e);
@@ -1181,7 +1317,7 @@ export default class VehicleHdlr {
           .nonempty({ message: "Retry Type cannot be empty" })
           .refine((val) => ["vehicle"].includes(val), {
             message: "Invalid Retry Type format",
-          })
+          }),
       });
       let { userid, retrytype } = validateAllInputs(schema, {
         userid: req.userid,
@@ -1206,6 +1342,50 @@ export default class VehicleHdlr {
           "RETRY_ONBOARD_ERR",
           e.toString(),
           "Retry onboard failed"
+        );
+      }
+    }
+  };
+
+  SearchVehicles = async (req, res, next) => {
+    try {
+      const schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .min(2, { message: "Search text must be at least 2 characters" }),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(100),
+      });
+
+      const { searchtext, offset, limit } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+      });
+
+      const result = await this.vehicleHdlrImpl.SearchVehiclesLogic(
+        searchtext,
+        offset,
+        limit
+      );
+      APIResponseOK(req, res, result, "Vehicles searched successfully");
+    } catch (e) {
+      this.logger.error("SearchVehicles error:", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "SEARCH_VEHICLES_ERR",
+          e.toString(),
+          "Search vehicles failed"
         );
       }
     }

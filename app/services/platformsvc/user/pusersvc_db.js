@@ -12,7 +12,7 @@ import {
   markInviteAsExpired,
   updateInviteExpiryAndSendEmail,
 } from "../../../utils/inviteUtil.js";
-
+import { addPaginationToQuery } from "../../../utils/commonutil.js";
 export default class PUserSvcDB {
   /**
    *
@@ -646,9 +646,28 @@ export default class PUserSvcDB {
     }
   }
 
-  async listPendingUsers() {
+  async listPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection) {
     try {
-      let query = `
+      orderbyfield = orderbyfield || 'createdat';
+      orderbydirection = orderbydirection || 'desc';
+      searchtext = searchtext || '';
+      offset = offset || 0;
+      limit = limit || 1000;
+      let baseQuery = `
+        WITH user_list AS (
+          SELECT rpu.userid
+          FROM reviewpendinguser rpu
+          WHERE (
+            upper(rpu.displayname) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.email) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.status) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.gender) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.vehiclemobile) LIKE '%' || upper($1) || '%'
+          )
+          ORDER BY rpu.${orderbyfield} ${orderbydirection}
+          OFFSET $2 LIMIT $3
+        )
         SELECT 
           rpu.userid, 
           rpu.displayname, 
@@ -678,20 +697,66 @@ export default class PUserSvcDB {
           rpu.updatedat, 
           u2.displayname as updatedby
         FROM reviewpendinguser rpu
+        JOIN user_list ul ON rpu.userid = ul.userid
         JOIN users u1 ON rpu.createdby = u1.userid
         JOIN users u2 ON rpu.updatedby = u2.userid
-        ORDER BY rpu.createdat DESC
+        ORDER BY rpu.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(query);
-      return result.rows;
+      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `WITH user_list AS (
+        SELECT rpu.userid
+        FROM reviewpendinguser rpu
+        WHERE (
+          upper(rpu.displayname) LIKE '%' || upper($1) || '%' OR
+          upper(rpu.mobile) LIKE '%' || upper($1) || '%' OR
+          upper(rpu.email) LIKE '%' || upper($1) || '%' OR
+          upper(rpu.status) LIKE '%' || upper($1) || '%' OR
+          upper(rpu.gender) LIKE '%' || upper($1) || '%' OR
+          upper(rpu.vehiclemobile) LIKE '%' || upper($1) || '%'
+        )
+      ) SELECT COUNT(*) FROM user_list`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        users: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: (limit > result.rowCount)? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw new Error(`Failed to list pending users: ${error.message}`);
     }
   }
 
-  async listDoneUsers() {
+  async listDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection) {
     try {
-      let query = `
+      orderbyfield = orderbyfield || 'updatedat';
+      orderbydirection = orderbydirection || 'desc';
+      searchtext = searchtext || '';
+      offset = offset || 0;
+      limit = limit || 1000;
+      let baseQuery = `
+        WITH user_list AS (
+          SELECT rdu.userid, rdu.reviewed_at
+          FROM reviewdoneuser rdu
+          WHERE (
+            upper(rdu.displayname) LIKE '%' || upper($1) || '%' OR
+            upper(rdu.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(rdu.email) LIKE '%' || upper($1) || '%' OR
+            upper(rdu.gender) LIKE '%' || upper($1) || '%' OR
+            upper(rdu.vehiclemobile) LIKE '%' || upper($1) || '%'
+          )
+          ORDER BY rdu.${orderbyfield} ${orderbydirection}
+          OFFSET $2 LIMIT $3
+        )
         SELECT 
           rdu.userid, 
           rdu.displayname, 
@@ -714,31 +779,45 @@ export default class PUserSvcDB {
           rdu.original_input,
           rdu.original_status as status, 
           rdu.resolution_reason as reason, 
-          jsonb_set(  
-          jsonb_set(
-            rdu.review_data, 
-            '{createdby}', 
-            to_jsonb(u4.displayname)
-          ),
-          '{updatedby}',
-          to_jsonb(u5.displayname)
-        ) as review_data,
+          rdu.review_data,
           rdu.reviewed_at, 
-          u1.displayname as reviewed_by, 
-          rdu.createdat, 
-          u2.displayname as createdby, 
+          u1.displayname as reviewed_by,
           rdu.updatedat, 
           u3.displayname as updatedby
         FROM reviewdoneuser rdu
+        JOIN user_list ul ON rdu.userid = ul.userid AND rdu.reviewed_at = ul.reviewed_at
         JOIN users u1 ON rdu.reviewed_by = u1.userid
-        JOIN users u2 ON rdu.createdby = u2.userid
         JOIN users u3 ON rdu.updatedby = u3.userid
-        LEFT JOIN users u4 ON (rdu.review_data->>'createdby')::uuid = u4.userid
-        LEFT JOIN users u5 ON (rdu.review_data->>'updatedby')::uuid = u5.userid
-        ORDER BY rdu.reviewed_at DESC
+        ORDER BY rdu.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(query);
-      return result.rows;
+      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `WITH user_list AS (
+        SELECT rdu.userid
+        FROM reviewdoneuser rdu
+        WHERE (
+          upper(rdu.displayname) LIKE '%' || upper($1) || '%' OR
+          upper(rdu.mobile) LIKE '%' || upper($1) || '%' OR
+          upper(rdu.email) LIKE '%' || upper($1) || '%' OR
+          upper(rdu.gender) LIKE '%' || upper($1) || '%' OR
+          upper(rdu.vehiclemobile) LIKE '%' || upper($1) || '%'
+        )
+      ) SELECT COUNT(*) FROM user_list`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        users: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: (limit > result.rowCount)? false : true,
+        totalpages: Math.ceil(totalcount / limit),
+        totalcount: totalcount,
+      };
     } catch (error) {
       throw new Error(`Failed to list done users: ${error.message}`);
     }
@@ -1067,6 +1146,7 @@ export default class PUserSvcDB {
         status,
         reason,
         review_data,
+        discard,
         createdat,
         createdby,
         updatedat,
@@ -1097,6 +1177,7 @@ export default class PUserSvcDB {
       userData.status,
       userData.reason,
       userData.review_data,
+      userData.discard || false, // discard flag
       currtime,
       userData.createdby,
       currtime,
@@ -1257,9 +1338,9 @@ export default class PUserSvcDB {
 
   async checkIsVehicleAddedToAccount(vinno) {
     try {
-      const query = `SELECT accountid, fleetid FROM fleet_vehicle WHERE vinno = $1`;
+      const query = `SELECT accountid, fleetid FROM fleet_vehicle WHERE vinno = $1 AND isowner = true`;
       const result = await this.pgPoolI.Query(query, [vinno]);
-      return result.rows.length > 0;
+      return result.rows[0];
     } catch (error) {
       this.logger.error("Error in checkIsVehicleAddedToAccount:", error);
       throw error;

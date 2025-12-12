@@ -8,6 +8,8 @@ import {
   PLATFORM_ROLE_TYPE,
 } from "../../../utils/constant.js";
 import { EncryptPassword } from "../../../utils/eccutil.js";
+import { preprocessingText } from "../../../utils/commonutil.js";
+import crypto from "crypto";
 
 export default class PUserHdlrImpl {
   constructor(
@@ -65,28 +67,31 @@ export default class PUserHdlrImpl {
     };
   };
 
-  ListPlatformUsersLogic = async (offset, limit) => {
-    let users = await this.userSvcI.GetPlatformUsers(offset, limit);
-    if (!users) {
-      users = [];
+  ListPlatformUsersLogic = async (searchtext, offset, limit) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
     }
-    return { users: users };
+    let users = await this.userSvcI.GetPlatformUsers(searchtext, offset, limit);
+    return users;
   };
 
-  ListAccountUsersLogic = async (offset, limit) => {
-    let users = await this.userSvcI.GetAccountUsers(offset, limit);
-    if (!users) {
-      users = [];
+  ListAccountUsersLogic = async (searchtext, offset, limit) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
     }
-    return { users: users };
+    let users = await this.userSvcI.GetAccountUsers(searchtext, offset, limit);
+    return users;
   };
 
-  ListUsersLogic = async (offset, limit) => {
-    let users = await this.userSvcI.GetAllUsers(offset, limit);
-    if (!users) {
-      users = [];
+  ListUsersLogic = async (searchtext, offset, limit) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
     }
-    return { users: users };
+    let users = await this.userSvcI.GetAllUsers(searchtext, offset, limit);
+    return users;
   };
 
   InvitePlatformUserLogic = async (
@@ -565,16 +570,24 @@ export default class PUserHdlrImpl {
     }
   };
 
-  ListPendingUsersLogic = async () => {
-    let users = await this.pUserSvcI.ListPendingUsers();
+  ListPendingUsersLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
+    searchtext = preprocessingText(searchtext);
+    orderbyfield = preprocessingText(orderbyfield);
+    orderbyfield = orderbyfield.toLowerCase();
+    orderbydirection = preprocessingText(orderbydirection);
+    let users = await this.pUserSvcI.ListPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection);
     if (!users) {
       users = [];
     }
     return users;
   };
 
-  ListDoneUsersLogic = async () => {
-    let users = await this.pUserSvcI.ListDoneUsers();
+  ListDoneUsersLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
+    searchtext = preprocessingText(searchtext);
+    orderbyfield = preprocessingText(orderbyfield);
+    orderbyfield = orderbyfield.toLowerCase();
+    orderbydirection = preprocessingText(orderbydirection);
+    let users = await this.pUserSvcI.ListDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection);
     if (!users) {
       users = [];
     }
@@ -956,14 +969,24 @@ export default class PUserHdlrImpl {
     accountid
   ) => {
     try {
-      const user = await this.CreateUserByPlatformAdminLogic(
-        usertype,
-        true,
-        usertype === "mobile" ? usermobile : useremail,
-        username,
-        { email: useremail, mobile: usermobile },
-        userid
-      );
+      let user = null;
+      if(usertype === null) {
+        user = await this.CreateFmsUserLogic(
+          username,
+          useremail,
+          usermobile,
+          userid
+        );
+      } else {
+        user = await this.CreateUserByPlatformAdminLogic(
+          usertype,
+          true,
+          usertype === "mobile" ? usermobile : useremail,
+          username,
+          { email: useremail, mobile: usermobile },
+          userid
+        );
+      }
       if (!user) {
         const pendinguser =
           await this.pUserSvcI.GetPendingUserReviewById(taskid);
@@ -1131,13 +1154,14 @@ export default class PUserHdlrImpl {
   }
 
   async handleUserAdditionToAccount(
-    userid,
+    createduserid,
     contact,
     accountid,
     taskid,
     accountname,
     original_input,
-    createduserid
+    userid,
+    userrole = null
   ) {
     const existingcontact = await this.userSvcI.CheckMobileExists(contact);
 
@@ -1148,11 +1172,16 @@ export default class PUserHdlrImpl {
     if (isUserAddedToAccount) {
       return null;
     }
-    const adduser = await this.AddUserToAccountLogic(
-      userid,
-      contact,
-      accountid
-    );
+    let adduser = null;
+    if (userrole) { // when userrole is provided, add user to account with role
+      adduser = await this.userSvcI.AddUserToAccountWithRole(userid, accountid, userrole);
+    } else {
+      adduser = await this.AddUserToAccountLogic(
+        createduserid,
+        contact,
+        accountid
+      );
+    }
     if (!adduser) {
       const pendingaccount =
         await this.accountSvcI.GetPendingAccountReviewById(taskid);
@@ -1284,21 +1313,11 @@ export default class PUserHdlrImpl {
     if (vehicleExists) {
       const isVehicleAddedToAccount =
         await this.pUserSvcI.checkIsVehicleAddedToAccount(vin);
-      if (isVehicleAddedToAccount) {
-        const vehicleResult = await this.handleServiceOnboarding(
-          vin,
-          vehiclemobile,
-          accountname,
-          taskid,
-          original_input,
-          userid,
-          createduserid,
-          accountid
-        );
-        if (vehicleResult) return vehicleResult;
-        return null;
-      }
-      const addvehicle =
+      const isVehicleAddedToSameAccount = isVehicleAddedToAccount.accountid === accountid;
+      
+      let addvehicle = null;
+      if (!isVehicleAddedToAccount) {
+        addvehicle =
         await this.accountHdlr.accountHdlrImpl.AddVehicleToAccountLogic(
           accountid,
           {
@@ -1309,7 +1328,8 @@ export default class PUserHdlrImpl {
           },
           userid
         );
-      if (!addvehicle) {
+      }
+      if (!addvehicle && !isVehicleAddedToSameAccount) {
         const pendingaccount =
           await this.accountSvcI.GetPendingAccountReviewById(taskid);
         if (pendingaccount) {
@@ -1707,22 +1727,55 @@ export default class PUserHdlrImpl {
     customergender,
     vehiclemobile,
     vin,
-    licenseplate
+    licenseplate,
+    accountid,
+    userrole
   ) {
-    const accountRes = await this.TaskCreateAccount(
-      taskid,
-      accountname,
-      userid,
-      original_input
-    );
-    const accountid = accountRes.accountid;
-    const account = accountRes.account;
+    let account = null;
+    let createaccount = true;
+    let action = null;
+    if (accountid) {
+      createaccount = false;
+      account = await this.platformSvcI.GetAccountById(accountid);
+      if (account){
+        const accountreviewdone = await this.accountSvcI.GetAccountReviewDoneByAccountName(accountid, account.accountname, "ACCOUNT_CREATION_SUCCESS");
+        if(!accountreviewdone) {
+          await this.AddAccountToReviewDone(
+            taskid,
+            account.accountname,
+            account,
+            original_input,
+            userid,
+            "Account created successfully",
+            {},
+            "ACCOUNT_CREATION_SUCCESS"
+          );
+        }
+     }
+    } else {
+      account =
+        await this.platformSvcI.GetAccountByName(accountname);
+        if (account) {
+          createaccount = false;
+          accountid = account.accountid;
+        }
+    }
+    if (createaccount) {
+      const accountRes = await this.TaskCreateAccount(
+        taskid,
+        accountname,
+        userid,
+        original_input
+      );
+      accountid = accountRes.accountid;
+      account = accountRes.account;
+    }
 
     // Create user
     let user = null;
-    if (existingmobile !== null || existingemail !== null) {
+    if (existingmobile !== null && existingemail !== null) {
       user = await this.userSvcI.GetUserDetails(
-        existingmobile || existingemail
+        existingemail
       );
       const userinfotabledata = await this.pUserSvcI.GetUserInfo(user.userid);
       await this.handleUserInfoUpdate(
@@ -1736,10 +1789,28 @@ export default class PUserHdlrImpl {
         customergender,
         userid
       );
-    } else {
+      action = "USER_ALREADY_EXISTS";
+    } else if (existingmobile !== null && existingemail === null) {
+      user = await this.userSvcI.GetUserDetails(
+        existingmobile
+      );
+      const userinfotabledata = await this.pUserSvcI.GetUserInfo(user.userid);
+      await this.handleUserInfoUpdate(
+        user.userid,
+        userinfotabledata,
+        customeraddress,
+        customeraddresscity,
+        customeraddresscountry,
+        customeraddresspincode,
+        customerdateofbirth,
+        customergender,
+        userid
+      );
+      action = "USER_ALREADY_EXISTS";
+   } else {
       user = await this.TaskCreateUser(
         taskid,
-        "email",
+        null,//usertype
         userid,
         original_input,
         usermobile,
@@ -1779,23 +1850,25 @@ export default class PUserHdlrImpl {
           {}
         );
       }
+      action = "USER_CREATED";
     }
 
     // Add user to account
     const userAdditionResult = await this.handleUserAdditionToAccount(
       userid,
-      customercontactemail,
+      usermobile,
       accountid,
       taskid,
       accountname,
       original_input,
-      user.userid
+      user.userid,
+      userrole
     );
     if (userAdditionResult) return userAdditionResult;
     await this.AddAccountToReviewDone(
       taskid,
       accountname,
-      accountRes,
+      account,
       original_input,
       userid,
       "User assignment successful",
@@ -1819,7 +1892,7 @@ export default class PUserHdlrImpl {
     await this.AddAccountToReviewDone(
       taskid,
       accountname,
-      accountRes,
+      account,
       original_input,
       userid,
       "Vehicle assignment successful",
@@ -1830,146 +1903,7 @@ export default class PUserHdlrImpl {
     return {
       userid: user.userid,
       accountid: accountid,
-      status: "ONBOARDED_SUCCESS",
-      message:
-        "Account and User created. User and Vehicle assigned to Account.",
-    };
-  }
-
-  // Function to handle existing corporate account
-  async handleExistingCorporateAccount(
-    taskid,
-    existingaccount,
-    existingmobile,
-    existingemail,
-    usermobile,
-    processedcustomername,
-    customercontactemail,
-    customeraddress,
-    customeraddresscity,
-    customeraddresscountry,
-    customeraddresspincode,
-    customerdateofbirth,
-    customergender,
-    vehiclemobile,
-    vin,
-    licenseplate,
-    userid,
-    original_input
-  ) {
-    const accountname = `${processedcustomername} ${usermobile}`;
-    let user = null;
-    if (existingmobile !== null || existingemail !== null) {
-      user = await this.userSvcI.GetUserDetails(
-        existingmobile || existingemail
-      );
-      const userinfotabledata = await this.pUserSvcI.GetUserInfo(user.userid);
-      await this.handleUserInfoUpdate(
-        user.userid,
-        userinfotabledata,
-        customeraddress,
-        customeraddresscity,
-        customeraddresscountry,
-        customeraddresspincode,
-        customerdateofbirth,
-        customergender,
-        userid
-      );
-    } else {
-      user = await this.TaskCreateUser(
-        taskid,
-        "email",
-        userid,
-        original_input,
-        usermobile,
-        processedcustomername,
-        customercontactemail,
-        {
-          address: customeraddress,
-          city: customeraddresscity,
-          country: customeraddresscountry,
-          pincode: customeraddresspincode,
-          email: customercontactemail,
-          vehiclemobile: vehiclemobile,
-          dateofbirth: customerdateofbirth,
-          gender: customergender,
-          displayname: processedcustomername,
-          mobile: usermobile,
-        },
-        existingaccount.accountid
-      );
-      // Add user info
-      if (user) {
-        await this.AddUserInfo(
-          user.userid,
-          customeraddress,
-          customeraddresscity,
-          customeraddresscountry,
-          customeraddresspincode,
-          customerdateofbirth,
-          customergender,
-          userid
-        );
-        await this.AddUserToReviewDone(
-          taskid,
-          user,
-          userid,
-          original_input,
-          {}
-        );
-      }
-    }
-
-    // Add user to account
-    const userAdditionResult = await this.handleUserAdditionToAccount(
-      userid,
-      usermobile,
-      existingaccount.accountid,
-      taskid,
-      accountname,
-      original_input,
-      user.userid
-    );
-    if (userAdditionResult) return userAdditionResult;
-    await this.AddAccountToReviewDone(
-      taskid,
-      accountname,
-      existingaccount,
-      original_input,
-      userid,
-      "User assignment successful",
-      {},
-      "USER_ASSIGNMENT_SUCCESS"
-    );
-
-    // Handle vehicle addition
-    const vehicleResult = await this.handleVehicleAddition(
-      existingaccount.accountid,
-      vin,
-      licenseplate,
-      vehiclemobile,
-      userid,
-      taskid,
-      accountname,
-      original_input,
-      user.userid
-    );
-    if (vehicleResult) return vehicleResult;
-
-    await this.AddAccountToReviewDone(
-      taskid,
-      accountname,
-      existingaccount,
-      original_input,
-      userid,
-      "Vehicle assignment successful",
-      {},
-      "VEHICLE_ASSIGNMENT_SUCCESS"
-    );
-
-    return {
-      userid: user.userid,
-      accountid: existingaccount.accountid,
+      userCreationAction: action,
       status: "ONBOARDED_SUCCESS",
       message:
         "Account and User created. User and Vehicle assigned to Account.",
@@ -2020,7 +1954,9 @@ export default class PUserHdlrImpl {
     nemo_user_mobile,
     type,
     taskid = null,
-    accountname = null
+    accountname = null,
+    nemo3_account_id = null,
+    userrole = "viewer"
   ) => {
     this.onboardingType = type;
     const processedcustomername = this.preprocessingname(customername);
@@ -2029,10 +1965,16 @@ export default class PUserHdlrImpl {
     if (accountname === null) {
       accountname = `${processedcustomername} ${usermobile}`;
     }
-    if (taskid === null) {
+    if (taskid === null && customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL) {
       const existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(accountname, vin);
       if (existingtask) {
         taskid = existingtask;
+      } else {
+        taskid = uuidv4();
+      }
+    } else if (taskid === null && customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
+      if (nemo3_account_id) {
+        taskid = nemo3_account_id;
       } else {
         taskid = uuidv4();
       }
@@ -2128,56 +2070,41 @@ export default class PUserHdlrImpl {
         );
       }
     } else if (customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
-      accountname = processedcustomername;
+      if (nemo3_account_id) {
+        original_input.nemo3_account_id = nemo3_account_id;
+      } else {
+        nemo3_account_id = original_input.nemo3_account_id;
+      }
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
       const existingemail =
         await this.userSvcI.CheckEmailExists(customercontactemail);
-      const existingaccount =
-        await this.platformSvcI.GetAccountByName(accountname);
-
-      if (existingaccount === null) {
-        return await this.handleCorporateCustomerOnboarding(
-          taskid,
-          accountname,
-          userid,
-          original_input,
-          existingmobile,
-          existingemail,
-          usermobile,
-          processedcustomername,
-          customercontactemail,
-          customeraddress,
-          customeraddresscity,
-          customeraddresscountry,
-          customeraddresspincode,
-          customerdateofbirth,
-          customergender,
-          vehiclemobile,
-          vin,
-          licenseplate
-        );
-      } else if (existingaccount !== null) {
-        return await this.handleExistingCorporateAccount(
-          taskid,
-          existingaccount,
-          existingmobile,
-          existingemail,
-          usermobile,
-          processedcustomername,
-          customercontactemail,
-          customeraddress,
-          customeraddresscity,
-          customeraddresscountry,
-          customeraddresspincode,
-          customerdateofbirth,
-          customergender,
-          vehiclemobile,
-          vin,
-          licenseplate,
-          userid,
-          original_input
-        );
+      const manualreview = await this.handleManualreviewCases(original_input, existingmobile, existingemail, userid, taskid);
+      if (manualreview) {
+        return manualreview;
       }
+      accountname = processedcustomername;
+      return await this.handleCorporateCustomerOnboarding(
+        taskid,
+        accountname,
+        userid,
+        original_input,
+        existingmobile,
+        existingemail,
+        usermobile,
+        processedcustomername,
+        customercontactemail,
+        customeraddress,
+        customeraddresscity,
+        customeraddresscountry,
+        customeraddresspincode,
+        customerdateofbirth,
+        customergender,
+        vehiclemobile,
+        vin,
+        licenseplate,
+        nemo3_account_id,
+        userrole
+      )
     }
   };
 
@@ -2417,4 +2344,154 @@ export default class PUserHdlrImpl {
       throw error;
     }
   };
+
+  handleManualreviewCases = async (original_input, existingmobile, existingemail, userid, taskid) => {
+    const review_data = {
+      address: original_input.customeraddress,
+      city: original_input.customeraddresscity,
+      country: original_input.customeraddresscountry,
+      pincode: original_input.customeraddresspincode,
+      email: original_input.customercontactemail,
+      vehiclemobile: original_input.customercontactmobile,
+      dateofbirth: original_input.customerdateofbirth,
+      gender: original_input.customergender,
+      displayname: original_input.customername,
+      mobile: original_input.nemo_user_mobile,
+    };
+    let message = null;
+    let needreview = false;
+      
+    let user = null;
+    if (existingemail !== null) {
+      user = await this.userSvcI.GetUserDetails(existingemail);
+    } else if (existingmobile !== null) {
+      user = await this.userSvcI.GetUserDetails(existingmobile);
+    }
+    if (existingemail !== null && existingmobile !== null && existingemail !== existingmobile) {
+      message = "User creation failed. Mobile and email user mismatch.";
+      needreview = true;
+    } else if (existingemail !== null && existingmobile !== null && user.displayname !== original_input.customername) {
+      message = "User creation failed. User name mismatch, manual review required.";
+      needreview = true;
+    } else if (existingemail === null && existingmobile !== null && user.displayname !== original_input.customername) {
+      message = "User creation failed. User email and name mismatch, manual review required.";
+      needreview = true;
+    } else if (existingemail !== null && existingmobile === null && user.displayname === original_input.customername) {
+      message = "User creation failed. User mobile and name mismatch, manual review required.";
+      needreview = true;
+    } else if (existingemail !== null && existingmobile === null && user.displayname !== original_input.customername) {
+      message = "User creation failed. User email and mobile mismatch, manual review required.";
+      needreview = true;
+    }
+
+    if (needreview) {
+      const pendinguser =
+            await this.pUserSvcI.GetPendingUserReviewById(taskid);
+        if (pendinguser) {
+          await this.pUserSvcI.UpdateReviewPendingUser(
+            pendinguser.userid,
+            {
+              displayname: original_input.customername,
+              userinfo: { mobile: original_input.nemo_user_mobile, email: original_input.customercontactemail },
+              review_data: review_data,
+              error_status: "USER_CREATION",
+              reason: message,
+              original_input: original_input,
+            },
+            userid
+          );
+        } else {
+          await this.AddUserToReviewPending(
+            taskid,
+            {
+              displayname: original_input.customername,
+              userinfo: { mobile: original_input.nemo_user_mobile, email: original_input.customercontactemail },
+              isenabled: false,
+              isdeleted: false,
+              isemailverified: false,
+              ismobileverified: false,
+              acceptedterms: {},
+            },
+            userid,
+            message,
+            null,
+            original_input,
+            review_data,
+            "USER_CREATION"
+          );
+        }
+        return {
+          accountid: original_input.accountid,
+          errcode: "USER_CREATION_FAILED",
+          status: "PENDING_USER_CREATION",
+          message: message,
+      };
+    }
+    return null;
+  }
+
+  CreateFmsUserLogic = async (displayname, email, mobile, createdby, accountid = null) => {
+    try{
+      let userid = uuidv4();
+      const password = "Nemo@123";
+      let hashedpassword = crypto.createHash('sha256').update(password).digest('hex');
+      let encryptedpassword = await EncryptPassword(hashedpassword);
+      let user = {
+        userid: userid,
+        displayname: displayname,
+        usertype: null,
+        userinfo: {email: email, mobile: mobile},
+        isenabled: true,
+        isdeleted: false,
+        isemailverified: false,
+        ismobileverified: false,
+      };
+      let userssoinfo = {
+        email: email,
+        password: encryptedpassword,
+        mobile: mobile,
+      };
+      let res = await this.userSvcI.CreateFmsUser(user, userssoinfo, createdby, accountid);
+      if (!res) {
+        this.logger.error("Failed to create user");
+        throw new Error("Failed to create user");
+      }
+
+      // TODO: there has to be auth svc integration here
+      //Register user with auth service
+      try {
+        let authres = await this.authSvcI.CreateConsumer(user.userid);
+
+        if (authres === undefined || authres === null || !authres) {
+          this.logger.error("Failed to create user in auth service");
+          // Rollback by deleting all user records
+          await this.userSvcI.DeleteUserRecordsByUserid(user.userid);
+          throw new Error("Failed to create user in auth service");
+        }
+
+        user.token = authres?.token;
+        user.refreshtoken = authres?.refreshtoken;
+      } catch (error) {
+        this.logger.error("Failed to register user with auth service", error);
+        // Rollback by deleting all user records
+        await this.userSvcI.DeleteUserRecordsByUserid(user.userid);
+        throw new Error("Failed to register user with auth service");
+      }
+
+      return {
+        userid: user.userid,
+        contact: {email: email, mobile: mobile},
+        displayname: displayname,
+        isemailverified: user.isemailverified,
+        ismobileverified: user.ismobileverified,
+        needsPasswordChange: user.needsPasswordChange,
+        usertoken: user.token,
+        refreshtoken: user.refreshtoken,
+      };
+    }catch (error) {
+      this.logger.error("CreateFmsUserLogic error:", error);
+      throw error;
+    }
+  };
+
 }

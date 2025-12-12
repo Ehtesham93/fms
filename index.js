@@ -28,6 +28,7 @@ import LivetrackingSvc from "./app/services/modules/livetracking/livetrackingsvc
 import TripsInsightSvc from "./app/services/modules/tripsinsights/tripsinsightssvc.js";
 import PlatformSvc from "./app/services/platformsvc/platformsvc.js";
 import UserSvc from "./app/services/usersvc/usersvc.js";
+import GeocodeSvc from "./app/services/external/geocodesvc/geocodesvc.js";
 import { Logger } from "./lib/nemo3-lib-observability/index.js";
 
 //setup logger
@@ -65,6 +66,7 @@ let livetrackingSvcI = new LivetrackingSvc(pgPoolI, servicelogger, config);
 let tripsInsightSvcI = new TripsInsightSvc(pgPoolI, servicelogger);
 let chargeInsightSvcI = new ChargeInsightSvc(pgPoolI, servicelogger);
 let fleetInsightSvcI = new FleetInsightSvc(pgPoolI, servicelogger);
+let geocodeSvcI = new GeocodeSvc(config, servicelogger);
 let emailSvcI = new EmailSvc(pgPoolI, config, servicelogger);
 emailSvcI.Start();
 
@@ -107,6 +109,9 @@ let livetrackingHdlrI = new LivetrackingHdlr(
   livetrackingSvcI,
   fmsAccountSvcI,
   userSvcI,
+  geocodeSvcI,
+  redisSvc,
+  platformSvcI,
   servicelogger,
   config
 );

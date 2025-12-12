@@ -7,9 +7,11 @@ import {
   FLEET_INVITE_TYPE,
   MOBILE_SSO,
   PASSWORD_EXPIRE_TIME,
+  VIEW_ROLE_ID,
 } from "../../utils/constant.js";
 import { markInviteAsExpired } from "../../utils/inviteUtil.js";
 const { EncryptPassword } = await import("../../utils/eccutil.js");
+import { addPaginationToQuery } from "../../utils/commonutil.js";
 
 export default class UserSvcDB {
   /**
@@ -535,16 +537,248 @@ export default class UserSvcDB {
     return true;
   }
 
-  async getAllUsers(offset, limit) {
+    async createFmsUser(user, userssoinfo, createdby, accountid = null) {
+      let currtime = new Date();
+      let [txclient, txnerr] = await this.pgPoolI.StartTransaction();
+      if (txnerr) {
+        throw txnerr;
+      }
+  
+      try {
+        let query = `
+                  INSERT INTO users (userid, displayname, usertype, userinfo, isenabled, isdeleted, isemailverified, ismobileverified, createdat, createdby, updatedat, updatedby) 
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+              `;
+        let result = await txclient.query(query, [
+          user.userid,
+          user.displayname,
+          user.usertype,
+          user.userinfo,
+          user.isenabled,
+          user.isdeleted,
+          user.isemailverified,
+          user.ismobileverified,
+          currtime,
+          createdby,
+          currtime,
+          createdby,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create user");
+        }
+  
+        if (userssoinfo.email) {
+          query = `
+                      INSERT INTO user_sso (userid, ssotype, ssoid, updatedat) VALUES ($1, $2, $3, $4)
+                  `;
+  
+          result = await txclient.query(query, [
+            user.userid,
+            EMAIL_PWD_SSO,
+            userssoinfo.email,
+            currtime,
+          ]);
+          if (result.rowCount !== 1) {
+            throw new Error("Failed to create sso info for user");
+          }
+  
+          let passwordExpireTime = new Date(
+            currtime.getTime() + PASSWORD_EXPIRE_TIME * 24 * 60 * 60 * 1000
+          );
+  
+          query = `
+                      INSERT INTO email_pwd_sso (ssoid, password, userid, ssoinfo, passwordexpireat, createdat, updatedat) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                  `;
+          result = await txclient.query(query, [
+            userssoinfo.email,
+            userssoinfo.password,
+            user.userid,
+            {},
+            passwordExpireTime,
+            currtime,
+            currtime,
+          ]);
+          if (result.rowCount !== 1) {
+            throw new Error("Failed to create email password sso info for user");
+          }
+        }
+  
+        if (userssoinfo.mobile) {
+          query = `
+                      INSERT INTO user_sso (userid, ssotype, ssoid, updatedat) VALUES ($1, $2, $3, $4)
+                  `;
+          result = await txclient.query(query, [
+            user.userid,
+            MOBILE_SSO,
+            userssoinfo.mobile,
+            currtime,
+          ]);
+          if (result.rowCount !== 1) {
+            throw new Error("Failed to create sso info for user");
+          }
+  
+          query = `
+                      INSERT INTO mobile_sso (ssoid, userid, ssoinfo, createdat, updatedat) VALUES ($1, $2, $3, $4, $5)
+                  `;
+          result = await txclient.query(query, [
+            userssoinfo.mobile,
+            user.userid,
+            {},
+            currtime,
+            currtime,
+          ]);
+          if (result.rowCount !== 1) {
+            throw new Error("Failed to create mobile sso info for user");
+          }
+        }
+        if (accountid) {
+          await this.addUserToAccountWithRole(user.userid, accountid, "admin");
+        }
+  
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+      } catch (err) {
+        let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+        if (rollbackerr) {
+          throw rollbackerr;
+        }
+        throw err;
+      }
+      return true;
+    }
+
+  async addUserToAccountWithRole(userid, accountid, role) {
     try {
-      let query = `
-            SELECT userid, displayname, usertype, userinfo, isenabled, isdeleted, isemailverified, ismobileverified, createdat, createdby, updatedat, updatedby FROM users
-            WHERE isdeleted = false
-            ORDER BY userid
-            LIMIT $1 OFFSET $2
+      let [txclient, txnerr] = await this.pgPoolI.StartTransaction();
+      if (txnerr) {
+        throw txnerr;
+      }
+      let query = `SELECT * FROM user_fleet WHERE userid = $1 AND accountid = $2`;
+      let userfleetresult = await txclient.query(query, [userid, accountid]);
+      if (userfleetresult.rowCount > 0) {
+        return true;
+      }
+      
+      let rootfleetquery = `
+        SELECT fleetid FROM account_fleet 
+        WHERE accountid = $1 AND isroot = true
+      `;
+      let rootfleetresult = await txclient.query(rootfleetquery, [accountid]);
+      if (rootfleetresult.rowCount !== 1) {
+        throw new Error("Root fleet not found for account");
+      }
+
+      
+      let rootfleetid = rootfleetresult.rows[0].fleetid;
+      query = `
+                INSERT INTO user_fleet (userid, accountid, fleetid) VALUES ($1, $2, $3)
+            `;
+      let result = await txclient.query(query, [
+        userid,
+        accountid,
+        rootfleetid,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to create user fleet");
+      }
+      let roleid = null;
+      if (role === "admin") {
+        roleid = ADMIN_ROLE_ID;
+      } else if (role === "viewer") {
+        roleid = VIEW_ROLE_ID;
+      } else {
+        throw new Error("Invalid role");
+      }
+
+      // before INSERT INTO fleet_user_role …
+      const roleCheck = await txclient.query(
+        `SELECT roleid FROM roles WHERE accountid = $1 AND roleid = $2`,
+        [accountid, roleid]
+      );
+      if (roleCheck.rowCount !== 1) {
+        throw new Error(`Role ${roleid} not found for account ${accountid}`);
+      }
+
+      // Add user to fleet_user_role table with roleid
+      query = `
+        INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
+      `;
+      result = await txclient.query(query, [
+        accountid,
+        rootfleetid,
+        userid,
+        roleid,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to add user to fleet role");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+
+      return true;
+    }
+    catch (error) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
+      throw error;
+    }
+  }
+
+  async getAllUsers(searchtext, offset, limit) {
+    try {
+      let baseQuery = `
+            SELECT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, u.ismobileverified, u.createdat, u.createdby, u.updatedat, u.updatedby, eps.ssoid as email, mps.ssoid as mobile 
+            FROM users u
+            LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+            LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+            WHERE u.isdeleted = false AND (
+              UPPER(u.displayname) LIKE '%' || $1 || '%' OR
+              eps.ssoid LIKE '%' || $1 || '%' OR
+              UPPER(mps.ssoid) LIKE '%' || $1 || '%'
+            )
+            ORDER BY u.updatedat DESC
         `;
-      let result = await this.pgPoolI.Query(query, [limit, offset]);
-      return result.rows;
+      let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+      let result = await this.pgPoolI.Query(query, params);
+      if (result.rowCount === 0) {
+        return {
+          users: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `SELECT COUNT(*) FROM users u
+      LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+      LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+      WHERE u.isdeleted = false AND (
+        UPPER(u.displayname) LIKE '%' || $1 || '%' OR
+        eps.ssoid LIKE '%' || $1 || '%' OR
+        UPPER(mps.ssoid) LIKE '%' || $1 || '%'
+      )`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        users: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: nextOffset < totalcount,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw new Error("Failed to fetch users");
     }
@@ -574,9 +808,9 @@ export default class UserSvcDB {
     }
   }
 
-  async getAccountFleetUsers(accountid) {
+  async getAccountFleetUsers(accountid, searchtext, offset, limit) {
     try {
-      let query = `
+      let baseQuery = `
         SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, 
         u.isemailverified, u.ismobileverified, u.createdat, u1.displayname as createdby, u.updatedat, u2.displayname as updatedby,
         eps.ssoid as email, mps.ssoid as mobile FROM users u
@@ -585,19 +819,56 @@ export default class UserSvcDB {
         LEFT JOIN mobile_sso mps ON u.userid = mps.userid
         LEFT JOIN users u1 ON u.createdby = u1.userid
         LEFT JOIN users u2 ON u.updatedby = u2.userid
-        WHERE fur.accountid = $1 AND u.isdeleted = false
-        ORDER BY u.createdat DESC
+        WHERE fur.accountid = $1 AND u.isdeleted = false AND (
+          UPPER(u.displayname) LIKE '%' || $2 || '%' OR
+          eps.ssoid LIKE '%' || $2 || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+        )
+        ORDER BY u.updatedat DESC
     `;
-      let result = await this.pgPoolI.Query(query, [accountid]);
-      return result.rows;
+      let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [accountid, searchtext]);
+      let result = await this.pgPoolI.Query(query, params);
+      if (result.rowCount === 0) {
+        return {
+          users: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `SELECT COUNT(*) FROM users u
+      JOIN fleet_user_role fur ON u.userid = fur.userid
+      LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+      LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+      WHERE fur.accountid = $1 AND u.isdeleted = false AND (
+        UPPER(u.displayname) LIKE '%' || $2 || '%' OR
+        eps.ssoid LIKE '%' || $2 || '%' OR
+        UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+      )`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [accountid, searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        users: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: nextOffset < totalcount,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw new Error("Failed to fetch account fleet users");
     }
   }
 
-  async getNonPlatformUsers(platformaccountid) {
+  async getNonPlatformUsers(platformaccountid, searchtext, offset, limit) {
     try {
-      let query = `
+      let baseQuery = `
             SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, 
             u.ismobileverified, u.createdat, u2.displayname as createdby, u.updatedat, u3.displayname as updatedby,
             eps.ssoid as email, mps.ssoid as mobile FROM users u
@@ -606,11 +877,48 @@ export default class UserSvcDB {
             LEFT JOIN mobile_sso mps ON u.userid = mps.userid
             LEFT JOIN users u2 ON u.createdby = u2.userid
             LEFT JOIN users u3 ON u.updatedby = u3.userid
-            WHERE fur.accountid != $1 AND u.isdeleted = false
-            ORDER BY u.createdat DESC
+            WHERE fur.accountid != $1 AND u.isdeleted = false AND (
+              UPPER(u.displayname) LIKE '%' || $2 || '%' OR
+              eps.ssoid LIKE '%' || $2 || '%' OR
+              UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+            )
+            ORDER BY u.updatedat DESC
         `;
-      let result = await this.pgPoolI.Query(query, [platformaccountid]);
-      return result.rows;
+      let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [platformaccountid, searchtext]);
+      let result = await this.pgPoolI.Query(query, params);
+      if (result.rowCount === 0) {
+        return {
+          users: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `SELECT COUNT(*) FROM users u
+      JOIN fleet_user_role fur ON u.userid = fur.userid
+      LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+      LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+      WHERE fur.accountid != $1 AND u.isdeleted = false AND (
+        UPPER(u.displayname) LIKE '%' || $2 || '%' OR
+        eps.ssoid LIKE '%' || $2 || '%' OR
+        UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+      )`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [platformaccountid, searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        users: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: nextOffset < totalcount,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw new Error("Failed to fetch non-platform users");
     }
@@ -1316,11 +1624,11 @@ export default class UserSvcDB {
 
       // Check if user is already added to this account
       query = `
-        SELECT userid FROM user_fleet WHERE userid = $1 AND accountid = $2
+        SELECT userid FROM user_fleet WHERE userid = $1 AND accountid = $2 AND fleetid = $3
       `;
-      result = await txclient.query(query, [userid, accountid]);
+      result = await txclient.query(query, [userid, accountid, fleetid]);
       if (result.rowCount > 0) {
-        throw new Error("User is already added to this account");
+        throw new Error("User is already added to this account and fleet");
       }
 
       // Add user to user_fleet table

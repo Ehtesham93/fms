@@ -120,6 +120,10 @@ export default class PlatformSvc {
     return await this.platformSvcDB.getAccountByName(accountname);
   }
 
+  async GetAccountById(accountid) {
+    return await this.platformSvcDB.getAccountById(accountid);
+  }
+
   async ListVehicles() {
     return await this.platformSvcDB.listVehicles();
   }
@@ -160,12 +164,12 @@ export default class PlatformSvc {
     return await this.platformSvcDB.removeFromPendingReview(vinno);
   }
 
-  async ListPendingVehicles() {
-    return await this.platformSvcDB.listPendingVehicles();
+  async ListPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection) {
+    return await this.platformSvcDB.listPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection);
   }
 
-  async ListDoneVehicles() {
-    return await this.platformSvcDB.listDoneVehicles();
+  async ListDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection) {
+    return await this.platformSvcDB.listDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection);
   }
 
   async GetAPIKey(platform, environment) {
@@ -228,5 +232,19 @@ export default class PlatformSvc {
 
   async ListAllVehicles() {
     return await this.platformSvcDB.listAllVehicles();
+  }
+
+  async GetVehicles(searchtext, offset, limit) {
+    return await this.platformSvcDB.getVehicles(searchtext, offset, limit);
+  }
+
+  async SearchVehicles(searchText, offset, limit) {
+    if (!searchText || searchText.trim().length === 0) {
+      throw new Error("Search text is required");
+    }
+    if (searchText.trim().length < 2) {
+      throw new Error("Search text must be at least 2 characters");
+    }
+    return await this.platformSvcDB.searchVehicles(searchText, offset, limit);
   }
 }

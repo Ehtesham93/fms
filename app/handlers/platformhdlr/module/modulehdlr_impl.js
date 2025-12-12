@@ -34,14 +34,11 @@ export default class ModuleHdlrImpl {
       createdby: createdby,
     };
     let res = await this.moduleSvcI.CreateModule(module);
-    if (res) {
-      let createdModule = await this.moduleSvcI.GetModuleInfo(moduleid);
-      await this.moduleSvcI.LogModuleHistory(createdModule, createdby);
-    }
-    else{
+    if (!res) {
       this.logger.error("Failed to create module");
       throw new Error("Failed to create module");
     }
+    
     return {
       moduleid: moduleid,
       module: module,
@@ -118,13 +115,9 @@ export default class ModuleHdlrImpl {
       processedFields,
       updatedby
     );
-    if (res) {
-      let updatedModule = await this.moduleSvcI.GetModuleInfo(moduleid);
-      await this.moduleSvcI.LogModuleHistory(updatedModule, updatedby);
-    }
-    else{
-      this.logger.error("Failed to fetch updated module");
-      throw new Error("Failed to fetch updated module");
+    if (!res) {
+      this.logger.error("Failed to update module");
+      throw new Error("Failed to update module");
     }
 
     return {
@@ -149,15 +142,7 @@ export default class ModuleHdlrImpl {
       moduleperminfo,
       createdby
     );
-    if (res) {
-      await this.moduleSvcI.LogModulePermHistory(
-        moduleid,
-        permid,
-        createdby,
-        { isenabled: isenabled }
-      );
-    }
-    else{
+    if (!res) {
       this.logger.error("Failed to add module permission");
       throw new Error("Failed to add module permission");
     }
@@ -214,18 +199,11 @@ export default class ModuleHdlrImpl {
       filteredFields,
       updatedby
     );
-    if (res) {
-      await this.moduleSvcI.LogModulePermHistory(
-        moduleid,
-        permid,
-        updatedby,
-        filteredFields
-      );
-    }
-    else{
+    if (!res) {
       this.logger.error("Failed to update module permission");
       throw new Error("Failed to update module permission");
     }
+ 
     // TOOD: why are we returning the updatedby name?
     const updatedbyname = await this.userSvcI.getUserName(updatedby);
 
@@ -239,20 +217,13 @@ export default class ModuleHdlrImpl {
   };
 
   DeleteModulePermLogic = async (moduleid, permid, updatedby) => {
-    let res = await this.moduleSvcI.DeleteModulePerm(moduleid, permid);
+    let res = await this.moduleSvcI.DeleteModulePerm(moduleid, permid, updatedby);
 
-    if (res) {
-      await this.moduleSvcI.LogModulePermHistory(
-        moduleid,
-        permid,
-        updatedby,
-        {}
-      );
-    }
-    else{
+    if (!res) {
       this.logger.error("Failed to delete module permission");
       throw new Error("Failed to delete module permission");
     }
+   
     return {
       moduleid: moduleid,
       permid: permid,
@@ -273,25 +244,15 @@ export default class ModuleHdlrImpl {
         "Cannot delete module. It is assigned to one or more packages"
       );
     }
-    let moduleinfo = await this.moduleSvcI.GetModuleInfo(moduleid);
     let res = await this.moduleSvcI.DeleteModule(moduleid, deletedby);
-    if (res) {
-      await this.moduleSvcI.LogModuleHistory(moduleinfo, deletedby);
-    }
-    else{
+    if (!res) {
+      this.logger.error("Failed to delete module");
       throw new Error("Failed to delete module");
     }
-
-    return {
-      moduleid: moduleid,
-      modulename: module.modulename,
-      deletedat: new Date(),
-      deletedby: deletedby,
-    };
   };
 
   GetModuleHistoryLogic = async ( starttime, endtime) => {
-    let history = await this.moduleSvcI.GetModuleHistory( starttime, endtime);
+    let history = await this.moduleSvcI.GetModuleHistory(starttime, endtime);
     if (!history) {
       history = [];
     }

@@ -67,18 +67,26 @@ export default class UserSvc {
     return await this.userSvcDB.createUser(user, userssoinfo, createdby);
   }
 
-  async GetAllUsers(offset, limit) {
-    return await this.userSvcDB.getAllUsers(offset, limit);
+  async CreateFmsUser(user, userssoinfo, createdby, accountid) {
+    return await this.userSvcDB.createFmsUser(user, userssoinfo, createdby, accountid);
   }
 
-  async GetPlatformUsers() {
+  async AddUserToAccountWithRole(userid, accountid, role) {
+    return await this.userSvcDB.addUserToAccountWithRole(userid, accountid, role);
+  }
+
+  async GetAllUsers(searchtext, offset, limit) {
+    return await this.userSvcDB.getAllUsers(searchtext, offset, limit);
+  }
+
+  async GetPlatformUsers(searchtext, offset, limit) {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    return await this.userSvcDB.getAccountFleetUsers(accountid);
+    return await this.userSvcDB.getAccountFleetUsers(accountid, searchtext, offset, limit);
   }
 
-  async GetAccountUsers() {
+  async GetAccountUsers(searchtext, offset, limit) {
     let platformaccountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    return await this.userSvcDB.getNonPlatformUsers(platformaccountid);
+    return await this.userSvcDB.getNonPlatformUsers(platformaccountid, searchtext, offset, limit);
   }
 
   async GetUserAccounts(userid) {

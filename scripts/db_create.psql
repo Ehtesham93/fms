@@ -367,6 +367,9 @@ CREATE TABLE IF NOT EXISTS
         isenabled boolean NOT NULL,
         updatedat timestamptz NOT NULL,
         updatedby uuid NOT NULL,
+        action text NOT NULL,
+        previousstate jsonb NOT NULL,
+        currentstate jsonb NOT NULL,
         PRIMARY KEY (moduleid, updatedat)
     );
 
@@ -378,6 +381,7 @@ CREATE TABLE IF NOT EXISTS
         modperminfo jsonb NOT NULL,
         updatedat timestamptz NOT NULL,
         updatedby uuid NOT NULL,
+        action text NOT NULL,
         PRIMARY KEY (moduleid, permid, updatedat)
     );
 
@@ -390,6 +394,9 @@ CREATE TABLE IF NOT EXISTS
         isenabled boolean NOT NULL,
         updatedat timestamptz NOT NULL,
         updatedby uuid NOT NULL,
+        previousstate jsonb NOT NULL,
+        currentstate jsonb NOT NULL,
+        action text NOT NULL,
         PRIMARY KEY (pkgid, updatedat)
     );
 
@@ -399,7 +406,34 @@ CREATE TABLE IF NOT EXISTS
         moduleid uuid NOT NULL,
         updatedat timestamptz NOT NULL,
         updatedby uuid NOT NULL,
+        action text NOT NULL,
         PRIMARY KEY (pkgid, moduleid, updatedat)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    role_history (
+        roleid uuid NOT NULL,
+        rolename text NOT NULL,
+        roletype text NOT NULL,
+        isenabled boolean NOT NULL,
+        action text NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        previousstate jsonb NOT NULL,
+        currentstate jsonb NOT NULL,
+        PRIMARY KEY (roleid, updatedat)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    role_perm_history (
+        accountid uuid NOT NULL,
+        roleid uuid NOT NULL,
+        permid text NOT NULL,
+        isenabled boolean NOT NULL,
+        action text NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        PRIMARY KEY (roleid, permid, updatedat)
     );
 
 CREATE TABLE IF NOT EXISTS
@@ -1294,6 +1328,278 @@ CREATE INDEX IF NOT EXISTS idx_userfleet_accountid_fleetid_userid ON user_fleet 
 
 CREATE INDEX IF NOT EXISTS idx_sos_contacts_priority ON sos_contacts (priority);
 
+
+-- Vehicle table indexes for search api
+-- GIN Trigram indexes for text search (case-insensitive ILIKE queries) on vehicle table
+CREATE INDEX CONCURRENTLY idx_vehicle_vinno_trgm 
+ON vehicle USING gin (upper(vinno) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_vehicle_modelcode_trgm 
+ON vehicle USING gin (upper(modelcode) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_vehicle_license_plate_trgm 
+ON vehicle USING gin (upper(license_plate) gin_trgm_ops) WHERE license_plate IS NOT NULL;
+
+CREATE INDEX CONCURRENTLY idx_vehicle_dealer_trgm 
+ON vehicle USING gin (upper(dealer) gin_trgm_ops) WHERE dealer IS NOT NULL;
+
+CREATE INDEX CONCURRENTLY idx_vehicle_city_trgm 
+ON vehicle USING gin (upper(vehicle_city) gin_trgm_ops) WHERE vehicle_city IS NOT NULL;
+
+CREATE INDEX CONCURRENTLY idx_vehicle_color_trgm 
+ON vehicle USING gin (upper(color) gin_trgm_ops) WHERE color IS NOT NULL;
+
+-- B-tree indexes for ordering on createdat and updatedat
+CREATE INDEX CONCURRENTLY idx_vehicle_createdat_vinno 
+ON vehicle USING btree (createdat DESC, vinno DESC);
+
+CREATE INDEX CONCURRENTLY idx_vehicle_updatedat_vinno 
+ON vehicle USING btree (updatedat DESC, vinno DESC);
+
+-- Vehicle model table indexes for search api
+-- GIN Trigram indexes for text search (case-insensitive ILIKE queries) on vehicle_model table
+CREATE INDEX CONCURRENTLY idx_vehicle_model_modelname_trgm 
+ON vehicle_model USING gin (upper(modelname) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_vehicle_model_modelvariant_trgm 
+ON vehicle_model USING gin (upper(modelvariant) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_vehicle_model_modeldisplayname_trgm 
+ON vehicle_model USING gin (upper(modeldisplayname) gin_trgm_ops);
+
+-- B-tree indexes for ordering on createdat and updatedat
+CREATE INDEX CONCURRENTLY idx_vehicle_model_createdat_modelcode 
+ON vehicle_model USING btree (createdat DESC, modelcode DESC);
+
+CREATE INDEX CONCURRENTLY idx_vehicle_model_updatedat_modelcode 
+ON vehicle_model USING btree (updatedat DESC, modelcode DESC);z
+
+
+-- Enable pg_trgm extension if not already enabled (required for trigram indexes)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- GIN Trigram indexes for text search (case-insensitive ILIKE queries)
+CREATE INDEX CONCURRENTLY idx_rdv_vinno_trgm 
+ON reviewdonevehicle USING gin (upper(vinno) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_modelcode_trgm 
+ON reviewdonevehicle USING gin (upper(modelcode) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_vehiclevariant_trgm 
+ON reviewdonevehicle USING gin (upper(vehiclevariant) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_vehiclemodel_trgm 
+ON reviewdonevehicle USING gin (upper(vehiclemodel) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_mobile_trgm 
+ON reviewdonevehicle USING gin (upper(mobile) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_license_plate_trgm 
+ON reviewdonevehicle USING gin (upper(license_plate) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_color_trgm 
+ON reviewdonevehicle USING gin (upper(color) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_vehicle_city_trgm 
+ON reviewdonevehicle USING gin (upper(vehicle_city) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_dealer_trgm 
+ON reviewdonevehicle USING gin (upper(dealer) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdv_engineno_trgm 
+ON reviewdonevehicle USING gin (upper(engineno) gin_trgm_ops);
+
+-- B-tree index for ordering with included columns (covers the ORDER BY and common SELECT fields)
+CREATE INDEX CONCURRENTLY idx_rdv_updatedat_vinno 
+ON reviewdonevehicle USING btree (updatedat DESC, vinno DESC) 
+INCLUDE (modelcode, vehiclevariant, vehiclemodel, mobile, license_plate, color);
+
+
+-- Indexes for reviewpendingaccount table
+
+-- GIN Trigram indexes for text search (case-insensitive LIKE queries)
+CREATE INDEX CONCURRENTLY idx_rpa_accountname_trgm 
+ON reviewpendingaccount USING gin (upper(accountname) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rpa_mobile_trgm 
+ON reviewpendingaccount USING gin (upper(mobile) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rpa_status_trgm 
+ON reviewpendingaccount USING gin (upper(status) gin_trgm_ops);
+
+-- B-tree index for ordering (default orderbyfield is 'createdat')
+CREATE INDEX CONCURRENTLY idx_rpa_createdat_accountid 
+ON reviewpendingaccount USING btree (createdat DESC, accountid DESC) 
+INCLUDE (accountname, mobile, status);
+
+-- Indexes for reviewdoneaccount table
+
+-- GIN Trigram indexes for text search (case-insensitive LIKE queries)
+CREATE INDEX CONCURRENTLY idx_rda_accountname_trgm 
+ON reviewdoneaccount USING gin (upper(accountname) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rda_mobile_trgm 
+ON reviewdoneaccount USING gin (upper(mobile) gin_trgm_ops);
+
+-- B-tree index for ordering (default orderbyfield is 'reviewed_at')
+CREATE INDEX CONCURRENTLY idx_rda_reviewed_at_accountid 
+ON reviewdoneaccount USING btree (reviewed_at DESC, accountid DESC) 
+INCLUDE (accountname, mobile, original_status);
+
+-- Indexes for reviewpendinguser table
+
+-- GIN Trigram indexes for text search (case-insensitive LIKE queries)
+CREATE INDEX CONCURRENTLY idx_rpu_displayname_trgm 
+ON reviewpendinguser USING gin (upper(displayname) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rpu_mobile_trgm 
+ON reviewpendinguser USING gin (upper(mobile) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rpu_email_trgm 
+ON reviewpendinguser USING gin (upper(email) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rpu_status_trgm 
+ON reviewpendinguser USING gin (upper(status) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rpu_gender_trgm 
+ON reviewpendinguser USING gin (upper(gender) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rpu_vehiclemobile_trgm 
+ON reviewpendinguser USING gin (upper(vehiclemobile) gin_trgm_ops);
+
+-- B-tree index for ordering (default orderbyfield is 'createdat')
+CREATE INDEX CONCURRENTLY idx_rpu_createdat_userid 
+ON reviewpendinguser USING btree (createdat DESC, userid DESC) 
+INCLUDE (displayname, mobile, email, status, gender, vehiclemobile);
+
+-- Indexes for reviewdoneuser table
+
+-- GIN Trigram indexes for text search (case-insensitive LIKE queries)
+CREATE INDEX CONCURRENTLY idx_rdu_displayname_trgm 
+ON reviewdoneuser USING gin (upper(displayname) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdu_mobile_trgm 
+ON reviewdoneuser USING gin (upper(mobile) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdu_email_trgm 
+ON reviewdoneuser USING gin (upper(email) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdu_gender_trgm 
+ON reviewdoneuser USING gin (upper(gender) gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY idx_rdu_vehiclemobile_trgm 
+ON reviewdoneuser USING gin (upper(vehiclemobile) gin_trgm_ops);
+
+-- B-tree index for ordering (default orderbyfield is 'reviewed_at')
+CREATE INDEX CONCURRENTLY idx_rdu_reviewed_at_userid 
+ON reviewdoneuser USING btree (reviewed_at DESC, userid DESC) 
+INCLUDE (displayname, mobile, email, gender, vehiclemobile);
+
+
+-- Enable pg_trgm extension if not already enabled (required for trigram indexes)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- GIN Trigram indexes for text search on account table
+CREATE INDEX CONCURRENTLY idx_account_accountname_trgm 
+ON account USING gin (upper(accountname) gin_trgm_ops)
+WHERE accounttype = 'customer' AND isdeleted = false;
+
+-- GIN Trigram indexes for text search on package table
+CREATE INDEX CONCURRENTLY idx_package_pkgname_trgm 
+ON package USING gin (upper(pkgname) gin_trgm_ops);
+
+-- GIN Trigram indexes for text search on users table (displayname)
+CREATE INDEX CONCURRENTLY idx_users_displayname_trgm 
+ON users USING gin (upper(displayname) gin_trgm_ops)
+WHERE isdeleted = false;
+
+-- GIN Trigram indexes for text search on fleet_vehicle table (vinno)
+CREATE INDEX CONCURRENTLY idx_fleet_vehicle_vinno_trgm 
+ON fleet_vehicle USING gin (upper(vinno) gin_trgm_ops);
+
+-- B-tree index for account_credits.credits (for numeric search, though we're casting to text)
+-- Note: For numeric search, a regular btree index is better, but since we're casting to text in the query,
+-- we might want to consider a functional index or just rely on the primary key
+CREATE INDEX CONCURRENTLY idx_account_credits_credits 
+ON account_credits USING btree (credits);
+
+-- B-tree indexes for ordering (already exists for account.createdat, but ensure it's optimized)
+-- The existing index idx_account_active_createdat_desc should work, but we can verify it covers our needs
+
+-- Additional indexes for join performance
+CREATE INDEX CONCURRENTLY idx_account_package_subscription_accountid 
+ON account_package_subscription (accountid);
+
+CREATE INDEX CONCURRENTLY idx_fleet_vehicle_accountid_fleetid 
+ON fleet_vehicle (accountid, fleetid);
+
+CREATE INDEX CONCURRENTLY idx_fleet_user_role_accountid 
+ON fleet_user_role (accountid);
+
+
+-- Indexes for account table (main table - already has createdat index, adding updatedat)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_updatedat_desc 
+ON account (updatedat DESC)
+WHERE accounttype = 'customer' AND isdeleted = false;
+
+-- Indexes for package table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_package_createdat_desc 
+ON package (createdat DESC)
+WHERE isenabled = true;
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_package_updatedat_desc 
+ON package (updatedat DESC)
+WHERE isenabled = true;
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_updatedat_desc 
+ON users (updatedat DESC)
+WHERE isdeleted = false;
+
+-- Indexes for fleet_vehicle table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fleet_vehicle_updatedat_desc 
+ON fleet_vehicle (updatedat DESC);
+
+-- Indexes for account_package_subscription table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_package_subscription_createdat_desc 
+ON account_package_subscription (createdat DESC);
+
+-- Indexes for account_fleet table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_fleet_createdat_desc 
+ON account_fleet (createdat DESC);
+
+
+-- GIN Trigram indexes for text search on users table (displayname/username)
+CREATE INDEX CONCURRENTLY idx_users_displayname_trgm 
+ON users USING gin (upper(displayname) gin_trgm_ops)
+WHERE isdeleted = false;
+
+-- GIN Trigram indexes for text search on email_pwd_sso table (email)
+CREATE INDEX CONCURRENTLY idx_email_pwd_sso_ssoid_trgm 
+ON email_pwd_sso USING gin (upper(ssoid) gin_trgm_ops);
+
+-- GIN Trigram indexes for text search on mobile_sso table (mobile)
+CREATE INDEX CONCURRENTLY idx_mobile_sso_ssoid_trgm 
+ON mobile_sso USING gin (upper(ssoid) gin_trgm_ops);
+
+-- B-tree indexes for ordering on users table (createdat and updatedat)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_createdat_desc 
+ON users (createdat DESC)
+WHERE isdeleted = false;
+
+-- B-tree indexes for ordering on email_pwd_sso table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_email_pwd_sso_createdat_desc 
+ON email_pwd_sso (createdat DESC);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_email_pwd_sso_updatedat_desc 
+ON email_pwd_sso (updatedat DESC);
+
+-- B-tree indexes for ordering on mobile_sso table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_mobile_sso_createdat_desc 
+ON mobile_sso (createdat DESC);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_mobile_sso_updatedat_desc 
+ON mobile_sso (updatedat DESC);
+
 -- Unique indexes
 CREATE UNIQUE INDEX IF NOT EXISTS account_fleet_one_root_per_account ON account_fleet (accountid)
 WHERE
@@ -1491,3 +1797,150 @@ select c.accountid, c.fleetid, c.name as fleetname, c.path, af.isroot, af.create
     JOIN account_fleet af ON c.accountid = af.accountid AND c.fleetid = af.fleetid
     order by height
 $$;
+
+
+
+CREATE OR REPLACE FUNCTION populate_module_history()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    module_record RECORD;
+    current_state_jsonb jsonb;
+BEGIN
+    -- Clear existing data 
+    -- DELETE FROM module_history;
+    
+    -- Loop through each module
+    FOR module_record IN 
+        SELECT 
+            moduleid,
+            modulename,
+            moduletype,
+            modulecode,
+            moduleinfo,
+            creditspervehicleday,
+            priority,
+            isenabled,
+            createdat,
+            createdby
+        FROM module
+    LOOP
+        -- Build current state as jsonb object
+        current_state_jsonb := jsonb_build_object(
+            'moduleid', module_record.moduleid,
+            'modulename', module_record.modulename,
+            'moduletype', module_record.moduletype,
+            'modulecode', module_record.modulecode,
+            'moduleinfo', module_record.moduleinfo,
+            'creditspervehicleday', module_record.creditspervehicleday,
+            'priority', module_record.priority,
+            'isenabled', module_record.isenabled
+        );
+        
+        -- Insert history data for this module
+        INSERT INTO module_history (
+            moduleid,
+            modulename,
+            moduletype,
+            modulecode,
+            moduleinfo,
+            creditspervehicleday,
+            priority,
+            isenabled,
+            updatedat,
+            updatedby,
+            action,
+            previousstate,
+            currentstate
+        ) VALUES (
+            module_record.moduleid,
+            module_record.modulename,
+            module_record.moduletype,
+            module_record.modulecode,
+            module_record.moduleinfo,
+            module_record.creditspervehicleday,
+            module_record.priority,
+            module_record.isenabled,
+            module_record.createdat,  -- Use createdat as updatedat for initial entry
+            module_record.createdby,  -- Use createdby as updatedby for initial entry
+            'CREATE',                 -- Action type for initial creation
+            '{}'::jsonb,              -- Empty previous state (no previous state for initial creation)
+            current_state_jsonb       -- Current state with all module fields
+        );
+        
+    END LOOP;
+    
+    RAISE NOTICE 'Module history populated successfully';
+END;
+$$;
+
+-- Execute the function
+SELECT populate_module_history();
+
+
+CREATE OR REPLACE FUNCTION populate_package_history()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    package_record RECORD;
+    current_state_jsonb jsonb;
+BEGIN
+    -- Clear existing data 
+    -- DELETE FROM package_history;
+    
+    -- Loop through each package
+    FOR package_record IN 
+        SELECT 
+            pkgid,
+            pkgname,
+            pkgtype,
+            pkginfo,
+            isenabled,
+            createdat,
+            createdby
+        FROM package
+    LOOP
+        -- Build current state as jsonb object
+        current_state_jsonb := jsonb_build_object(
+            'pkgid', package_record.pkgid,
+            'pkgname', package_record.pkgname,
+            'pkgtype', package_record.pkgtype,
+            'pkginfo', package_record.pkginfo,
+            'isenabled', package_record.isenabled
+        );
+        
+        -- Insert history data for this package
+        INSERT INTO package_history (
+            pkgid,
+            pkgname,
+            pkgtype,
+            pkginfo,
+            isenabled,
+            updatedat,
+            updatedby,
+            action,
+            previousstate,
+            currentstate
+        ) VALUES (
+            package_record.pkgid,
+            package_record.pkgname,
+            package_record.pkgtype,
+            package_record.pkginfo,
+            package_record.isenabled,
+            package_record.createdat,  -- Use createdat as updatedat for initial entry
+            package_record.createdby,  -- Use createdby as updatedby for initial entry
+            'CREATE',                 -- Action type for initial creation
+            '{}'::jsonb,              -- Empty previous state (no previous state for initial creation)
+            current_state_jsonb       -- Current state with all package fields
+        );
+        
+    END LOOP;
+    
+    RAISE NOTICE 'Package history populated successfully';
+END;
+$$;
+
+-- Execute the function
+SELECT populate_package_history();

@@ -147,7 +147,7 @@ export default class TripsInsightSvcDB {
         const query = `
           SELECT 
             vin, starttime, endtime, startodo, endodo, startsoc, endsoc,
-            starttemp, endtemp, startlat, endlat, startlng, endlng,
+            starttemp, endtemp, startlat, endlat, startlng, endlng, startkwh, endkwh,
             startdte, enddte, boostduration, boostdist, boostsocusage, maxcurrent, maxvoltage,
             maxbattemp, maxspeed, maxmotortemp, movingtime,
             idletime, bmscyclenum, calcrange, startdata, enddata, proctime

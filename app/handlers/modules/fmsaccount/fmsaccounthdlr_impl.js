@@ -1208,10 +1208,26 @@ export default class fmsAccountHdlrImpl {
       }
     }
 
-    let subscribedVehiclesData =
-      await this.fmsAccountSvcI.GetSubscribedVehicles(accountid);
+    // let subscribedVehiclesData =
+    //   await this.fmsAccountSvcI.GetSubscribedVehicles(accountid);
+
+    const [subscribedVehiclesData, allvehiclessourceaccount] = await Promise.all([
+      this.fmsAccountSvcI.GetSubscribedVehicles(accountid),
+      this.fmsAccountSvcI.GetAllVehiclesSourceAccount(vinNumbers)
+    ]);
     if (!subscribedVehiclesData) {
       subscribedVehiclesData = [];
+    }
+
+    let sourceAccountMap = new Map();
+    if (allvehiclessourceaccount) {
+      for (let sourceAccount of allvehiclessourceaccount) {
+        sourceAccountMap.set(sourceAccount.vinno, {
+          sourceaccountid: sourceAccount.srcaccountid,
+          sourceaccountname: sourceAccount.accountname,
+          dstaccountid: sourceAccount.dstaccountid,
+        });
+      }
     }
 
     let subscriptionMap = new Map();
@@ -1226,6 +1242,8 @@ export default class fmsAccountHdlrImpl {
         endsat: subData.endsat,
         startsat: subData.startsat,
         lockedtill: subData.lockedtill,
+        sourceaccountid: subData.sourceaccountid,
+        sourceaccountname: subData.sourceaccountname,
       });
     }
 
@@ -1243,6 +1261,8 @@ export default class fmsAccountHdlrImpl {
         let subInfo = subscriptionMap.get(vehicle.vinno);
         subscribedVehicles.push({
           ...vehicle,
+          sourceaccountid: subInfo.sourceaccountid,
+          sourceaccountname: subInfo.sourceaccountname,
           issubscribed: true,
           isunsubscribable: subInfo.isunsubscribable,
           subscriptionstartsat: subInfo.startsat,
@@ -1255,6 +1275,8 @@ export default class fmsAccountHdlrImpl {
       } else {
         unsubscribedvehicles.push({
           ...vehicle,
+          sourceaccountid: sourceAccountMap.get(vehicle.vinno)?.sourceaccountid,
+          sourceaccountname: sourceAccountMap.get(vehicle.vinno)?.sourceaccountname,
           issubscribed: false,
           isunsubscribable: false,
           issubscribable: isConnected,
@@ -1568,7 +1590,12 @@ export default class fmsAccountHdlrImpl {
       starttime,
       endtime
     );
-    return history;
+    return {
+      accountid: accountid,
+      fleetid: fleetid,
+      vinno: vinno,
+      history: history,
+    };
   };
 
   GetAccountFleetCreditsHistoryLogic = async (
@@ -1597,7 +1624,11 @@ export default class fmsAccountHdlrImpl {
     if (!history) {
       history = [];
     }
-    return history;
+    return {
+      accountid: accountid,
+      fleetid: fleetid,
+      history: history,
+    };
   };
 
   TagVehicleLogic = async (
@@ -1753,7 +1784,7 @@ export default class fmsAccountHdlrImpl {
   };
 
   GetMyFleetPermissionsLogic = async (userid, accountid, fleetid) => {
-    const fleetInfo = await this.fmsAccountSvcI.GetFleetInfo(
+    const fleetInfo = await this.fmsAccountSvcI.GetFleetInfo( //TODO optimize this by just checking existence
       accountid,
       fleetid
     );
@@ -1808,7 +1839,9 @@ export default class fmsAccountHdlrImpl {
     const isAdmin =
       userPermissions.includes("all.all.all") ||
       userRoles.some((role) => role.rolename.toLowerCase() === "admin");
-
+    const isView =
+      userPermissions.includes("all.all.view") ||
+      userRoles.some((role) => role.rolename.toLowerCase() === "view");
     if (isAdmin) {
       if (!userPermissions.includes("all.all.all")) {
         userPermissions.push("all.all.all");
@@ -1816,6 +1849,15 @@ export default class fmsAccountHdlrImpl {
 
       for (const accountModulePerm of accountModulePerms) {
         if (!userPermissions.includes(accountModulePerm.permid)) {
+          userPermissions.push(accountModulePerm.permid);
+        }
+      }
+    } else if (isView) {
+      if (!userPermissions.includes("all.all.view")) {
+        userPermissions.push("all.all.view");
+      }
+      for (const accountModulePerm of accountModulePerms) {
+        if (!userPermissions.includes(accountModulePerm.permid) && accountModulePerm.permid.endsWith(".view")) {
           userPermissions.push(accountModulePerm.permid);
         }
       }

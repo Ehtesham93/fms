@@ -12,8 +12,8 @@ export default class AccountSvc {
     return await this.accountSvcDB.createAccount(account);
   }
 
-  async GetAllAccounts(platformAccountId) {
-    return await this.accountSvcDB.getAllAccounts(platformAccountId);
+  async GetAllAccounts(platformAccountId, offset, limit, searchtext) {
+    return await this.accountSvcDB.getAllAccounts(platformAccountId, offset, limit, searchtext);
   }
 
   async GetAccountOverview(accountid) {
@@ -407,12 +407,12 @@ export default class AccountSvc {
     return await this.accountSvcDB.getVehicleFleetInfo(vinno);
   }
 
-  async ListPendingAccounts() {
-    return await this.accountSvcDB.listPendingAccounts();
+  async ListPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection) {
+    return await this.accountSvcDB.listPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection);
   }
 
-  async ListDoneAccounts() {
-    return await this.accountSvcDB.listDoneAccounts();
+  async ListDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection) {
+    return await this.accountSvcDB.listDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection);
   }
 
   async AddReviewDoneAccount(accountData) {

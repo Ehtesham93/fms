@@ -33,6 +33,12 @@ export default {
     url: "https://stg-nemo.mahindraelectric.com:2083",
     sendEmailPath: "/api/v1/email/sendemail",
   },
+  geocodesvc: {
+    url: "https://maps.googleapis.com",
+    getReverseGeocodePath: "/maps/api/geocode/json",
+    apikeyPlatform: "web",
+    apikeyEnvironment: "development",
+  },
   csrf: {
     maxAgeInSeconds: 1800,
   },

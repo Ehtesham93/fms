@@ -37,10 +37,7 @@ export default class PlatformHdlrImpl {
       isenabled: isenabled,
     };
     let res = await this.platformSvcI.CreatePackage(pkg, createdby);
-    if (res) {
-      await this.platformSvcI.LogPackageHistory(pkg, createdby);
-    }
-    else{
+    if (!res) {
       this.logger.error("Failed to create package");
       throw new Error("Failed to create package");
     }
@@ -67,14 +64,10 @@ export default class PlatformHdlrImpl {
       filteredFields,
       updatedby
     );
-    if (res) {
-      await this.platformSvcI.LogPackageHistory(pkgid, updateFields, updatedby);
-    }
-    else{
+    if (!res) {
       this.logger.error("Failed to update package");
-      throw new Error("Failed to update package");
+      throw new Error("Failed to update package");    
     }
-
     return {
       pkgid: pkgid,
       pkg: filteredFields,
@@ -134,10 +127,7 @@ export default class PlatformHdlrImpl {
       deselectedmodules,
       updatedby
     );
-    if (success) {
-      await this.platformSvcI.LogPackageModulesHistory(pkgid, moduleid, updatedby);
-    }
-    else{
+    if (!success) {
       this.logger.error("Failed to update package modules");
       throw new Error("Failed to update package modules");
     }
@@ -202,5 +192,22 @@ export default class PlatformHdlrImpl {
       deletedat: new Date(),
       deletedby: deletedby,
     };
+  };
+
+
+  GetPackageHistoryLogic = async (starttime, endtime) => {
+    let history = await this.platformSvcI.GetPackageHistory(starttime, endtime);
+    if (!history) {
+      history = [];
+    }
+    return history;
+  };
+
+  GetPackageModHistoryLogic = async (starttime, endtime) => {
+    let history = await this.platformSvcI.GetPackageModHistory(starttime, endtime);
+    if (!history) {
+      history = [];
+    }
+    return history;
   };
 }

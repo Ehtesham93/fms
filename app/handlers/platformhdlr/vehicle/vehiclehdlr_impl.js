@@ -1,15 +1,19 @@
 import { formatEpochToDateTime } from "../../../utils/epochconverter.js";
-import { publishVehicleModificationUpdate, publishVehicleUpdate } from "../../../utils/redisnotification.js";
+import {
+  publishVehicleModificationUpdate,
+  publishVehicleUpdate,
+} from "../../../utils/redisnotification.js";
 import axios from "axios";
 import config from "../../../config/config.js";
-import { errors } from "cassandra-driver";
+import { preprocessingText } from "../../../utils/commonutil.js";
 
 export default class VehicleHdlrImpl {
-  constructor(platformSvcI, historyDataSvcI, metaSvcI, fmsAccountSvcI, logger) {
+  constructor(platformSvcI, historyDataSvcI, metaSvcI, fmsAccountSvcI, redisSvc, logger) {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
     this.metaSvcI = metaSvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
+    this.redisSvc = redisSvc;
     this.logger = logger;
     this.onboardingType = "onboarding";
   }
@@ -43,9 +47,19 @@ export default class VehicleHdlrImpl {
       throw new Error("Failed to create vehicle");
     }
 
-    const message = {previousvinno: vinno, updatedvinno: vinno, message: 'Vehicle created sucessfully'}
+    const message = {
+      previousvinno: vinno,
+      updatedvinno: vinno,
+      message: "Vehicle created sucessfully",
+    };
 
-    await publishVehicleModificationUpdate(vinno, "added", message, this.redisSvc, this.logger);
+    await publishVehicleModificationUpdate(
+      vinno,
+      "added",
+      message,
+      this.redisSvc,
+      this.logger
+    );
     return {
       vinno: vinno,
       modelcode: modelcode,
@@ -109,11 +123,13 @@ export default class VehicleHdlrImpl {
       fieldsToUpdate.dealer = this.preprocessingDealer(fieldsToUpdate.dealer);
     }
     if (fieldsToUpdate.vehicle_city) {
-      fieldsToUpdate.vehicle_city = this.preprocessingText(fieldsToUpdate.vehicle_city);
+      fieldsToUpdate.vehicle_city = preprocessingText(
+        fieldsToUpdate.vehicle_city
+      );
     }
     if (fieldsToUpdate.color) {
-      fieldsToUpdate.color = this.preprocessingText(fieldsToUpdate.color);
-    }  
+      fieldsToUpdate.color = preprocessingText(fieldsToUpdate.color);
+    }
     if (fieldsToUpdate.fueltype)
       lookupFieldsToValidate.fueltype = fieldsToUpdate.fueltype;
     if (fieldsToUpdate.modelcode)
@@ -133,34 +149,49 @@ export default class VehicleHdlrImpl {
     // This handles both cases: when MetaOptions created the item OR when it already existed
     if (fieldsToUpdate.dealer) {
       try {
-        const exactDealer = await this.metaSvcI.GetDealerByName(fieldsToUpdate.dealer);
+        const exactDealer = await this.metaSvcI.GetDealerByName(
+          fieldsToUpdate.dealer
+        );
         if (exactDealer) {
           fieldsToUpdate.dealer = exactDealer.dealername; // Use exact DB value
         }
       } catch (error) {
-        this.logger.warn(`Could not fetch exact dealer name, using normalized value: ${fieldsToUpdate.dealer}`, error);
+        this.logger.warn(
+          `Could not fetch exact dealer name, using normalized value: ${fieldsToUpdate.dealer}`,
+          error
+        );
       }
     }
-    
+
     if (fieldsToUpdate.vehicle_city) {
       try {
-        const exactCity = await this.metaSvcI.GetCityByName(fieldsToUpdate.vehicle_city);
+        const exactCity = await this.metaSvcI.GetCityByName(
+          fieldsToUpdate.vehicle_city
+        );
         if (exactCity) {
           fieldsToUpdate.vehicle_city = exactCity.cityname; // Use exact DB value
         }
       } catch (error) {
-        this.logger.warn(`Could not fetch exact city name, using normalized value: ${fieldsToUpdate.vehicle_city}`, error);
+        this.logger.warn(
+          `Could not fetch exact city name, using normalized value: ${fieldsToUpdate.vehicle_city}`,
+          error
+        );
       }
     }
-    
+
     if (fieldsToUpdate.color) {
       try {
-        const exactColor = await this.metaSvcI.GetColorByName(fieldsToUpdate.color);
+        const exactColor = await this.metaSvcI.GetColorByName(
+          fieldsToUpdate.color
+        );
         if (exactColor) {
           fieldsToUpdate.color = exactColor.colorname; // Use exact DB value
         }
       } catch (error) {
-        this.logger.warn(`Could not fetch exact color name, using normalized value: ${fieldsToUpdate.color}`, error);
+        this.logger.warn(
+          `Could not fetch exact color name, using normalized value: ${fieldsToUpdate.color}`,
+          error
+        );
       }
     }
 
@@ -174,9 +205,19 @@ export default class VehicleHdlrImpl {
       throw new Error("Failed to update vehicle info");
     }
 
-    const message = {previousvinno: vinno, updatedvinno: vinno, message: 'Vehicle info updated sucessfully'}
+    const message = {
+      previousvinno: vinno,
+      updatedvinno: vinno,
+      message: "Vehicle info updated sucessfully",
+    };
 
-    await publishVehicleModificationUpdate(vinno, "infoupdate", message, this.redisSvc, this.logger);
+    await publishVehicleModificationUpdate(
+      vinno,
+      "infoupdate",
+      message,
+      this.redisSvc,
+      this.logger
+    );
 
     return {
       vinno: vinno,
@@ -250,9 +291,19 @@ export default class VehicleHdlrImpl {
       throw new Error("Failed to delete vehicle");
     }
 
-    const message = {previousvinno: vinno, updatedvinno: null, message: 'Vehicle deleted sucessfully'}
+    const message = {
+      previousvinno: vinno,
+      updatedvinno: null,
+      message: "Vehicle deleted sucessfully",
+    };
 
-    await publishVehicleModificationUpdate(vinno, "deleted", message, this.redisSvc, this.logger);
+    await publishVehicleModificationUpdate(
+      vinno,
+      "deleted",
+      message,
+      this.redisSvc,
+      this.logger
+    );
 
     return {
       vinno: vinno,
@@ -273,6 +324,12 @@ export default class VehicleHdlrImpl {
     if (!vehicles) {
       vehicles = [];
     }
+    return vehicles;
+  };
+
+  GetVehiclesLogic = async (searchtext, offset, limit) => {
+    searchtext = preprocessingText(searchtext);
+    let vehicles = await this.platformSvcI.GetVehicles(searchtext, offset, limit);
     return vehicles;
   };
 
@@ -395,7 +452,6 @@ export default class VehicleHdlrImpl {
     }
   };
 
-
   TagVehicleLogic = async (
     srcaccountid,
     dstaccountid,
@@ -498,19 +554,6 @@ export default class VehicleHdlrImpl {
     return result;
   };
 
-
-  preprocessingText = (name) => {
-    if (!name || typeof name !== "string") {
-      return ""; // Return empty string for undefined, null, or non-string values
-    }
-    return name
-      .toUpperCase() // Convert to uppercase
-      .replace(/[^A-Z0-9\s]/g, " ") // Replace anything other than alphabets, numbers, and spaces with space
-      .replace(/\s+/g, " ") // Replace multiple whitespaces with single space
-      .trim(); // Trim leading and trailing whitespaces
-  };
-
-
   preprocessingDealer = (name) => {
     if (!name || typeof name !== "string") {
       return ""; // Return empty string for undefined, null, or non-string values
@@ -530,7 +573,7 @@ export default class VehicleHdlrImpl {
     vehicleData.retailsSaleDate = this.convertDateFormat(
       vehicleData.retailsSaleDate
     );
-    const processedVehicleColour = this.preprocessingText(
+    const processedVehicleColour = preprocessingText(
       vehicleData.vehicleColour
     );
     if (processedVehicleColour !== "") {
@@ -538,10 +581,14 @@ export default class VehicleHdlrImpl {
     } else {
       vehicleData.vehicleColour = "NA";
     }
-    vehicleData.vehicleCity = this.preprocessingText(vehicleData.vehicleCity);
+    vehicleData.vehicleCity = preprocessingText(vehicleData.vehicleCity);
 
-    vehicleData.vehicleModel = this.preprocessingDealer(vehicleData.vehicleModel);
-    vehicleData.vehicleVariant = this.preprocessingDealer(vehicleData.vehicleVariant);
+    vehicleData.vehicleModel = this.preprocessingDealer(
+      vehicleData.vehicleModel
+    );
+    vehicleData.vehicleVariant = this.preprocessingDealer(
+      vehicleData.vehicleVariant
+    );
 
     const { vin, vehicleModel, vehicleVariant, ...otherFields } = vehicleData;
 
@@ -940,7 +987,8 @@ export default class VehicleHdlrImpl {
     if (fields.tgu_imei_no) allFields.tgu_imei_no = fields.tgu_imei_no;
     if (fields.dealer) allFields.dealer = fields.dealer;
     if (fields.deliveredDate) allFields.delivered_date = fields.deliveredDate;
-    if (fields.deliveredDate || fields.retailsSaleDate || fields.mobileNo) allFields.delivered = true;
+    if (fields.deliveredDate || fields.retailsSaleDate || fields.mobileNo)
+      allFields.delivered = true;
     if (fields.engineNo) allFields.engineno = fields.engineNo;
     if (fields.fuelType) allFields.fueltype = fields.fuelType;
     if (fields.retailsSaleDate)
@@ -1012,16 +1060,24 @@ export default class VehicleHdlrImpl {
     return allFields;
   };
 
-  ListPendingVehiclesLogic = async () => {
-    let vehicles = await this.platformSvcI.ListPendingVehicles();
+  ListPendingVehiclesLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
+    searchtext = preprocessingText(searchtext);
+    orderbyfield = preprocessingText(orderbyfield);
+    orderbyfield = orderbyfield.toLowerCase();
+    orderbydirection = preprocessingText(orderbydirection);
+    let vehicles = await this.platformSvcI.ListPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection);
     if (!vehicles) {
       vehicles = [];
     }
     return vehicles;
   };
 
-  ListDoneVehiclesLogic = async () => {
-    let vehicles = await this.platformSvcI.ListDoneVehicles();
+  ListDoneVehiclesLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
+    searchtext = preprocessingText(searchtext);
+    orderbyfield = preprocessingText(orderbyfield);
+    orderbyfield = orderbyfield.toLowerCase();
+    orderbydirection = preprocessingText(orderbydirection);
+    let vehicles = await this.platformSvcI.ListDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection);
     if (!vehicles) {
       vehicles = [];
     }
@@ -1221,11 +1277,13 @@ export default class VehicleHdlrImpl {
       for (const validationError of validationErrors) {
         if (validationError.field === "vehicle_city") {
           try {
-            await this.metaSvcI.CreateVehicleCity(fieldsToValidate.vehicle_city);
+            await this.metaSvcI.CreateVehicleCity(
+              fieldsToValidate.vehicle_city
+            );
           } catch (error) {
             // Handle "already exists" gracefully - this is fine
             if (
-              error.errcode === "CITY_NAME_ALREADY_EXISTS" || 
+              error.errcode === "CITY_NAME_ALREADY_EXISTS" ||
               error.message?.toLowerCase().includes("already exists") ||
               error.message === "City name already exists"
             ) {
@@ -1241,7 +1299,7 @@ export default class VehicleHdlrImpl {
           } catch (error) {
             // Handle "already exists" gracefully - this is fine
             if (
-              error.errcode === "DEALER_NAME_ALREADY_EXISTS" || 
+              error.errcode === "DEALER_NAME_ALREADY_EXISTS" ||
               error.message?.toLowerCase().includes("already exists") ||
               error.message === "Dealer name already exists"
             ) {
@@ -1257,7 +1315,7 @@ export default class VehicleHdlrImpl {
           } catch (error) {
             // Handle "already exists" gracefully - this is fine
             if (
-              error.errcode === "COLOR_NAME_ALREADY_EXISTS" || 
+              error.errcode === "COLOR_NAME_ALREADY_EXISTS" ||
               error.message?.toLowerCase().includes("already exists") ||
               error.message === "Color name already exists"
             ) {
@@ -1274,24 +1332,47 @@ export default class VehicleHdlrImpl {
     }
   };
 
-  RetryOnboardLogic = async ( userid, retrytype ) => {
+  RetryOnboardLogic = async (userid, retrytype) => {
     try {
       if (retrytype === "vehicle") {
-        let pendingreviews = await this.platformSvcI.ListPendingVehicleReviews();
+        let pendingreviews =
+          await this.platformSvcI.ListPendingVehicleReviews();
         for (const review of pendingreviews) {
           try {
-            await this.OnboardVehicleLogic(review.original_input, "retry", userid);
+            await this.OnboardVehicleLogic(
+              review.original_input,
+              "retry",
+              userid
+            );
           } catch (error) {
             this.logger.error("RetryVehicleOnboardLogic failed", error);
             continue;
           }
         }
         return true;
-      }else {
+      } else {
         throw new Error("Invalid retry type");
       }
     } catch (error) {
       this.logger.error("RetryOnboardLogic failed", error);
+      throw error;
+    }
+  };
+
+  SearchVehiclesLogic = async (searchtext, offset, limit) => {
+    try {
+      searchtext = preprocessingText(searchtext);
+      let vehicles = await this.platformSvcI.SearchVehicles(
+        searchtext,
+        offset,
+        limit
+      );
+      if (!vehicles) {
+        vehicles = [];
+      }
+      return vehicles;
+    } catch (error) {
+      this.logger.error("SearchVehiclesLogic failed", error);
       throw error;
     }
   };

@@ -1,4 +1,5 @@
 import ClickHouseClient from "../../utils/clickhouse.js";
+import { addPaginationToQuery } from "../../utils/commonutil.js";
 export default class PlatformSvcDB {
   /**
    *
@@ -38,7 +39,7 @@ export default class PlatformSvcDB {
       if (result.rowCount === 0) {
         return null;
       }
-      
+
       return result.rows;
     } catch (error) {
       throw new Error("Failed to fetch all platform modules info");
@@ -106,6 +107,24 @@ export default class PlatformSvcDB {
       return result.rows[0];
     } catch (error) {
       throw new Error("Failed to fetch account by name");
+    }
+  }
+
+  async getAccountById(accountid) {
+    try {
+      let query = `
+            SELECT a.accountid, a.accountname, af.fleetid as rootfleetid, a.accounttype, a.accountinfo, a.isenabled, a.isdeleted, a.createdat
+            FROM account a
+            JOIN account_fleet af ON a.accountid = af.accountid AND af.isroot = true
+            WHERE a.accountid = $1 and a.isdeleted = false
+        `;
+      let result = await this.pgPoolI.Query(query, [accountid]);
+      if (result.rowCount === 0) {
+        return null;
+      }
+      return result.rows[0];
+    } catch (error) {
+      throw new Error("Failed to fetch account by id");
     }
   }
 
@@ -382,6 +401,70 @@ export default class PlatformSvcDB {
     }
   }
 
+  
+  async getVehicles(searchtext, offset, limit) {
+    try {
+      let baseQuery = `SELECT v.vinno, COALESCE(v.license_plate, v.vinno) as regno, v.modelcode, v.mobile, v.dealer, v.vehicle_city  
+                      FROM vehicle v
+                        JOIN vehicle_model vm ON v.modelcode = vm.modelcode
+                        WHERE (
+                          UPPER(v.vinno) LIKE '%' || $1 || '%'  OR
+                          UPPER(v.license_plate) LIKE '%' || $1 || '%'  OR
+                          UPPER(v.dealer) LIKE '%' || $1 || '%'  OR
+                          UPPER(v.vehicle_city) LIKE '%' || $1 || '%'  OR
+                          UPPER(v.color) LIKE '%' || $1 || '%'  OR
+                          UPPER(v.modelcode) LIKE '%' || $1 || '%'  OR
+                          UPPER(vm.modelname) LIKE '%' || $1 || '%'  OR
+                          UPPER(vm.modelvariant) LIKE '%' || $1 || '%'  OR
+                          UPPER(vm.modeldisplayname) LIKE '%' || $1 || '%' 
+                        )
+                        ORDER BY v.vinno
+                        OFFSET $2 LIMIT $3`;
+      let params = [searchtext, offset, limit];
+      let result = await this.pgPoolI.Query(baseQuery, params);
+      if (result.rowCount === 0) {
+        return {
+          vehicles: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `SELECT COUNT(*) FROM vehicle v
+      JOIN vehicle_model vm ON v.modelcode = vm.modelcode
+      WHERE (
+        UPPER(v.vinno) LIKE '%' || $1 || '%'  OR
+        UPPER(v.license_plate) LIKE '%' || $1 || '%'  OR
+        UPPER(v.dealer) LIKE '%' || $1 || '%'  OR
+        UPPER(v.vehicle_city) LIKE '%' || $1 || '%'  OR
+        UPPER(v.color) LIKE '%' || $1 || '%'  OR
+        UPPER(v.modelcode) LIKE '%' || $1 || '%'  OR
+        UPPER(vm.modelname) LIKE '%' || $1 || '%'  OR
+        UPPER(vm.modelvariant) LIKE '%' || $1 || '%'  OR
+        UPPER(vm.modeldisplayname) LIKE '%' || $1 || '%'
+      )`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        vehicles: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: nextOffset < totalcount,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
+    } catch (error) {
+      throw new Error(`Failed to list all vehicles: ${error.message}`);
+    }
+  }
+
   async getVehicleInfo(vinno) {
     let query = `
       SELECT v.vinno, vm.modelvariant, vm.modelname, vm.modeldisplayname, v.modelcode, v.vehicleinfo, v.mobile, COALESCE(v.license_plate, v.vinno) as regno, v.color, v.vehicle_city, v.dealer, v.delivered, v.delivered_date, v.data_freq, v.tgu_model, v.tgu_sw_version, v.tgu_phone_no, v.tgu_imei_no, v.createdat, u1.displayname as createdby, v.updatedat, u2.displayname as updatedby
@@ -586,9 +669,32 @@ export default class PlatformSvcDB {
     }
   }
 
-  async listPendingVehicles() {
+  async listPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection) {
     try {
-      let query = `
+      orderbyfield = orderbyfield || 'createdat';
+      orderbydirection = orderbydirection || 'desc';
+      searchtext = searchtext || '';
+      offset = offset || 0;
+      limit = limit || 1000;
+      let baseQuery = `
+        WITH vin_list AS (
+          SELECT r.vinno
+          FROM reviewpendingvehicle r
+          WHERE (
+            upper(r.vinno) LIKE '%' || upper($1) || '%' OR
+            upper(r.modelcode) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehiclevariant) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehiclemodel) LIKE '%' || upper($1) || '%' OR
+            upper(r.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(r.license_plate) LIKE '%' || upper($1) || '%' OR
+            upper(r.color) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehicle_city) LIKE '%' || upper($1) || '%' OR
+            upper(r.dealer) LIKE '%' || upper($1) || '%' OR
+            upper(r.engineno) LIKE '%' || upper($1) || '%'
+          )
+          ORDER BY r.${orderbyfield} ${orderbydirection}
+          OFFSET $2 LIMIT $3
+        )
         SELECT 
           rpv.vinno, 
           rpv.modelcode, 
@@ -618,68 +724,146 @@ export default class PlatformSvcDB {
           rpv.updatedat, 
           u2.displayname as updatedby
         FROM reviewpendingvehicle rpv
+        JOIN vin_list v ON rpv.vinno = v.vinno
         JOIN users u1 ON rpv.createdby = u1.userid
         JOIN users u2 ON rpv.updatedby = u2.userid
-        ORDER BY rpv.createdat DESC
+        ORDER BY rpv.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(query);
-      return result.rows;
+      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `WITH vin_list AS (
+          SELECT r.vinno
+          FROM reviewpendingvehicle r
+          WHERE (
+            upper(r.vinno) LIKE '%' || upper($1) || '%' OR
+            upper(r.modelcode) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehiclevariant) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehiclemodel) LIKE '%' || upper($1) || '%' OR
+            upper(r.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(r.license_plate) LIKE '%' || upper($1) || '%' OR
+            upper(r.color) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehicle_city) LIKE '%' || upper($1) || '%' OR
+            upper(r.dealer) LIKE '%' || upper($1) || '%' OR
+            upper(r.engineno) LIKE '%' || upper($1) || '%'
+          )
+        ) SELECT COUNT(*) FROM vin_list`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        vehicles: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: (limit > result.rowCount)? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw new Error(`Failed to list pending vehicles: ${error.message}`);
     }
   }
 
-  async listDoneVehicles() {
-    try {
-      let query = `
-        SELECT 
+
+  async listDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection) {
+    try {  
+      orderbyfield = orderbyfield || 'updatedat';
+      orderbydirection = orderbydirection || 'desc';
+      searchtext = searchtext || '';
+      offset = offset || 0;
+      limit = limit || 1000;
+      let baseQuery = `
+        WITH vin_list AS (
+          SELECT r.vinno, r.reviewed_at
+          FROM reviewdonevehicle r
+          WHERE (
+            upper(r.vinno) LIKE '%' || upper($1) || '%' OR
+            upper(r.modelcode) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehiclevariant) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehiclemodel) LIKE '%' || upper($1) || '%' OR
+            upper(r.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(r.license_plate) LIKE '%' || upper($1) || '%' OR
+            upper(r.color) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehicle_city) LIKE '%' || upper($1) || '%' OR
+            upper(r.dealer) LIKE '%' || upper($1) || '%' OR
+            upper(r.engineno) LIKE '%' || upper($1) || '%'
+          )
+          ORDER BY r.${orderbyfield} ${orderbydirection}
+          OFFSET $2 LIMIT $3
+        )
+        SELECT
           rdv.vinno,
-          rdv.modelcode, 
-          rdv.vehicleinfo, 
-          rdv.vehiclevariant, 
-          rdv.vehiclemodel, 
-          rdv.mobile, 
-          rdv.license_plate, 
-          rdv.color, 
-          rdv.vehicle_city, 
-          rdv.dealer, 
-          rdv.delivered, 
-          rdv.delivered_date, 
-          rdv.data_freq, 
-          rdv.tgu_model, 
-          rdv.tgu_sw_version, 
-          rdv.tgu_phone_no, 
-          rdv.tgu_imei_no, 
-          rdv.engineno, 
-          rdv.fueltype, 
-          rdv.retailssaledate, 
-          rdv.original_status as status, 
-          rdv.resolution_reason as reason, 
-          jsonb_set(  
-          jsonb_set(
-            rdv.review_data, 
-            '{createdby}', 
-            to_jsonb(u4.displayname)
-          ),
-          '{updatedby}',
-          to_jsonb(u5.displayname)
-        ) as review_data, 
-          rdv.reviewed_at, 
-          u1.displayname as reviewed_by, 
-          rdv.createdat, 
-          u2.displayname as createdby, 
-          rdv.updatedat, 
-          u3.displayname as updatedby
+          rdv.modelcode,
+          rdv.vehicleinfo,
+          rdv.vehiclevariant,
+          rdv.vehiclemodel,
+          rdv.mobile,
+          rdv.license_plate,
+          rdv.color,
+          rdv.vehicle_city,
+          rdv.dealer,
+          rdv.delivered,
+          rdv.delivered_date,
+          rdv.data_freq,
+          rdv.tgu_model,
+          rdv.tgu_sw_version,
+          rdv.tgu_phone_no,
+          rdv.tgu_imei_no,
+          rdv.engineno,
+          rdv.fueltype,
+          rdv.retailssaledate,
+          rdv.original_status AS status,
+          rdv.resolution_reason AS reason,
+          rdv.reviewed_at,
+          u1.displayname AS reviewed_by,
+          rdv.updatedat,
+          u3.displayname AS updatedby
         FROM reviewdonevehicle rdv
+        JOIN vin_list v ON rdv.vinno = v.vinno AND rdv.reviewed_at = v.reviewed_at
         JOIN users u1 ON rdv.reviewed_by = u1.userid
         JOIN users u2 ON rdv.createdby = u2.userid
         JOIN users u3 ON rdv.updatedby = u3.userid
-        LEFT JOIN users u4 ON (rdv.review_data->>'createdby')::uuid = u4.userid
-        LEFT JOIN users u5 ON (rdv.review_data->>'updatedby')::uuid = u5.userid
-        ORDER BY rdv.reviewed_at DESC
+        ORDER BY rdv.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(query);
-      return result.rows;
+      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      let countQuery = `WITH vin_list AS (
+          SELECT r.vinno
+          FROM reviewdonevehicle r
+          WHERE (
+            upper(r.vinno) LIKE '%' || upper($1) || '%' OR
+            upper(r.modelcode) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehiclevariant) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehiclemodel) LIKE '%' || upper($1) || '%' OR
+            upper(r.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(r.license_plate) LIKE '%' || upper($1) || '%' OR
+            upper(r.color) LIKE '%' || upper($1) || '%' OR
+            upper(r.vehicle_city) LIKE '%' || upper($1) || '%' OR
+            upper(r.dealer) LIKE '%' || upper($1) || '%' OR
+            upper(r.engineno) LIKE '%' || upper($1) || '%'
+          )
+        ) SELECT COUNT(*) FROM vin_list`;
+      const countResult = await this.pgPoolI.Query(countQuery, [searchtext]);
+      const totalcount = parseInt(countResult.rows[0].count);
+      
+      return {
+        vehicles: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: (limit > result.rowCount)? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw new Error(`Failed to list done vehicles: ${error.message}`);
     }
@@ -1370,7 +1554,55 @@ export default class PlatformSvcDB {
       let result = await this.pgPoolI.Query(query);
       return result.rows;
     } catch (error) {
-      throw new Error(`Failed to list pending vehicle reviews: ${error.message}`);
+      throw new Error(
+        `Failed to list pending vehicle reviews: ${error.message}`
+      );
+    }
+  }
+
+  async searchVehicles(searchText, offset, limit) {
+    try {
+      const searchPattern = `%${searchText}%`;
+      const query = `
+        SELECT DISTINCT v.vinno, COALESCE(v.license_plate, v.vinno) as regno
+        FROM vehicle v
+        JOIN vehicle_model vm ON v.modelcode = vm.modelcode
+        WHERE (
+          UPPER(v.vinno) ILIKE $1 OR
+          UPPER(v.license_plate) ILIKE $1 OR
+          UPPER(v.dealer) ILIKE $1 OR
+          UPPER(v.vehicle_city) ILIKE $1 OR
+          UPPER(v.color) ILIKE $1 OR
+          UPPER(v.modelcode) ILIKE $1 OR
+          UPPER(vm.modelname) ILIKE $1 OR
+          UPPER(vm.modelvariant) ILIKE $1 OR
+          UPPER(vm.modeldisplayname) ILIKE $1
+        )
+        ORDER BY v.vinno
+        OFFSET $2 LIMIT $3
+      `;
+      const result = await this.pgPoolI.Query(query, [
+        searchPattern,
+        offset,
+        limit,
+      ]);
+
+      if (result.rowCount === 0) {
+        return { vehicles: [], offset: offset, limit: limit, hasmore: false };
+      }
+
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+
+      return {
+        vehicles: result.rows,
+        offset: nextOffset,
+        limit: limit,
+        hasmore: nextOffset > result.rowCount,
+      };
+    } catch (error) {
+      this.logger.error("SearchVehicles error:", error);
+      throw new Error("Failed to search vehicles");
     }
   }
 }

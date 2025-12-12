@@ -372,6 +372,10 @@ export default class FmsAccountSvc {
     return await this.fmsAccountSvcDB.getSubscribedVehicles(accountid);
   }
 
+  async GetAllVehiclesSourceAccount(vinnos) {
+    return await this.fmsAccountSvcDB.getAllVehiclesSourceAccount(vinnos);
+  }
+
   async CreateSubscriptionIntent(accountid, vinnos, userid) {
     return await this.fmsAccountSvcDB.createSubscriptionIntent(
       accountid,

@@ -6,6 +6,7 @@ export const ACCOUNT_CREATION_CREDITS = 100000;
 
 // admin uuid
 export const ADMIN_ROLE_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+export const VIEW_ROLE_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 export const ADMIN_USER_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 export const PLATFORM_ACCOUNT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 export const PLATFORM_ROOT_FLEET_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
@@ -74,3 +75,67 @@ export const BATTERY_THRESOLD = 20;
 
 export const CONSOLE_MODULE_CODE = "consolemgmt";
 export const ADMIN_PERMISSION = "all.all.all";
+export const VIEW_PERMISSION = "all.all.view";
+
+export const GEOCODE_DEFAULT_LOCALE = "en";
+export const GEOCODE_ALLOWED_LOCALES = [
+  "en",
+  "hi",
+  "mr",
+  "ta",
+  "te",
+  "ur",
+  "pa",
+  "kn",
+  "ml",
+  "or",
+  "as",
+  "bh",
+  "cs",
+  "da",
+  "de",
+  "el",
+  "es",
+  "fi",
+  "fr",
+  "ga",
+  "gl",
+  "it",
+  "ja",
+  "ko",
+  "lt",
+  "lv",
+  "nb",
+  "nl",
+  "pl",
+  "pt",
+  "ro",
+  "ru",
+  "sk",
+  "sl",
+  "sv",
+  "tr",
+  "uk",
+  "vi",
+  "zh",
+];
+export const GEOCODE_REGION_CODE = "IN";
+export const GEOCODE_CACHE_TTL = 10 * 60; // 10 minutes
+export const GEOCODE_API_KEY_NAME = "GOOGLE_MAPS_API_KEY_1";
+
+export const GOOGLE_MAPS_ORDERED_RESULT_TYPES = [
+  "street_address", // used for addresses like "123 Main St"
+  "premise", // used for addresses like "123 Main St"
+  "route", // used for addresses like "Main St"
+  "neighborhood", // used for addresses like "Brooklyn"
+  "locality", // used for addresses like "New York"
+  "sublocality", // used for addresses like "New York, NY"
+  "administrative_area_level_1", // used for addresses like "NY"
+  "administrative_area_level_2", // used for addresses like "NY"
+  "administrative_area_level_3", // used for addresses like "NY"
+  "administrative_area_level_4", // used for addresses like "NY"
+  "administrative_area_level_5", // used for addresses like "NY"
+  "postal_code", // used for addresses like "10001"
+  "country", // used for addresses like "USA"
+  "plus_code", // used for addresses like "10001+1000"
+];

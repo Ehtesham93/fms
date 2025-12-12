@@ -24,6 +24,8 @@ export default class RoleHdlr {
     router.get(`/:roleid(${UUID_PATTERN})`, this.GetRoleInfo);
     router.put(`/:roleid(${UUID_PATTERN})/perms`, this.UpdateRolePerms);
     router.delete(`/:roleid(${UUID_PATTERN})`, this.DeleteRole);
+    router.get("/history", this.GetRoleHistory);
+    router.get("/perms/history", this.GetRolePermHistory);
   }
 
   CreateRole = async (req, res, next) => {
@@ -379,4 +381,131 @@ export default class RoleHdlr {
       }
     }
   };
+
+  GetRoleHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.role.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get role history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
+      let result = await this.roleHdlrImpl.GetRoleHistoryLogic(starttime, endtime);
+      APIResponseOK(req, res, result, "Role history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetRoleHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "GET_ROLE_HISTORY_ERR", e.toString(), "Get role history failed");
+      }
+    }
+  };
+
+  GetRolePermHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.role.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get role perm history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
+      let result = await this.roleHdlrImpl.GetRolePermHistoryLogic(starttime, endtime);
+      APIResponseOK(req, res, result, "Role perm history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetRolePermHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "GET_ROLE_PERM_HISTORY_ERR", e.toString(), "Get role perm history failed");
+      }
+    }
+  };
+  
 }

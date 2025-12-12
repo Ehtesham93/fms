@@ -29,18 +29,22 @@ export default class ModuleSvcDB {
   }
 
   async createModule(module) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     try {
       let currtime = new Date();
 
       let maxPriorityQuery = `SELECT COALESCE(MAX(priority), 0) as max_priority FROM module`;
-      let maxPriorityResult = await this.pgPoolI.Query(maxPriorityQuery);
+      let maxPriorityResult = await txclient.query(maxPriorityQuery);
       let newPriority = maxPriorityResult.rows[0].max_priority + 1;
 
       let query = `
             INSERT INTO module (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, isenabled, priority, createdat, createdby, updatedat, updatedby) 
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         `;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         module.moduleid,
         module.modulename,
         module.moduletype,
@@ -58,24 +62,39 @@ export default class ModuleSvcDB {
         throw new Error("Failed to create module");
       }
 
-      let createdbyname = await this.getUserName(module.createdby);
-      module.createdby = createdbyname;
+      // let createdbyname = await this.getUserName(module.createdby);
+      // module.createdby = createdbyname;
       module.priority = newPriority;
+      await this.logModuleHistory(module, module.createdby, currtime, 'CREATE', {}, txclient);
+      await this.pgPoolI.TxCommit(txclient);
       return module;
     } catch (error) {
+      await this.pgPoolI.TxRollback(txclient);
       throw new Error("Failed to create module");
     }
   }
 
-  async logModuleHistory(module, updatedby) {
+  async logModuleHistory(module, updatedby, updatedat, action, previousstate, txclient) {
     try {
       const finalUpdatedBy = updatedby ?? module.updatedby;
-      const finalUpdatedAt = module.updatedat ?? module.createdat;
-      let query = `
-            INSERT INTO module_history (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, priority, isenabled, updatedat, updatedby) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      const finalUpdatedAt = updatedat ?? module.updatedat;
+      const currentstate = action === 'DELETE' 
+        ? {} 
+        : {
+            modulename: module.modulename,
+            moduletype: module.moduletype,
+            modulecode: module.modulecode,
+            moduleinfo: module.moduleinfo,
+            creditspervehicleday: module.creditspervehicleday,
+            priority: module.priority,
+            isenabled: module.isenabled,
+          };
+      let query = 
+      `
+            INSERT INTO module_history (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, priority, isenabled, updatedat, updatedby, action, previousstate, currentstate) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         `;
-      const result = await this.pgPoolI.Query(query, [
+      const result = await txclient.query(query, [
         module.moduleid,
         module.modulename,
         module.moduletype,
@@ -86,55 +105,77 @@ export default class ModuleSvcDB {
         module.isenabled,
         finalUpdatedAt,
         finalUpdatedBy,
+        action,
+        JSON.stringify(previousstate),
+        JSON.stringify(currentstate),
       ]); 
       if (result.rowCount !== 1) {
         throw new Error("Failed to log module history");
       }
       return true;
     } catch (error) {
-      this.logger.error("module history insert failed", { moduleid: module.moduleid, err });
+      await this.pgPoolI.TxRollback(txclient);
+      throw error;
     }
   }
 
-  async logModulePermHistory(moduleid, permid, updatedby, updateFields) {
+  async logModulePermHistory(moduleid, permid, action, updatedby, updateFields, txclient = null) {
     try{
       let currtime = new Date();
-      let query = `SELECT modperminfo from module_perm where moduleid = $1 AND permid = $2`;
-      const {rows} = await this.pgPoolI.Query(query, [
-        moduleid,
-        permid
-      ]);
-      const modperminfo = rows[0]?.modperminfo || null;
+      
+      // Get modperminfo - either from updateFields or query from database
+      let modperminfo = updateFields?.modperminfo || null;
+      
+      if (!modperminfo) {
+        let query = `SELECT modperminfo from module_perm where moduleid = $1 AND permid = $2`;
+        if (txclient) {
+          const {rows} = await txclient.query(query, [moduleid, permid]);
+          modperminfo = rows[0]?.modperminfo || null;
+        } else {
+          const {rows} = await this.pgPoolI.Query(query, [moduleid, permid]);
+          modperminfo = rows[0]?.modperminfo || null;
+        }
+      }
 
-      query = `
+      let query = `
         INSERT INTO module_perm_history (
           moduleid,
           permid,
           isenabled,
           modperminfo,
           updatedat,
-          updatedby
+          updatedby,
+          action
         )
-        VALUES ($1,$2,$3,$4,$5,$6)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
       `;
-      await this.pgPoolI.Query(query, [
+      
+      const queryParams = [
         moduleid,
         permid,
         updateFields.isenabled,
         modperminfo,
         currtime,
         updatedby,
-      ]);
+        action,
+      ];
+      
+      if (txclient) {
+        await txclient.query(query, queryParams);
+      } else {
+        await this.pgPoolI.Query(query, queryParams);
+      }
     }
     catch(error){
-      this.logger.error("module history insert failed", { moduleid, permid, err });
+      this.logger.error("module history insert failed", { moduleid, permid, err: error });
+      throw error;
     }
   }
 
   async getModuleHistory(starttime, endtime){
     try{
       let query = `
-        SELECT mh.moduleid, mh.modulename, mh.moduletype, mh.modulecode, mh.moduleinfo, mh.creditspervehicleday, mh.priority, mh.isenabled, mh.updatedat , u.displayname as updatedby FROM module_history as mh JOIN users as u ON mh.updatedby = u.userid
+        SELECT mh.moduleid, mh.modulename, mh.moduletype, mh.modulecode, mh.moduleinfo, mh.creditspervehicleday, mh.priority, mh.isenabled, mh.updatedat, mh.action, u.displayname as updatedby, mh.previousstate, mh.currentstate FROM module_history as mh JOIN users as u ON mh.updatedby = u.userid
         WHERE mh.updatedat >= $1 AND mh.updatedat <= $2 ORDER BY mh.updatedat DESC
       `;
       let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
@@ -148,7 +189,10 @@ export default class ModuleSvcDB {
   async getModulePermHistory(starttime, endtime){
     try{
       let query = `
-        SELECT mph.moduleid, mph.permid, mph.isenabled, mph.modperminfo, mph.updatedat , u.displayname as updatedby FROM module_perm_history as mph JOIN users as u ON mph.updatedby = u.userid
+        SELECT mph.moduleid, m.modulename, mph.permid, mph.isenabled, mph.modperminfo, mph.updatedat , u.displayname as updatedby, mph.action 
+        FROM module_perm_history as mph 
+        JOIN users as u ON mph.updatedby = u.userid
+        JOIN module as m ON mph.moduleid = m.moduleid
         WHERE mph.updatedat >= $1 AND mph.updatedat <= $2 ORDER BY mph.updatedat DESC
       `;
       let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
@@ -200,7 +244,24 @@ export default class ModuleSvcDB {
   }
 
   async updateModule(moduleid, updateFields, updatedby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    } 
     try {
+      let previousStateQuery = `
+        SELECT moduleid, modulename, moduletype, modulecode, moduleinfo, 
+               creditspervehicleday, priority, isenabled, createdat, createdby, 
+               updatedat, updatedby
+        FROM module
+        WHERE moduleid = $1
+      `;
+      let previousStateResult = await txclient.query(previousStateQuery, [moduleid]);
+      if (previousStateResult.rowCount === 0) {
+        throw new Error("Module not found");
+      }
+      let previousState = previousStateResult.rows[0];
+
       let currtime = new Date();
       let fields = {
         ...updateFields,
@@ -239,12 +300,49 @@ export default class ModuleSvcDB {
         WHERE moduleid = $${values.length}
       `;
 
-      let result = await this.pgPoolI.Query(query, values);
+      let result = await txclient.query(query, values);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update module");
       }
+
+      let currentStateQuery = `
+        SELECT moduleid, modulename, moduletype, modulecode, moduleinfo, 
+               creditspervehicleday, priority, isenabled, createdat, createdby, 
+               updatedat, updatedby
+        FROM module
+        WHERE moduleid = $1
+      `;
+      let currentStateResult = await txclient.query(currentStateQuery, [moduleid]);
+      let currentState = currentStateResult.rows[0];
+
+      let previousStateJson = {
+        modulename: previousState.modulename,
+        moduletype: previousState.moduletype,
+        modulecode: previousState.modulecode,
+        moduleinfo: previousState.moduleinfo,
+        creditspervehicleday: previousState.creditspervehicleday,
+        priority: previousState.priority,
+        isenabled: previousState.isenabled,
+      };
+
+      let module = {
+        moduleid: currentState.moduleid,
+        modulename: currentState.modulename,
+        moduletype: currentState.moduletype,
+        modulecode: currentState.modulecode,
+        moduleinfo: currentState.moduleinfo,
+        creditspervehicleday: currentState.creditspervehicleday,
+        priority: currentState.priority,
+        isenabled: currentState.isenabled,
+        updatedat: currentState.updatedat,
+        updatedby: currentState.updatedby,
+      };
+
+      await this.logModuleHistory(module, updatedby, currtime, 'UPDATE', previousStateJson, txclient);
+      await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
+      await this.pgPoolI.TxRollback(txclient);
       throw new Error("Failed to update module info");
     }
   }
@@ -297,6 +395,15 @@ export default class ModuleSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to add module permission");
       }
+
+      await this.logModulePermHistory(
+        moduleid,
+        permid,
+        'CREATED',
+        createdby,
+        { modperminfo: moduleperminfo },
+        txclient
+      );
 
       await this.pgPoolI.TxCommit(txclient);
       return true;
@@ -381,13 +488,17 @@ export default class ModuleSvcDB {
   }
 
   async updateModulePerm(moduleid, permid, updateFields, updatedby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     try {
       let currtime = new Date();
       // check if we are updating console module's all.all.all permission
       let query = `
         SELECT moduleid FROM module WHERE modulecode = $1 and moduleid = $2
       `;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         CONSOLE_MODULE_CODE,
         moduleid,
       ]);
@@ -433,13 +544,33 @@ export default class ModuleSvcDB {
       WHERE moduleid = $${values.length - 1} AND permid = $${values.length}
     `;
 
-      result = await this.pgPoolI.Query(query, values);
+      result = await txclient.query(query, values);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update module permission");
       }
 
+      query = `
+        SELECT isenabled, modperminfo FROM module_perm 
+        WHERE moduleid = $1 AND permid = $2
+      `;
+      result = await txclient.query(query, [moduleid, permid]);
+      const currentState = result.rows[0];
+      const isenabled = currentState.isenabled;
+
+      await this.logModulePermHistory(
+        moduleid,
+        permid,
+        isenabled ? 'ENABLED' : 'DISABLED',
+        updatedby,
+        { isenabled: isenabled,
+          modperminfo: currentState.modperminfo 
+        },
+        txclient
+      );
+      await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
+      await this.pgPoolI.TxRollback(txclient);
       if (error.errcode) {
         throw error;
       }
@@ -447,7 +578,7 @@ export default class ModuleSvcDB {
     }
   }
 
-  async deleteModulePerm(moduleid, permid) {
+  async deleteModulePerm(moduleid, permid, updatedby) {
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
@@ -498,6 +629,14 @@ export default class ModuleSvcDB {
         error.errcode = "PERMISSION_NOT_FOUND";
         throw error;
       }
+      await this.logModulePermHistory(
+        moduleid,
+        permid,
+        'DELETED',
+        updatedby,
+        {isenabled: false, modperminfo: {}},
+        txclient
+      );
 
       query = `
                 DELETE FROM module_perm WHERE moduleid = $1 AND permid = $2
@@ -514,6 +653,7 @@ export default class ModuleSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete permission");
       }
+
 
       await this.pgPoolI.TxCommit(txclient);
       return true;
@@ -541,8 +681,12 @@ export default class ModuleSvcDB {
       throw err;
     }
     try {
+      // Fetch full module data before deletion for history logging
       let query = `
-        SELECT moduleid, modulename FROM module WHERE moduleid = $1
+        SELECT moduleid, modulename, moduletype, modulecode, moduleinfo, 
+               creditspervehicleday, priority, isenabled, createdat, createdby, 
+               updatedat, updatedby
+        FROM module WHERE moduleid = $1
       `;
       let result = await txclient.query(query, [moduleid]);
       if (result.rowCount === 0) {
@@ -567,6 +711,18 @@ export default class ModuleSvcDB {
       result = await txclient.query(query, [moduleid]);
       const permids = result.rows.map((row) => row.permid);
 
+      let previousStateJson = {
+        modulename: module.modulename,
+        moduletype: module.moduletype,
+        modulecode: module.modulecode,
+        moduleinfo: module.moduleinfo,
+        creditspervehicleday: module.creditspervehicleday,
+        priority: module.priority,
+        isenabled: module.isenabled,
+      };
+
+      let deletedat = new Date();
+
       if (permids.length > 0) {
         query = `
           DELETE FROM perm WHERE permid = ANY($1)
@@ -586,12 +742,35 @@ export default class ModuleSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete module");
       }
+      
+      let moduleForHistory = {
+        moduleid: module.moduleid,
+        modulename: module.modulename,
+        moduletype: module.moduletype,
+        modulecode: module.modulecode,
+        moduleinfo: module.moduleinfo,
+        creditspervehicleday: module.creditspervehicleday,
+        priority: module.priority,
+        isenabled: module.isenabled,
+        updatedat: deletedat,
+        updatedby: deletedby,
+      };
+
+      
+      await this.logModuleHistory(
+        moduleForHistory,
+        deletedby,
+        deletedat,
+        'DELETE',
+        previousStateJson,
+        txclient
+      );
 
       await this.pgPoolI.TxCommit(txclient);
       return {
         moduleid: moduleid,
         modulename: module.modulename,
-        deletedat: new Date(),
+        deletedat: deletedat,
         deletedby: deletedby,
       };
     } catch (e) {

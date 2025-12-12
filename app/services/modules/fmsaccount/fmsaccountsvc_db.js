@@ -2779,11 +2779,34 @@ export default class FmsAccountSvcDB {
     }
   }
 
+  async getAllVehiclesSourceAccount(vinnos) {
+    try {
+      let query = `
+      SELECT tv.vinno, tv.srcaccountid, a.accountname, tv.dstaccountid
+      FROM tagged_vehicle tv
+      JOIN account a ON tv.srcaccountid = a.accountid
+      WHERE tv.vinno = ANY($1)
+    `;
+      let result = await this.pgPoolI.Query(query, [vinnos]);
+      return result.rows.map((row) => ({
+        vinno: row.vinno,
+        srcaccountid: row.srcaccountid,
+        accountname: row.accountname,
+        dstaccountid: row.dstaccountid,
+      }));
+    } catch (error) {
+      throw new Error(`Failed to retrieve all vehicles source account`);
+    }
+  }
+
   async getSubscribedVehicles(accountid) {
     try {
       let query = `
-      SELECT vinno, startsat, endsat, lockedtill FROM account_vehicle_subscription 
-      WHERE accountid = $1 AND state = 1
+      SELECT avs.vinno, avs.startsat, avs.endsat, avs.lockedtill, a.accountid as sourceaccountid, a.accountname as sourceaccountname
+      FROM account_vehicle_subscription avs
+      JOIN tagged_vehicle tv ON avs.vinno = tv.vinno AND avs.accountid = tv.dstaccountid
+      JOIN account a ON tv.srcaccountid = a.accountid
+      WHERE avs.accountid = $1 AND avs.state = 1
     `;
       let result = await this.pgPoolI.Query(query, [accountid]);
       if (result.rowCount === 0) {
@@ -3255,7 +3278,7 @@ export default class FmsAccountSvcDB {
         let historyValues = [];
         const historyPlaceholders = vinnos
           .map((vinno, index) => {
-            const startindex = index * 10 + 1;
+            const startindex = index * 11 + 1;
             let startsat = currtime;
             let endsat = null;
             let isowner = isOwnerList[index];
@@ -5504,10 +5527,7 @@ export default class FmsAccountSvcDB {
       delete row.deltacredits;
     }
 
-    return {
-      accountid: accountid,
-      history: result.rows,
-    };
+    return result.rows;
   }
 
   /**

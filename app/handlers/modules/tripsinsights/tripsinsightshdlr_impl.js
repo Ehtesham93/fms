@@ -159,6 +159,7 @@ export default class TripsinsighthdlrImpl {
               boostmode = (trip.boostduration / duration) * 100;
             }
             boostmode = Math.max(0, Math.min(100, boostmode));
+            boostmode = Math.round(boostmode);
             const ecomode = 100 - Math.round(boostmode);
             const maxspeed =
               typeof trip.maxspeed === "number" ? trip.maxspeed : 0;
@@ -176,7 +177,7 @@ export default class TripsinsighthdlrImpl {
               socconsumed: `${parseFloat(socconsumed.toFixed(2))}%`,
               duration,
               ecomode: `${ecomode}%`,
-              boostmode: `${Math.round(boostmode * 100)}%`,
+              boostmode: `${boostmode}%`,
               idleTime: idleTime,
               // Add original epoch timestamp for sorting
               _startEpoch: trip.starttime,
@@ -2109,6 +2110,7 @@ export default class TripsinsighthdlrImpl {
               ecosocusage: 0,
               boostrange: 0,
               ecorange: 0,
+              totalsocusage: 0,
             };
           }
 
@@ -2129,6 +2131,7 @@ export default class TripsinsighthdlrImpl {
             drivingModeUsage[dateKey].ecodistance += ecoDistance;
             drivingModeUsage[dateKey].boostsocusage += boostSocUsage;
             drivingModeUsage[dateKey].ecosocusage += ecoSocUsage;
+            drivingModeUsage[dateKey].totalsocusage += tripSocUsage;
           }
         }
       });
@@ -2144,15 +2147,19 @@ export default class TripsinsighthdlrImpl {
       } else {
         dayData.boostrange = 0;
       }
-
-      dayData.boostsocusage = Math.round(((dayData.boostsocusage / vinNumbersLength) * 100) / 100);
+      if (dayData.totalsocusage > 0) {
+        dayData.boostsocusage = Math.round((dayData.boostsocusage / dayData.totalsocusage) * 100);
+        dayData.ecosocusage = Math.round((dayData.ecosocusage / dayData.totalsocusage) * 100);
+      } else {
+        dayData.boostsocusage = 0;
+        dayData.ecosocusage = 0;
+      }
       // Calculate eco range: (total eco distance * 100) / total eco SOC usage
       if (dayData.ecosocusage > 0) {
         dayData.ecorange = (dayData.ecodistance * 100) / dayData.ecosocusage;
       } else {
         dayData.ecorange = 0;
       }
-      dayData.ecosocusage = (dayData.ecosocusage / vinNumbersLength) * 100;
       // Calculate percentages
       if (dayData.totaldistance > 0) {
         const boostPercentage = Math.min(

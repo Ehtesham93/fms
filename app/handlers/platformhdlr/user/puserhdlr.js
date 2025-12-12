@@ -16,6 +16,7 @@ import {
 } from "../../../utils/responseutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import PUserHdlrImpl from "./puserhdlr_impl.js";
+import { parseQueryInt } from "../../../utils/commonutil.js";
 
 const RATE_LIMIT_PER_HOUR = 3;
 export default class PUserHdlr {
@@ -126,7 +127,7 @@ export default class PUserHdlr {
     router.get("/listdone", this.ListDoneUsers);
     router.post("/retryonboard", this.RetryOnboard);
     router.post("/getuseraccountlist", this.GetUserAccountList);
-    
+    router.post("/createadminuser", this.CreateAdminUser);
   }
 
   CreateUser = async (req, res, next) => {
@@ -448,27 +449,42 @@ export default class PUserHdlr {
         );
       }
       const schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
         roletype: z
           .enum(["platform", "account"], { message: "Invalid Role Type" })
           .optional()
           .or(z.literal("").transform(() => undefined)),
-        offset: z.coerce.number().default(0),
-        limit: z.coerce.number().default(10),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
       });
-
-      let { roletype, offset, limit } = validateAllInputs(schema, {
+      let { searchtext, roletype, offset, limit } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
         roletype: req.query.roletype,
-        offset: req.query.offset,
-        limit: req.query.limit,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
       });
 
       let result;
       if (roletype === "platform") {
-        result = await this.pUserHdlrImpl.ListPlatformUsersLogic(offset, limit);
+        result = await this.pUserHdlrImpl.ListPlatformUsersLogic(searchtext, offset, limit);
       } else if (roletype === "account") {
-        result = await this.pUserHdlrImpl.ListAccountUsersLogic(offset, limit);
+        result = await this.pUserHdlrImpl.ListAccountUsersLogic(searchtext, offset, limit);
       } else {
-        result = await this.pUserHdlrImpl.ListUsersLogic(offset, limit);
+        result = await this.pUserHdlrImpl.ListUsersLogic(searchtext, offset, limit);
       }
 
       APIResponseOK(req, res, result, "Users fetched successfully");
@@ -556,8 +572,9 @@ export default class PUserHdlr {
         userid: req.params.userid,
       });
 
-      let result =
-        await this.pUserHdlrImpl.ListAssignableUserRolesLogic(userid);
+      let result = await this.pUserHdlrImpl.ListAssignableUserRolesLogic(
+        userid
+      );
 
       APIResponseOK(
         req,
@@ -1165,8 +1182,9 @@ export default class PUserHdlr {
   GetMyConsolePermissions = async (req, res, next) => {
     try {
       const userid = req.userid;
-      const result =
-        await this.pUserHdlrImpl.GetMyConsolePermissionsLogic(userid);
+      const result = await this.pUserHdlrImpl.GetMyConsolePermissionsLogic(
+        userid
+      );
       APIResponseOK(
         req,
         res,
@@ -1298,6 +1316,15 @@ export default class PUserHdlr {
             message:
               "Invalid nemo user mobile format. Must be 10 digits starting with 6-9.",
           }),
+        nemo3_account_id: z
+          .string({ message: "Account ID must be a string" })
+          .uuid({ message: "Account ID must be a valid UUID" })
+          .optional()
+          .nullable(),
+        userrole: z
+          .string({ message: "User role must be a string" })
+          .optional()
+          .nullable(),
       });
       let schema;
       if (req.body.customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
@@ -1341,6 +1368,8 @@ export default class PUserHdlr {
         licenseplate,
         vin,
         nemo_user_mobile,
+        nemo3_account_id,
+        userrole,
       } = validateAllInputs(schema, {
         userid: req.userid,
         corporatetype: req.body.corporatetype,
@@ -1357,7 +1386,10 @@ export default class PUserHdlr {
         licenseplate: req.body.licenseplate,
         vin: req.body.vin,
         nemo_user_mobile: req.body.nemo_user_mobile,
+        nemo3_account_id: req.body.nemo3_account_id,
+        userrole: req.body.userrole,
       });
+
       const result = await this.pUserHdlrImpl.OnboardUserAccountLogic(
         userid,
         corporatetype,
@@ -1374,7 +1406,11 @@ export default class PUserHdlr {
         licenseplate,
         vin,
         nemo_user_mobile,
-        "onboarding"
+        "onboarding",
+        null,
+        null,
+        nemo3_account_id,
+        userrole
       );
       APIResponseOK(req, res, result, result.message);
     } catch (error) {
@@ -1423,7 +1459,47 @@ export default class PUserHdlr {
           "You don't have permission to list pending users."
         );
       }
-      let result = await this.pUserHdlrImpl.ListPendingUsersLogic();
+      let schema = z.object({
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        searchtext: z
+          .string({ message: "Search text must be a string" })
+          .optional()
+          .nullable()
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        orderbyfield: z
+          .string({ message: "Order by field must be a string" })
+          .optional()
+          .nullable(),
+        orderbydirection: z
+          .string({ message: "Order by direction must be a string" })
+          .optional()
+          .nullable(),
+      });
+      let { offset, limit, searchtext, orderbyfield, orderbydirection } =
+        validateAllInputs(schema, {
+          offset: parseQueryInt(req.query.offset),
+          limit: parseQueryInt(req.query.limit),
+          searchtext: req.query.searchtext,
+          orderbyfield: req.query.orderbyfield,
+          orderbydirection: req.query.orderbydirection,
+        });
+      let result = await this.pUserHdlrImpl.ListPendingUsersLogic(
+        searchtext,
+        offset,
+        limit,
+        orderbyfield,
+        orderbydirection
+      );
       APIResponseOK(req, res, result, "Pending users listed successfully");
     } catch (e) {
       this.logger.error("ListPendingUsers error: ", e);
@@ -1457,7 +1533,40 @@ export default class PUserHdlr {
           "You don't have permission to list done users."
         );
       }
-      let result = await this.pUserHdlrImpl.ListDoneUsersLogic();
+      let schema = z.object({
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        searchtext: z
+          .string({ message: "Search text must be a string" })
+          .optional()
+          .nullable()
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        orderbyfield: z
+          .string({ message: "Order by field must be a string" })
+          .optional()
+          .nullable(),
+        orderbydirection: z
+          .string({ message: "Order by direction must be a string" })
+          .optional()
+          .nullable(),
+      });
+      let { offset, limit, searchtext, orderbyfield, orderbydirection } = validateAllInputs(schema, {
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        searchtext: req.query.searchtext,
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
+      });
+      let result = await this.pUserHdlrImpl.ListDoneUsersLogic(searchtext, offset, limit, orderbyfield, orderbydirection);
       APIResponseOK(req, res, result, "Done users listed successfully");
     } catch (e) {
       this.logger.error("ListDoneUsers error: ", e);
@@ -1577,7 +1686,6 @@ export default class PUserHdlr {
     }
   };
 
-
   RetryOnboard = async (req, res, next) => {
     try {
       if (
@@ -1604,7 +1712,7 @@ export default class PUserHdlr {
           .nonempty({ message: "Retry Type cannot be empty" })
           .refine((val) => ["user", "account"].includes(val), {
             message: "Invalid Retry Type format",
-          })
+          }),
       });
       let { userid, retrytype } = validateAllInputs(schema, {
         userid: req.userid,
@@ -1659,18 +1767,21 @@ export default class PUserHdlr {
       const schema = z.discriminatedUnion("usertype", [
         z.object({
           usertype: z.literal("email"),
-          contact: z.string({ message: "Contact must be a string" })
+          contact: z
+            .string({ message: "Contact must be a string" })
             .trim()
             .email({ message: "Invalid email format" }),
         }),
         z.object({
           usertype: z.literal("mobile"),
-          contact: z.string({ message: "Mobile must be a string" })
+          contact: z
+            .string({ message: "Mobile must be a string" })
             .trim()
             .min(10, { message: "Mobile number must be 10 digits" })
             .max(10, { message: "Mobile number must be 10 digits" })
             .refine((val) => /^[6-9]\d{9}$/.test(val), {
-              message: "Invalid mobile number format. Must be 10 digits starting with 6-9.",
+              message:
+                "Invalid mobile number format. Must be 10 digits starting with 6-9.",
             }),
         }),
       ]);
@@ -1678,7 +1789,10 @@ export default class PUserHdlr {
         contact: req.body.contact,
         usertype: req.body.usertype,
       });
-      let result = await this.pUserHdlrImpl.GetUserAccountListLogic(contact, usertype);
+      let result = await this.pUserHdlrImpl.GetUserAccountListLogic(
+        contact,
+        usertype
+      );
       APIResponseOK(req, res, result, "User account list listed successfully");
     } catch (e) {
       this.logger.error("GetUserAccountList error: ", e);
@@ -1691,6 +1805,80 @@ export default class PUserHdlr {
           "GET_USER_ACCOUNT_LIST_ERR",
           e.toString(),
           "Get user account list failed"
+        );
+      }
+    }
+  };
+
+  CreateAdminUser = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to create user."
+      );
+    }
+    try {
+      let schema = z.object({
+        createdby: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        email: z
+          .string({ message: "Invalid Email format" })
+          .email({ message: "Invalid email format" }),
+        mobile: z
+          .string({ message: "Invalid Mobile Number format" })
+          .regex(/^[6-9]\d{9}$/, {
+            message:
+              "Mobile number must be exactly 10 digits and start with 6 to 9",
+          }),
+        displayname: z
+          .string({ message: "Invalid Display Name format" })
+          .nonempty({ message: "Display Name cannot be empty" })
+          .max(128, {
+            message: "Display Name must be at most 128 characters long",
+          })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Display Name can only contain letters, numbers, spaces, hyphens, and underscores",
+          }),
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+      });
+
+      let { createdby, displayname, email, mobile, accountid } =
+        validateAllInputs(schema, {
+          createdby: req.userid,
+          displayname: req.body.displayname,
+          email: req.body.email,
+          mobile: req.body.mobile,
+          accountid: req.body.accountid,
+        });
+
+      let result = await this.pUserHdlrImpl.CreateFmsUserLogic(
+        displayname,
+        email,
+        mobile,
+        createdby,
+        accountid,
+        "admin"
+      );
+
+      APIResponseOK(req, res, result, "User created successfully");
+    } catch (e) {
+      this.logger.error("CreateUser error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "CREATE_USER_ERR",
+          e.toString(),
+          "Create user failed"
         );
       }
     }

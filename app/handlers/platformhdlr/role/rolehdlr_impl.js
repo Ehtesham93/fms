@@ -219,4 +219,20 @@ export default class RoleHdlrImpl {
       deletedby: deletedby,
     };
   };
+
+  GetRoleHistoryLogic = async (starttime, endtime) => {
+    let history = await this.roleSvcI.GetRoleHistory(starttime, endtime);
+    if (!history) {
+      history = [];
+    }
+    return history;
+  };
+
+  GetRolePermHistoryLogic = async (starttime, endtime) => {
+    let history = await this.roleSvcI.GetRolePermHistory(starttime, endtime);
+    if (!history) {
+      history = [];
+    }
+    return history;
+  };
 }

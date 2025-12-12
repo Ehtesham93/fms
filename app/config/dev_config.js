@@ -32,6 +32,12 @@ export default {
     url: "http://dev-nemo3-api-email-svc.intellicar-frontend1:10004",
     sendEmailPath: "/api/v1/email/sendemail",
   },
+  geocodesvc: {
+    url: "https://maps.googleapis.com",
+    getReverseGeocodePath: "/maps/api/geocode/json",
+    apikeyPlatform: "web",
+    apikeyEnvironment: "development",
+  },
   csrf: {
     maxAgeInSeconds: 1800,
   },

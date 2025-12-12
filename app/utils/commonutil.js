@@ -151,10 +151,51 @@ export function getLoggableRequest(req) {
     userid: req.userid || "Unknown User",
     method: req.method,
     url: req.url,
+    query: req.query,
     headers: req.headers,
     body: req.body,
     userAgent: req.get("User-Agent"),
     referrer: req.get("Referrer"),
     ip: req.ip,
   };
+}
+
+export function addPaginationToQuery(
+  query,
+  offset,
+  limit,
+  existingParams = []
+) {
+  if (limit < 0 || limit > 1000) {
+    const error = new Error("Limit must be between 0 and 1000");
+    error.errcode = "INPUT_ERROR";
+    throw error;
+  }
+  const paramOffset = existingParams.length + 1;
+  const paramLimit = existingParams.length + 2;
+
+  const modifiedQuery = `${query.trim()} OFFSET $${paramOffset} LIMIT $${paramLimit}`;
+  const params = [...existingParams, offset, limit];
+
+  return {
+    query: modifiedQuery,
+    params: params,
+  };
+}
+
+export function parseQueryInt(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = parseInt(value);
+  return isNaN(parsed) ? undefined : parsed;
+}
+
+export function preprocessingText(name) {
+  if (!name || typeof name !== "string") {
+    return ""; // Return empty string for undefined, null, or non-string values
+  }
+  return name
+    .toUpperCase() // Convert to uppercase
+    .replace(/[^A-Z0-9\s]/g, " ") // Replace anything other than alphabets, numbers, and spaces with space
+    .replace(/\s+/g, " ") // Replace multiple whitespaces with single space
+    .trim(); // Trim leading and trailing whitespaces
 }

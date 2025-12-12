@@ -7,6 +7,9 @@ import {
   FLEET_INVITE_STATUS,
   FLEET_INVITE_TYPE,
   VEHICLE_ACTION,
+  VIEW_ROLE_ID,
+  ADMIN_PERMISSION,
+  VIEW_PERMISSION,
 } from "../../../utils/constant.js";
 import {
   getInviteEmailTemplate,
@@ -14,7 +17,7 @@ import {
   markInviteAsExpired,
   updateInviteExpiryAndSendEmail,
 } from "../../../utils/inviteUtil.js";
-
+import { addPaginationToQuery } from "../../../utils/commonutil.js";
 export default class AccountSvcDB {
   constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
@@ -147,7 +150,9 @@ export default class AccountSvcDB {
 
       // add admin to account root fleet
       let rootFleetAdminRoleId = ADMIN_ROLE_ID;
+      let rootFleetViewRoleId = VIEW_ROLE_ID;
       let rootFleetAdminRoleName = "Admin";
+      let rootFleetViewRoleName = "Viewer";
       query = `
                 INSERT INTO roles (accountid, roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             `;
@@ -166,8 +171,25 @@ export default class AccountSvcDB {
         throw new Error("Failed to add admin to account root fleet");
       }
 
-      // create admin role
-      let adminPermId = "all.all.all";
+      // add view role to account root fleet
+      result = await txclient.query(query, [
+        account.accountid,
+        rootFleetViewRoleId,
+        rootFleetViewRoleName,
+        account.accounttype === "platform" ? "platform" : "account",
+        true,
+        currtime,
+        account.createdby,
+        currtime,
+        account.createdby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to add view role to account root fleet");
+      }
+
+      // add admin role perm and view role perm
+      let adminPermId = ADMIN_PERMISSION;
+      let viewPermId = VIEW_PERMISSION;
       query = `
                 INSERT INTO role_perm (accountid, roleid, permid, isenabled, createdat, createdby) VALUES ($1, $2, $3, $4, $5, $6)
             `;
@@ -181,6 +203,18 @@ export default class AccountSvcDB {
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add admin role perm");
+      }
+
+      result = await txclient.query(query, [
+        account.accountid,
+        rootFleetViewRoleId,
+        viewPermId,
+        true,
+        currtime,
+        account.createdby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to add view role perm");
       }
 
       // add 1000 credits to account
@@ -283,19 +317,68 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAllAccounts(platformAccountId) {
+  async getAllAccounts(platformAccountId, offset, limit, searchtext) {
     try {
       // TODO: ideally we should not return platform account
-      let query = `
-            SELECT a.accountid, a.accountname FROM account a
-            WHERE a.accounttype = 'customer' AND a.isdeleted = false
-            ORDER BY a.createdat DESC
-        `;
-      let result = await this.pgPoolI.Query(query, []);
+      let baseQuery = `
+            SELECT DISTINCT a.accountid, a.accountname, a.updatedat
+            FROM account a
+            LEFT JOIN account_credits ac ON a.accountid = ac.accountid
+            LEFT JOIN account_package_subscription aps ON a.accountid = aps.accountid
+            LEFT JOIN package p ON aps.pkgid = p.pkgid
+            LEFT JOIN account_fleet af ON a.accountid = af.accountid
+            LEFT JOIN fleet_vehicle fv ON af.accountid = fv.accountid AND af.fleetid = fv.fleetid
+            LEFT JOIN fleet_user_role fur ON a.accountid = fur.accountid
+            LEFT JOIN users u ON fur.userid = u.userid
+            WHERE a.accounttype = 'customer' AND a.isdeleted = false AND (
+            UPPER(a.accountname) LIKE '%' || $1 || '%' OR
+            UPPER(p.pkgname) LIKE '%' || $1 || '%' OR
+            UPPER(u.displayname) LIKE '%' || $1 || '%' OR
+            UPPER(fv.vinno) LIKE '%' || $1 || '%' OR
+            CAST(ac.credits AS TEXT) LIKE '%' || $1 || '%')
+            ORDER BY a.updatedat DESC
+            OFFSET $2 LIMIT $3`;
+      let params = [searchtext, offset, limit];
+      let result = await this.pgPoolI.Query(baseQuery, params);
       if (result.rowCount === 0) {
-        return null;
+        return {
+          accounts: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
       }
-      return result.rows;
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `SELECT COUNT(DISTINCT a.accountid)
+            FROM account a
+            LEFT JOIN account_credits ac ON a.accountid = ac.accountid
+            LEFT JOIN account_package_subscription aps ON a.accountid = aps.accountid
+            LEFT JOIN package p ON aps.pkgid = p.pkgid
+            LEFT JOIN account_fleet af ON a.accountid = af.accountid
+            LEFT JOIN fleet_vehicle fv ON af.accountid = fv.accountid AND af.fleetid = fv.fleetid
+            LEFT JOIN fleet_user_role fur ON a.accountid = fur.accountid
+            LEFT JOIN users u ON fur.userid = u.userid
+            WHERE a.accounttype = 'customer' AND a.isdeleted = false AND (
+            UPPER(a.accountname) LIKE '%' || $1 || '%' OR
+            UPPER(p.pkgname) LIKE '%' || $1 || '%' OR
+            UPPER(u.displayname) LIKE '%' || $1 || '%' OR
+            UPPER(fv.vinno) LIKE '%' || $1 || '%' OR
+            CAST(ac.credits AS TEXT) LIKE '%' || $1 || '%')`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        accounts: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: nextOffset < totalcount,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw error;
     }
@@ -2520,9 +2603,25 @@ export default class AccountSvcDB {
     }
   }
 
-  async listPendingAccounts() {
+  async listPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection) {
     try {
-      let query = `
+      orderbyfield = orderbyfield || 'createdat';
+      orderbydirection = orderbydirection || 'desc';
+      searchtext = searchtext || '';
+      offset = offset || 0;
+      limit = limit || 1000;
+      let baseQuery = `
+        WITH account_list AS (
+          SELECT rpa.accountid
+          FROM reviewpendingaccount rpa
+          WHERE (
+            upper(rpa.accountname) LIKE '%' || upper($1) || '%' OR
+            upper(rpa.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(rpa.status) LIKE '%' || upper($1) || '%'
+          )
+          ORDER BY rpa.${orderbyfield} ${orderbydirection}
+          OFFSET $2 LIMIT $3
+        )
         SELECT 
           rpa.accountid, 
           rpa.accountname, 
@@ -2541,20 +2640,61 @@ export default class AccountSvcDB {
           rpa.updatedat, 
           u2.displayname as updatedby
         FROM reviewpendingaccount rpa
+        JOIN account_list al ON rpa.accountid = al.accountid
         JOIN users u1 ON rpa.createdby = u1.userid
         JOIN users u2 ON rpa.updatedby = u2.userid
-        ORDER BY rpa.createdat DESC
+        ORDER BY rpa.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(query);
-      return result.rows;
+      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `WITH account_list AS (
+        SELECT rpa.accountid
+        FROM reviewpendingaccount rpa
+        WHERE (
+          upper(rpa.accountname) LIKE '%' || upper($1) || '%' OR
+          upper(rpa.mobile) LIKE '%' || upper($1) || '%' OR
+          upper(rpa.status) LIKE '%' || upper($1) || '%'
+        )
+      ) SELECT COUNT(*) FROM account_list`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        accounts: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: (limit > result.rowCount)? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw new Error(`Failed to list pending accounts: ${error.message}`);
     }
   }
 
-  async listDoneAccounts() {
+  async listDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection) {
     try {
-      let query = `
+      orderbyfield = orderbyfield || 'updatedat';
+      orderbydirection = orderbydirection || 'desc';
+      searchtext = searchtext || '';
+      offset = offset || 0;
+      limit = limit || 1000;
+
+      let baseQuery = `
+        WITH account_list AS (
+          SELECT rda.accountid, rda.reviewed_at
+          FROM reviewdoneaccount rda
+          WHERE (
+            upper(rda.accountname) LIKE '%' || upper($1) || '%' OR
+            upper(rda.mobile) LIKE '%' || upper($1) || '%'
+          )
+          ORDER BY rda.${orderbyfield} ${orderbydirection}
+          OFFSET $2 LIMIT $3
+        )
         SELECT 
           rda.accountid, 
           rda.accountname, 
@@ -2566,31 +2706,43 @@ export default class AccountSvcDB {
           rda.original_input,
           rda.original_status as status, 
           rda.resolution_reason as reason, 
-          jsonb_set(
-            jsonb_set(
-              rda.review_data, 
-              '{createdby}', 
-              to_jsonb(u4.displayname)
-            ),
-            '{updatedby}',
-            to_jsonb(u5.displayname)
-          ) as review_data,
           rda.reviewed_at, 
           u1.displayname as reviewed_by, 
-          rda.createdat, 
-          u2.displayname as createdby, 
           rda.updatedat, 
           u3.displayname as updatedby
         FROM reviewdoneaccount rda
+        JOIN account_list al ON rda.accountid = al.accountid AND rda.reviewed_at = al.reviewed_at
         JOIN users u1 ON rda.reviewed_by = u1.userid
-        JOIN users u2 ON rda.createdby = u2.userid
         JOIN users u3 ON rda.updatedby = u3.userid
-        LEFT JOIN users u4 ON (rda.review_data->>'createdby')::uuid = u4.userid
-        LEFT JOIN users u5 ON (rda.review_data->>'updatedby')::uuid = u5.userid
-        ORDER BY rda.reviewed_at DESC
+        ORDER BY rda.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(query);
-      return result.rows;
+      // Don't use addPaginationToQuery since pagination is already in the CTE
+      let params = [searchtext, offset, limit];
+      let result = await this.pgPoolI.Query(baseQuery, params);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `WITH account_list AS (
+        SELECT rda.accountid
+        FROM reviewdoneaccount rda
+        WHERE (
+          upper(rda.accountname) LIKE '%' || upper($1) || '%' OR
+          upper(rda.mobile) LIKE '%' || upper($1) || '%'
+        )
+      ) SELECT COUNT(*) FROM account_list`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        accounts: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: (limit > result.rowCount)? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       throw new Error(`Failed to list done accounts: ${error.message}`);
     }

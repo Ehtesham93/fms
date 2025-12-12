@@ -63,4 +63,12 @@ export default class RoleSvc {
   async DeleteRole(roleid, deletedby) {
     return await this.roleSvcDB.deleteRole(roleid, deletedby);
   }
+
+  async GetRoleHistory(starttime, endtime) {
+    return await this.roleSvcDB.getRoleHistory(starttime, endtime);
+  }
+
+  async GetRolePermHistory(starttime, endtime) {
+    return await this.roleSvcDB.getRolePermHistory(starttime, endtime);
+  }
 }

@@ -1221,7 +1221,7 @@ export default class FleetInsightsHdlrImpl {
       const dateMap = {};
       tripData.forEach((trip) => {
         if (trip.starttime) {
-          const dateKey = this.formatDateIST(trip.starttime, "feild");
+          const dateKey = this.formatDateIST(trip.starttime, "feild"); // TODO: is this correct?
           if (!dateMap[dateKey]) dateMap[dateKey] = [];
           dateMap[dateKey].push(trip);
         }
@@ -1246,15 +1246,15 @@ export default class FleetInsightsHdlrImpl {
           if (distance > 0) {
             let startkwh =
               trip.startdata && typeof trip.startdata.kwh === "number"
-                ? Math.abs(trip.startdata.kwh)
+                ? trip.startdata.kwh
                 : null;
             let endkwh =
               trip.enddata && typeof trip.enddata.kwh === "number"
-                ? Math.abs(trip.enddata.kwh)
+                ? trip.enddata.kwh
                 : null;
             let tripEnergy = 0;
-            if (startkwh !== null && endkwh !== null && endkwh > startkwh) {
-              tripEnergy = endkwh - startkwh;
+            if (startkwh !== null && endkwh !== null) {
+              tripEnergy = startkwh - endkwh;
             }
             totalenergyconsumed += tripEnergy;
             energyconsumed[dateKey].total += tripEnergy;
@@ -1651,7 +1651,8 @@ export default class FleetInsightsHdlrImpl {
           ) {
             const canmodelinfo = vinToRegnoMap[vin].modelinfo.brochurespecs;
             const noofcycles = canDistance / parseInt(canmodelinfo.range);
-            const batterneeded = noofcycles * parseInt(canmodelinfo.battery_capacity);
+            const batterneeded =
+              noofcycles * parseInt(canmodelinfo.battery_capacity);
             const iceco2emission =
               canDistance * parseInt(canmodelinfo.co2_emission_factor);
             const electricco2emission =
@@ -1659,7 +1660,9 @@ export default class FleetInsightsHdlrImpl {
             canCO2EmissionsSaved =
               (iceco2emission - electricco2emission) / 1000000;
             canTreesSaved = (canCO2EmissionsSaved * 1000) / 21.77;
-            canFuelCostSaved = (canDistance / milageoficevehicle) * parseInt(canmodelinfo.fuel_price_factor);
+            canFuelCostSaved =
+              (canDistance / milageoficevehicle) *
+              parseInt(canmodelinfo.fuel_price_factor);
             vehiclecontribution.push({
               vin,
               fuelsaved: `₹${this.rupeeToFormattedString(canFuelCostSaved)}`,
@@ -1711,7 +1714,8 @@ export default class FleetInsightsHdlrImpl {
           ) {
             const canmodelinfo = vinToRegnoMap[vin].modelinfo.brochurespecs;
             const noofcycles = canDistance / parseInt(canmodelinfo.range);
-            const batterneeded = noofcycles * parseInt(canmodelinfo.battery_capacity);
+            const batterneeded =
+              noofcycles * parseInt(canmodelinfo.battery_capacity);
             const iceco2emission =
               canDistance * parseInt(canmodelinfo.co2_emission_factor);
             const electricco2emission =
@@ -1719,7 +1723,9 @@ export default class FleetInsightsHdlrImpl {
             canCO2EmissionsSaved =
               (iceco2emission - electricco2emission) / 1000000;
             canTreesSaved = (canCO2EmissionsSaved * 1000) / 21.77;
-            canFuelCostSaved = (canDistance / milageoficevehicle) * parseInt(canmodelinfo.fuel_price_factor);
+            canFuelCostSaved =
+              (canDistance / milageoficevehicle) *
+              parseInt(canmodelinfo.fuel_price_factor);
 
             fuelcostsaved += canFuelCostSaved;
             treesaved += canTreesSaved;
@@ -1759,10 +1765,8 @@ export default class FleetInsightsHdlrImpl {
           trip.enddata && typeof trip.enddata.kwh === "number"
             ? trip.enddata.kwh
             : null;
-        startkwh = Math.abs(startkwh);
-        endkwh = Math.abs(endkwh);
-        if (startkwh !== null && endkwh !== null && endkwh > startkwh)
-          totalenergyconsumed += endkwh - startkwh;
+        if (startkwh !== null && endkwh !== null)
+          totalenergyconsumed += startkwh - endkwh;
       });
     }
     totaldistancetravelled = Math.round(totaldistancetravelled * 100) / 100;

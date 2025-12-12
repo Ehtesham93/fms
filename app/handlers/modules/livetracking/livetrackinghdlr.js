@@ -12,14 +12,35 @@ import {
 import { AuthenticateAccountTokenFromCookie } from "../../../utils/tokenutil.js";
 import { validateAllInputs } from "../../../utils/validationutil.js";
 import LivetrackinghdlrImpl from "./livetrackinghdlr_impl.js";
+import { getLoggableRequest } from "../../../utils/commonutil.js";
+import {
+  GEOCODE_DEFAULT_LOCALE,
+  GEOCODE_ALLOWED_LOCALES,
+} from "../../../utils/constant.js";
 export default class Livetrackinghdlr {
-  constructor(livetrackingsvcI, fmsAccountSvcI, userSvcI, logger, config) {
+  constructor(
+    livetrackingsvcI,
+    fmsAccountSvcI,
+    userSvcI,
+    geocodeSvcI,
+    redisSvcI,
+    platformSvcI,
+    logger,
+    config
+  ) {
     this.livetrackingsvcI = livetrackingsvcI;
     this.fmsAccountSvcI = fmsAccountSvcI;
+    this.geocodeSvcI = geocodeSvcI;
+    this.redisSvcI = redisSvcI;
+    this.platformSvcI = platformSvcI;
     this.logger = logger;
     this.livetrackingsvcHdlrImpl = new LivetrackinghdlrImpl(
       livetrackingsvcI,
-      logger
+      geocodeSvcI,
+      redisSvcI,
+      platformSvcI,
+      logger,
+      config
     );
     this.permissionSvc = new PermissionSvc(fmsAccountSvcI, userSvcI, logger);
     this.config = config;
@@ -114,6 +135,8 @@ export default class Livetrackinghdlr {
 
     accountTokenGroup.get("/vehicles", this.GetVehicles);
     accountTokenGroup.get("/vehicleinfo", this.GetVehicleInfo);
+
+    accountTokenGroup.get("/reversegeocode", this.GetReverseGeocode);
   }
 
   VerifyUserAccountAccess = async (req, res, next) => {
@@ -313,6 +336,69 @@ export default class Livetrackinghdlr {
           "FAILED_TO_GET_VEHICLE_INFO",
           {},
           "Failed to get vehicle info"
+        );
+      }
+    }
+  };
+
+  GetReverseGeocode = async (req, res, next) => {
+    try {
+      let reqLog = getLoggableRequest(req);
+      const schema = z.object({
+        latitude: z.string({ message: "Invalid Latitude format" }),
+        longitude: z.string({ message: "Invalid Longitude format" }),
+        locale: z.string({ message: "Invalid Locale format" }).optional(),
+      });
+      const { latitude, longitude, locale } = validateAllInputs(schema, {
+        latitude: req.query.lat,
+        longitude: req.query.lng,
+        locale: req.query.locale || GEOCODE_DEFAULT_LOCALE,
+      });
+
+      let latFloat = parseFloat(latitude);
+      let lngFloat = parseFloat(longitude);
+
+      if (isNaN(latFloat) || isNaN(lngFloat)) {
+        throw {
+          errcode: "INPUT_ERROR",
+          errdata: {
+            latitude: latitude,
+            longitude: longitude,
+          },
+          message: "Invalid latitude or longitude format",
+        };
+      }
+
+      if (!GEOCODE_ALLOWED_LOCALES.includes(locale)) {
+        this.logger.warn("Invalid locale format, using default locale: ", {
+          locale: locale,
+        });
+        locale = GEOCODE_DEFAULT_LOCALE;
+      }
+
+      let result = await this.livetrackingsvcHdlrImpl.GetReverseGeocodeLogic(
+        latFloat,
+        lngFloat,
+        locale
+      );
+      APIResponseOK(req, res, result, "Geocode fetched successfully");
+    } catch (error) {
+      this.logger.error("GetGeocode error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          error.errcode,
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "FAILED_TO_GET_GEOCODE",
+          {},
+          "Failed to get geocode"
         );
       }
     }

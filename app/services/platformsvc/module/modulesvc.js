@@ -11,14 +11,6 @@ export default class ModuleSvc {
     return await this.moduleSvcDB.createModule(module);
   }
 
-  async LogModuleHistory(module, updatedby) {
-    return await this.moduleSvcDB.logModuleHistory(module, updatedby);
-  }
-
-  async LogModulePermHistory(moduleid, permid, updatedby, updateFields){
-    return await this.moduleSvcDB.logModulePermHistory(moduleid, permid, updatedby, updateFields);
-  }
-
   async GetModuleHistory( starttime, endtime) {
     return await this.moduleSvcDB.getModuleHistory( starttime, endtime);
   }
@@ -70,8 +62,8 @@ export default class ModuleSvc {
     );
   }
 
-  async DeleteModulePerm(moduleid, permid) {
-    return await this.moduleSvcDB.deleteModulePerm(moduleid, permid);
+  async DeleteModulePerm(moduleid, permid, updatedby) {
+    return await this.moduleSvcDB.deleteModulePerm(moduleid, permid, updatedby);
   }
 
   async IsModuleAssignedToPackage(moduleid) {
