@@ -395,15 +395,21 @@ export default class PackageSvcDB {
     if (err) {
       throw err;
     }
+    const pkgExists = await txclient.query(
+      `SELECT 1 FROM package WHERE pkgid = $1`,
+      [pkgid]
+    );
+    if (pkgExists.rowCount === 0) {
+      throw new Error("Package not found");
+    }
     let stateQuery = `
       SELECT * FROM package_module WHERE pkgid = $1
     `;
     let stateResult = await txclient.query(stateQuery, [pkgid]);
-    if (stateResult.rowCount === 0) {
-      throw new Error("Package not found");
-    }
-    let previousState = stateResult.rows;
-    let previousModuleIds = previousState.map(row => row.moduleid);
+    
+    // If no rows, just start with empty previous state
+    let previousState = stateResult.rows;          // [] when none
+    let previousModuleIds = previousState.map(r => r.moduleid);
 
     try {
       if (selectedmodules.length > 0) {
