@@ -164,21 +164,22 @@ export default class PlatformSvc {
     return await this.platformSvcDB.removeFromPendingReview(vinno);
   }
 
-  async ListPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection) {
-    return await this.platformSvcDB.listPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection);
+  async ListPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+    return await this.platformSvcDB.listPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download);
   }
 
-  async ListDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection) {
-    return await this.platformSvcDB.listDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection);
+  async ListDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+    return await this.platformSvcDB.listDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download);
   }
 
   async GetAPIKey(platform, environment) {
     return await this.platformSvcDB.getAPIKey(platform, environment);
   }
 
-  async UpdateVehicleMobile(vinno, mobileno, userid) {
+  async UpdateVehicleMobile(vinno, vehiclecity, mobileno, userid) {
     return await this.platformSvcDB.updateVehicleMobile(
       vinno,
+      vehiclecity,
       mobileno,
       userid
     );

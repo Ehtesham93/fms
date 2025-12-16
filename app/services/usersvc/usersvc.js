@@ -75,18 +75,18 @@ export default class UserSvc {
     return await this.userSvcDB.addUserToAccountWithRole(userid, accountid, role);
   }
 
-  async GetAllUsers(searchtext, offset, limit) {
-    return await this.userSvcDB.getAllUsers(searchtext, offset, limit);
+  async GetAllUsers(searchtext, offset, limit, download) {
+    return await this.userSvcDB.getAllUsers(searchtext, offset, limit, download);
   }
 
-  async GetPlatformUsers(searchtext, offset, limit) {
+  async GetPlatformUsers(searchtext, offset, limit, download) {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    return await this.userSvcDB.getAccountFleetUsers(accountid, searchtext, offset, limit);
+    return await this.userSvcDB.getAccountFleetUsers(accountid, searchtext, offset, limit, download);
   }
 
-  async GetAccountUsers(searchtext, offset, limit) {
+  async GetAccountUsers(searchtext, offset, limit, download) {
     let platformaccountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    return await this.userSvcDB.getNonPlatformUsers(platformaccountid, searchtext, offset, limit);
+    return await this.userSvcDB.getNonPlatformUsers(platformaccountid, searchtext, offset, limit, download);
   }
 
   async GetUserAccounts(userid) {

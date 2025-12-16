@@ -104,14 +104,29 @@ export default class AccountHdlrImpl {
     return { accountid: accountid, overview: account };
   };
 
-  GetAccountSummaryLogic = async () => {
-    try {
-      const getsummary = await this.accountSvcI.GetAccountSummary();
-      return getsummary;
-    } catch (error) {
-      this.logger.error("GetAccountSummaryLogic error:", error);
-      throw error;
+  GetAccountSummaryLogic = async (searchtext, offset, limit, download) => {
+    searchtext = preprocessingText(searchtext);
+    const getsummary = await this.accountSvcI.GetAccountSummary(searchtext, offset, limit, download);
+    return getsummary;
+  };
+
+  GetAllAccountUsersLogic = async (searchtext, offset, limit, download) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
     }
+    const getallaccountusers = await this.accountSvcI.GetAllAccountUsers(searchtext, offset, limit, download);
+    return getallaccountusers;
+  };
+
+
+  GetAllLoggedInAccountUsersLogic = async (searchtext, offset, limit, download, orderbyfield, orderbydirection) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
+    }
+    const getallloggedinaccountusers = await this.accountSvcI.GetAllLoggedInAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+    return getallloggedinaccountusers;
   };
 
   UpdateAccountLogic = async (accountid, updateFields, updatedby) => {
@@ -1005,24 +1020,30 @@ export default class AccountHdlrImpl {
     return { vehicles: vehicles };
   };
 
-  ListPendingAccountsLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
-    searchtext = preprocessingText(searchtext);
+  ListPendingAccountsLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection, download) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = this.preprocessingAccountName(searchtext);
+    }
     orderbyfield = preprocessingText(orderbyfield);
     orderbyfield = orderbyfield.toLowerCase();
     orderbydirection = preprocessingText(orderbydirection);
-    let accounts = await this.accountSvcI.ListPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection);
+    let accounts = await this.accountSvcI.ListPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download);
     if (!accounts) {
       accounts = [];
     }
     return accounts;
   };
 
-  ListDoneAccountsLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
-    searchtext = preprocessingText(searchtext);
+  ListDoneAccountsLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection, download) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
+    }
     orderbyfield = preprocessingText(orderbyfield);
     orderbyfield = orderbyfield.toLowerCase();
     orderbydirection = preprocessingText(orderbydirection);
-    let accounts = await this.accountSvcI.ListDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection);
+    let accounts = await this.accountSvcI.ListDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download);
     if (!accounts) {
       accounts = [];
     }

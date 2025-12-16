@@ -5,6 +5,10 @@ SHOW search_path;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Drop pg_trgm if it exists (in any schema) and recreate in public schema
+DROP EXTENSION IF EXISTS pg_trgm CASCADE;
+CREATE EXTENSION pg_trgm SCHEMA public;
+
 CREATE TABLE IF NOT EXISTS
     users (
         userid uuid NOT NULL,
@@ -1282,9 +1286,9 @@ CREATE INDEX IF NOT EXISTS idx_deleteduser_userid ON deleteduser (deleteduser_id
 
 CREATE INDEX IF NOT EXISTS idx_package_history_pkgid_updatedat ON package_history (pkgid, updatedat DESC);
 
-CREATE INDEX IF NOT EXISTS idx_package_module_history_pkgid_changedat ON package_module_history (pkgid, changedat DESC);
+CREATE INDEX IF NOT EXISTS idx_package_module_history_pkgid_updatedat ON package_module_history (pkgid, updatedat DESC);
 
-CREATE INDEX IF NOT EXISTS idx_package_module_history_moduleid_changedat ON package_module_history (moduleid, changedat DESC);
+CREATE INDEX IF NOT EXISTS idx_package_module_history_moduleid_updatedat ON package_module_history (moduleid, updatedat DESC);
 
 CREATE INDEX IF NOT EXISTS idx_fleet_tree_accountid_fleetid_isdeleted ON fleet_tree (accountid, fleetid, isdeleted);
 
@@ -1332,22 +1336,22 @@ CREATE INDEX IF NOT EXISTS idx_sos_contacts_priority ON sos_contacts (priority);
 -- Vehicle table indexes for search api
 -- GIN Trigram indexes for text search (case-insensitive ILIKE queries) on vehicle table
 CREATE INDEX CONCURRENTLY idx_vehicle_vinno_trgm 
-ON vehicle USING gin (upper(vinno) gin_trgm_ops);
+ON vehicle USING gin (upper(vinno) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_vehicle_modelcode_trgm 
-ON vehicle USING gin (upper(modelcode) gin_trgm_ops);
+ON vehicle USING gin (upper(modelcode) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_vehicle_license_plate_trgm 
-ON vehicle USING gin (upper(license_plate) gin_trgm_ops) WHERE license_plate IS NOT NULL;
+ON vehicle USING gin (upper(license_plate) public.gin_trgm_ops) WHERE license_plate IS NOT NULL;
 
 CREATE INDEX CONCURRENTLY idx_vehicle_dealer_trgm 
-ON vehicle USING gin (upper(dealer) gin_trgm_ops) WHERE dealer IS NOT NULL;
+ON vehicle USING gin (upper(dealer) public.gin_trgm_ops) WHERE dealer IS NOT NULL;
 
 CREATE INDEX CONCURRENTLY idx_vehicle_city_trgm 
-ON vehicle USING gin (upper(vehicle_city) gin_trgm_ops) WHERE vehicle_city IS NOT NULL;
+ON vehicle USING gin (upper(vehicle_city) public.gin_trgm_ops) WHERE vehicle_city IS NOT NULL;
 
 CREATE INDEX CONCURRENTLY idx_vehicle_color_trgm 
-ON vehicle USING gin (upper(color) gin_trgm_ops) WHERE color IS NOT NULL;
+ON vehicle USING gin (upper(color) public.gin_trgm_ops) WHERE color IS NOT NULL;
 
 -- B-tree indexes for ordering on createdat and updatedat
 CREATE INDEX CONCURRENTLY idx_vehicle_createdat_vinno 
@@ -1359,55 +1363,52 @@ ON vehicle USING btree (updatedat DESC, vinno DESC);
 -- Vehicle model table indexes for search api
 -- GIN Trigram indexes for text search (case-insensitive ILIKE queries) on vehicle_model table
 CREATE INDEX CONCURRENTLY idx_vehicle_model_modelname_trgm 
-ON vehicle_model USING gin (upper(modelname) gin_trgm_ops);
+ON vehicle_model USING gin (upper(modelname) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_vehicle_model_modelvariant_trgm 
-ON vehicle_model USING gin (upper(modelvariant) gin_trgm_ops);
+ON vehicle_model USING gin (upper(modelvariant) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_vehicle_model_modeldisplayname_trgm 
-ON vehicle_model USING gin (upper(modeldisplayname) gin_trgm_ops);
+ON vehicle_model USING gin (upper(modeldisplayname) public.gin_trgm_ops);
 
 -- B-tree indexes for ordering on createdat and updatedat
 CREATE INDEX CONCURRENTLY idx_vehicle_model_createdat_modelcode 
 ON vehicle_model USING btree (createdat DESC, modelcode DESC);
 
 CREATE INDEX CONCURRENTLY idx_vehicle_model_updatedat_modelcode 
-ON vehicle_model USING btree (updatedat DESC, modelcode DESC);z
+ON vehicle_model USING btree (updatedat DESC, modelcode DESC);
 
-
--- Enable pg_trgm extension if not already enabled (required for trigram indexes)
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- GIN Trigram indexes for text search (case-insensitive ILIKE queries)
 CREATE INDEX CONCURRENTLY idx_rdv_vinno_trgm 
-ON reviewdonevehicle USING gin (upper(vinno) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(vinno) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_modelcode_trgm 
-ON reviewdonevehicle USING gin (upper(modelcode) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(modelcode) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_vehiclevariant_trgm 
-ON reviewdonevehicle USING gin (upper(vehiclevariant) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(vehiclevariant) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_vehiclemodel_trgm 
-ON reviewdonevehicle USING gin (upper(vehiclemodel) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(vehiclemodel) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_mobile_trgm 
-ON reviewdonevehicle USING gin (upper(mobile) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(mobile) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_license_plate_trgm 
-ON reviewdonevehicle USING gin (upper(license_plate) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(license_plate) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_color_trgm 
-ON reviewdonevehicle USING gin (upper(color) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(color) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_vehicle_city_trgm 
-ON reviewdonevehicle USING gin (upper(vehicle_city) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(vehicle_city) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_dealer_trgm 
-ON reviewdonevehicle USING gin (upper(dealer) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(dealer) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdv_engineno_trgm 
-ON reviewdonevehicle USING gin (upper(engineno) gin_trgm_ops);
+ON reviewdonevehicle USING gin (upper(engineno) public.gin_trgm_ops);
 
 -- B-tree index for ordering with included columns (covers the ORDER BY and common SELECT fields)
 CREATE INDEX CONCURRENTLY idx_rdv_updatedat_vinno 
@@ -1419,13 +1420,13 @@ INCLUDE (modelcode, vehiclevariant, vehiclemodel, mobile, license_plate, color);
 
 -- GIN Trigram indexes for text search (case-insensitive LIKE queries)
 CREATE INDEX CONCURRENTLY idx_rpa_accountname_trgm 
-ON reviewpendingaccount USING gin (upper(accountname) gin_trgm_ops);
+ON reviewpendingaccount USING gin (upper(accountname) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rpa_mobile_trgm 
-ON reviewpendingaccount USING gin (upper(mobile) gin_trgm_ops);
+ON reviewpendingaccount USING gin (upper(mobile) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rpa_status_trgm 
-ON reviewpendingaccount USING gin (upper(status) gin_trgm_ops);
+ON reviewpendingaccount USING gin (upper(status) public.gin_trgm_ops);
 
 -- B-tree index for ordering (default orderbyfield is 'createdat')
 CREATE INDEX CONCURRENTLY idx_rpa_createdat_accountid 
@@ -1436,10 +1437,10 @@ INCLUDE (accountname, mobile, status);
 
 -- GIN Trigram indexes for text search (case-insensitive LIKE queries)
 CREATE INDEX CONCURRENTLY idx_rda_accountname_trgm 
-ON reviewdoneaccount USING gin (upper(accountname) gin_trgm_ops);
+ON reviewdoneaccount USING gin (upper(accountname) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rda_mobile_trgm 
-ON reviewdoneaccount USING gin (upper(mobile) gin_trgm_ops);
+ON reviewdoneaccount USING gin (upper(mobile) public.gin_trgm_ops);
 
 -- B-tree index for ordering (default orderbyfield is 'reviewed_at')
 CREATE INDEX CONCURRENTLY idx_rda_reviewed_at_accountid 
@@ -1450,22 +1451,22 @@ INCLUDE (accountname, mobile, original_status);
 
 -- GIN Trigram indexes for text search (case-insensitive LIKE queries)
 CREATE INDEX CONCURRENTLY idx_rpu_displayname_trgm 
-ON reviewpendinguser USING gin (upper(displayname) gin_trgm_ops);
+ON reviewpendinguser USING gin (upper(displayname) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rpu_mobile_trgm 
-ON reviewpendinguser USING gin (upper(mobile) gin_trgm_ops);
+ON reviewpendinguser USING gin (upper(mobile) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rpu_email_trgm 
-ON reviewpendinguser USING gin (upper(email) gin_trgm_ops);
+ON reviewpendinguser USING gin (upper(email) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rpu_status_trgm 
-ON reviewpendinguser USING gin (upper(status) gin_trgm_ops);
+ON reviewpendinguser USING gin (upper(status) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rpu_gender_trgm 
-ON reviewpendinguser USING gin (upper(gender) gin_trgm_ops);
+ON reviewpendinguser USING gin (upper(gender) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rpu_vehiclemobile_trgm 
-ON reviewpendinguser USING gin (upper(vehiclemobile) gin_trgm_ops);
+ON reviewpendinguser USING gin (upper(vehiclemobile) public.gin_trgm_ops);
 
 -- B-tree index for ordering (default orderbyfield is 'createdat')
 CREATE INDEX CONCURRENTLY idx_rpu_createdat_userid 
@@ -1476,19 +1477,19 @@ INCLUDE (displayname, mobile, email, status, gender, vehiclemobile);
 
 -- GIN Trigram indexes for text search (case-insensitive LIKE queries)
 CREATE INDEX CONCURRENTLY idx_rdu_displayname_trgm 
-ON reviewdoneuser USING gin (upper(displayname) gin_trgm_ops);
+ON reviewdoneuser USING gin (upper(displayname) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdu_mobile_trgm 
-ON reviewdoneuser USING gin (upper(mobile) gin_trgm_ops);
+ON reviewdoneuser USING gin (upper(mobile) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdu_email_trgm 
-ON reviewdoneuser USING gin (upper(email) gin_trgm_ops);
+ON reviewdoneuser USING gin (upper(email) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdu_gender_trgm 
-ON reviewdoneuser USING gin (upper(gender) gin_trgm_ops);
+ON reviewdoneuser USING gin (upper(gender) public.gin_trgm_ops);
 
 CREATE INDEX CONCURRENTLY idx_rdu_vehiclemobile_trgm 
-ON reviewdoneuser USING gin (upper(vehiclemobile) gin_trgm_ops);
+ON reviewdoneuser USING gin (upper(vehiclemobile) public.gin_trgm_ops);
 
 -- B-tree index for ordering (default orderbyfield is 'reviewed_at')
 CREATE INDEX CONCURRENTLY idx_rdu_reviewed_at_userid 
@@ -1496,26 +1497,23 @@ ON reviewdoneuser USING btree (reviewed_at DESC, userid DESC)
 INCLUDE (displayname, mobile, email, gender, vehiclemobile);
 
 
--- Enable pg_trgm extension if not already enabled (required for trigram indexes)
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
 -- GIN Trigram indexes for text search on account table
 CREATE INDEX CONCURRENTLY idx_account_accountname_trgm 
-ON account USING gin (upper(accountname) gin_trgm_ops)
+ON account USING gin (upper(accountname) public.gin_trgm_ops)
 WHERE accounttype = 'customer' AND isdeleted = false;
 
 -- GIN Trigram indexes for text search on package table
 CREATE INDEX CONCURRENTLY idx_package_pkgname_trgm 
-ON package USING gin (upper(pkgname) gin_trgm_ops);
+ON package USING gin (upper(pkgname) public.gin_trgm_ops);
 
 -- GIN Trigram indexes for text search on users table (displayname)
 CREATE INDEX CONCURRENTLY idx_users_displayname_trgm 
-ON users USING gin (upper(displayname) gin_trgm_ops)
+ON users USING gin (upper(displayname) public.gin_trgm_ops)
 WHERE isdeleted = false;
 
 -- GIN Trigram indexes for text search on fleet_vehicle table (vinno)
 CREATE INDEX CONCURRENTLY idx_fleet_vehicle_vinno_trgm 
-ON fleet_vehicle USING gin (upper(vinno) gin_trgm_ops);
+ON fleet_vehicle USING gin (upper(vinno) public.gin_trgm_ops);
 
 -- B-tree index for account_credits.credits (for numeric search, though we're casting to text)
 -- Note: For numeric search, a regular btree index is better, but since we're casting to text in the query,
@@ -1570,16 +1568,16 @@ ON account_fleet (createdat DESC);
 
 -- GIN Trigram indexes for text search on users table (displayname/username)
 CREATE INDEX CONCURRENTLY idx_users_displayname_trgm 
-ON users USING gin (upper(displayname) gin_trgm_ops)
+ON users USING gin (upper(displayname) public.gin_trgm_ops)
 WHERE isdeleted = false;
 
 -- GIN Trigram indexes for text search on email_pwd_sso table (email)
 CREATE INDEX CONCURRENTLY idx_email_pwd_sso_ssoid_trgm 
-ON email_pwd_sso USING gin (upper(ssoid) gin_trgm_ops);
+ON email_pwd_sso USING gin (upper(ssoid) public.gin_trgm_ops);
 
 -- GIN Trigram indexes for text search on mobile_sso table (mobile)
 CREATE INDEX CONCURRENTLY idx_mobile_sso_ssoid_trgm 
-ON mobile_sso USING gin (upper(ssoid) gin_trgm_ops);
+ON mobile_sso USING gin (upper(ssoid) public.gin_trgm_ops);
 
 -- B-tree indexes for ordering on users table (createdat and updatedat)
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_createdat_desc 
@@ -1604,6 +1602,41 @@ ON mobile_sso (updatedat DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS account_fleet_one_root_per_account ON account_fleet (accountid)
 WHERE
     (isroot = true);
+
+-- Optimized GIN index for account.accountname matching the query's WHERE clause
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_accountname_trgm_enabled 
+ON account USING gin (upper(accountname) public.gin_trgm_ops)
+WHERE isenabled = true AND isdeleted = false;
+
+-- Optimized GIN index for package.pkgname (already exists but ensure it's optimal)
+-- The existing idx_package_pkgname_trgm should work, but we can add a filtered one if needed
+-- CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_package_pkgname_trgm_enabled 
+-- ON package USING gin (upper(pkgname) public.gin_trgm_ops)
+-- WHERE isenabled = true;
+
+-- For the COUNT operations on tagged_vehicle, add B-tree indexes (not GIN, but needed for performance)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tagged_vehicle_srcaccountid_active 
+ON tagged_vehicle (srcaccountid) 
+WHERE isactive = true;
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tagged_vehicle_dstaccountid_active 
+ON tagged_vehicle (dstaccountid) 
+WHERE isactive = true;
+
+-- For JOINs, add B-tree indexes
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_package_module_pkgid 
+ON package_module (pkgid);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_package_module_moduleid 
+ON package_module (moduleid);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_package_subscription_pkgid 
+ON account_package_subscription (pkgid);
+
+-- Composite B-tree index for account WHERE clause (filters rows early)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_enabled_deleted 
+ON account (isenabled, isdeleted) 
+WHERE isenabled = true AND isdeleted = false;
 
 -- Views
 CREATE OR REPLACE VIEW

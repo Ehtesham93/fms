@@ -83,12 +83,12 @@ export default class PUserSvc {
     return await this.pUserSvcDB.checkSuperAdminRole(userid);
   }
 
-  async ListPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection) {
-    return await this.pUserSvcDB.listPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection);
+  async ListPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+    return await this.pUserSvcDB.listPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download);
   }
 
-  async ListDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection) {
-    return await this.pUserSvcDB.listDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection);
+  async ListDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+    return await this.pUserSvcDB.listDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download);
   }
   async AddReviewDoneUser(userData) {
     return await this.pUserSvcDB.addReviewDoneUser(userData);

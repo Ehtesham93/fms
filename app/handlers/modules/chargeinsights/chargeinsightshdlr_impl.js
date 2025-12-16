@@ -980,8 +980,13 @@ export default class ChargeinsightshdlrImpl {
         return this.buildChargeNoDataOverview(starttime, endtime, totalvehicles);
       }
 
-      // Group sessions by IST date
-      const sessionsByDate = await this.groupSessionsByDate(chargeData);
+      // ADD: Filter sessions to ensure they're within the time range (same as List function)
+      const filteredChargeData = chargeData.filter((session) => {
+        return session.starttime >= parseInt(starttime) && session.starttime < parseInt(endtime);
+      });
+
+      // Group sessions by IST date (using filtered data)
+      const sessionsByDate = await this.groupSessionsByDate(filteredChargeData);
 
       const allDates = [];
       const dateEpochMap = {};

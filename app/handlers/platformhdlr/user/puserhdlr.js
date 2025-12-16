@@ -470,21 +470,27 @@ export default class PUserHdlr {
           .number({ message: "Limit must be a number" })
           .optional()
           .default(1000),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
       });
-      let { searchtext, roletype, offset, limit } = validateAllInputs(schema, {
+      const parseDownload = req.query.download === "true";
+      const { searchtext, roletype, offset, limit, download } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         roletype: req.query.roletype,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
+        download: parseDownload,
       });
 
       let result;
       if (roletype === "platform") {
-        result = await this.pUserHdlrImpl.ListPlatformUsersLogic(searchtext, offset, limit);
+        result = await this.pUserHdlrImpl.ListPlatformUsersLogic(searchtext, offset, limit, download);
       } else if (roletype === "account") {
-        result = await this.pUserHdlrImpl.ListAccountUsersLogic(searchtext, offset, limit);
+        result = await this.pUserHdlrImpl.ListAccountUsersLogic(searchtext, offset, limit, download);
       } else {
-        result = await this.pUserHdlrImpl.ListUsersLogic(searchtext, offset, limit);
+        result = await this.pUserHdlrImpl.ListUsersLogic(searchtext, offset, limit, download);
       }
 
       APIResponseOK(req, res, result, "Users fetched successfully");
@@ -1484,21 +1490,28 @@ export default class PUserHdlr {
           .string({ message: "Order by direction must be a string" })
           .optional()
           .nullable(),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
       });
-      let { offset, limit, searchtext, orderbyfield, orderbydirection } =
+      const parsedownload = req.query.download === "true";
+      let { offset, limit, searchtext, orderbyfield, orderbydirection, download } =
         validateAllInputs(schema, {
           offset: parseQueryInt(req.query.offset),
           limit: parseQueryInt(req.query.limit),
           searchtext: req.query.searchtext,
           orderbyfield: req.query.orderbyfield,
           orderbydirection: req.query.orderbydirection,
+          download: parsedownload,
         });
       let result = await this.pUserHdlrImpl.ListPendingUsersLogic(
         searchtext,
         offset,
         limit,
         orderbyfield,
-        orderbydirection
+        orderbydirection,
+        download
       );
       APIResponseOK(req, res, result, "Pending users listed successfully");
     } catch (e) {
@@ -1558,15 +1571,21 @@ export default class PUserHdlr {
           .string({ message: "Order by direction must be a string" })
           .optional()
           .nullable(),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
       });
-      let { offset, limit, searchtext, orderbyfield, orderbydirection } = validateAllInputs(schema, {
+      const parsedownload = req.query.download === "true";
+      let { offset, limit, searchtext, orderbyfield, orderbydirection, download } = validateAllInputs(schema, {
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
         searchtext: req.query.searchtext,
         orderbyfield: req.query.orderbyfield,
         orderbydirection: req.query.orderbydirection,
+        download: parsedownload,
       });
-      let result = await this.pUserHdlrImpl.ListDoneUsersLogic(searchtext, offset, limit, orderbyfield, orderbydirection);
+      let result = await this.pUserHdlrImpl.ListDoneUsersLogic(searchtext, offset, limit, orderbyfield, orderbydirection, download);
       APIResponseOK(req, res, result, "Done users listed successfully");
     } catch (e) {
       this.logger.error("ListDoneUsers error: ", e);

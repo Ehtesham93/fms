@@ -76,7 +76,9 @@ export default class AccountSvcDB {
             `;
       let result = await txclient.query(query, [account.accountname]);
       if (result.rowCount > 0) {
-        const error = new Error(`Account already exists with accountid: ${result.rows[0].accountid}`);
+        const error = new Error(
+          `Account already exists with accountid: ${result.rows[0].accountid}`
+        );
         error.errcode = "ACCOUNT_ALREADY_EXISTS";
         error.errdata = result.rows[0];
         throw error;
@@ -351,7 +353,8 @@ export default class AccountSvcDB {
           totalpages: 0,
         };
       }
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
       const countcquery = `SELECT COUNT(DISTINCT a.accountid)
             FROM account a
@@ -375,7 +378,7 @@ export default class AccountSvcDB {
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: nextOffset < totalcount,
+        hasmore: limit > result.rowCount ? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };
@@ -2603,13 +2606,26 @@ export default class AccountSvcDB {
     }
   }
 
-  async listPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection) {
+  async listPendingAccounts(
+    searchtext,
+    offset,
+    limit,
+    orderbyfield,
+    orderbydirection,
+    download
+  ) {
     try {
-      orderbyfield = orderbyfield || 'createdat';
-      orderbydirection = orderbydirection || 'desc';
-      searchtext = searchtext || '';
+      orderbyfield = orderbyfield || "createdat";
+      orderbydirection = orderbydirection || "desc";
+      searchtext = searchtext || "";
       offset = offset || 0;
       limit = limit || 1000;
+      let limitquery = "";
+      let offsetquery = "";
+      if (!download) {
+        limitquery = `LIMIT $3`;
+        offsetquery = `OFFSET $2`;
+      }
       let baseQuery = `
         WITH account_list AS (
           SELECT rpa.accountid
@@ -2620,7 +2636,7 @@ export default class AccountSvcDB {
             upper(rpa.status) LIKE '%' || upper($1) || '%'
           )
           ORDER BY rpa.${orderbyfield} ${orderbydirection}
-          OFFSET $2 LIMIT $3
+          ${offsetquery} ${limitquery}
         )
         SELECT 
           rpa.accountid, 
@@ -2645,29 +2661,50 @@ export default class AccountSvcDB {
         JOIN users u2 ON rpa.updatedby = u2.userid
         ORDER BY rpa.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+
+      let result;
+      let totalcount;
+      if (download) {
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        const countcquery = `WITH account_list AS (
+          SELECT rpa.accountid
+          FROM reviewpendingaccount rpa
+          WHERE (
+            upper(rpa.accountname) LIKE '%' || upper($1) || '%' OR
+            upper(rpa.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(rpa.status) LIKE '%' || upper($1) || '%'
+          )
+        ) SELECT COUNT(*) FROM account_list`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
       if (result.rowCount === 0) {
         return [];
       }
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      if (download) {
+        return {
+          accounts: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-      const countcquery = `WITH account_list AS (
-        SELECT rpa.accountid
-        FROM reviewpendingaccount rpa
-        WHERE (
-          upper(rpa.accountname) LIKE '%' || upper($1) || '%' OR
-          upper(rpa.mobile) LIKE '%' || upper($1) || '%' OR
-          upper(rpa.status) LIKE '%' || upper($1) || '%'
-        )
-      ) SELECT COUNT(*) FROM account_list`;
-      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
-      const totalcount = parseInt(countcresult.rows[0].count);
       return {
         accounts: result.rows,
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: (limit > result.rowCount)? false : true,
+        hasmore: limit > result.rowCount ? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };
@@ -2676,14 +2713,32 @@ export default class AccountSvcDB {
     }
   }
 
-  async listDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection) {
+  async listDoneAccounts(
+    searchtext,
+    offset,
+    limit,
+    orderbyfield,
+    orderbydirection,
+    download
+  ) {
     try {
-      orderbyfield = orderbyfield || 'updatedat';
-      orderbydirection = orderbydirection || 'desc';
-      searchtext = searchtext || '';
+      orderbyfield = orderbyfield || "updatedat";
+      if (orderbyfield === "status") {
+        orderbyfield = "original_status";
+      }else if (orderbyfield === "reason") {
+        orderbyfield = "resolution_reason";
+      }
+
+      orderbydirection = orderbydirection || "desc";
+      searchtext = searchtext || "";
       offset = offset || 0;
       limit = limit || 1000;
-
+      let limitquery = "";
+      let offsetquery = "";
+      if (!download) {
+        limitquery = `LIMIT $3`;
+        offsetquery = `OFFSET $2`;
+      }
       let baseQuery = `
         WITH account_list AS (
           SELECT rda.accountid, rda.reviewed_at
@@ -2693,7 +2748,7 @@ export default class AccountSvcDB {
             upper(rda.mobile) LIKE '%' || upper($1) || '%'
           )
           ORDER BY rda.${orderbyfield} ${orderbydirection}
-          OFFSET $2 LIMIT $3
+          ${offsetquery} ${limitquery}
         )
         SELECT 
           rda.accountid, 
@@ -2717,29 +2772,48 @@ export default class AccountSvcDB {
         ORDER BY rda.${orderbyfield} ${orderbydirection}
       `;
       // Don't use addPaginationToQuery since pagination is already in the CTE
-      let params = [searchtext, offset, limit];
-      let result = await this.pgPoolI.Query(baseQuery, params);
+      let result;
+      let totalcount;
+      if (download) {
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        const countcquery = `WITH account_list AS (
+          SELECT rda.accountid
+          FROM reviewdoneaccount rda
+          WHERE (
+            upper(rda.accountname) LIKE '%' || upper($1) || '%' OR
+            upper(rda.mobile) LIKE '%' || upper($1) || '%'
+          )
+        ) SELECT COUNT(*) FROM account_list`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
       if (result.rowCount === 0) {
         return [];
       }
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      if (download) {
+        return {
+          accounts: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-      const countcquery = `WITH account_list AS (
-        SELECT rda.accountid
-        FROM reviewdoneaccount rda
-        WHERE (
-          upper(rda.accountname) LIKE '%' || upper($1) || '%' OR
-          upper(rda.mobile) LIKE '%' || upper($1) || '%'
-        )
-      ) SELECT COUNT(*) FROM account_list`;
-      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
-      const totalcount = parseInt(countcresult.rows[0].count);
       return {
         accounts: result.rows,
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: (limit > result.rowCount)? false : true,
+        hasmore: limit > result.rowCount ? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };
@@ -3014,9 +3088,9 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAccountSummary() {
+  async getAccountSummary(searchtext, offset, limit, download) {
     try {
-      let query = `
+      let baseQuery = `
         SELECT 
             s.accountid,
             a.accountname,
@@ -3061,6 +3135,8 @@ export default class AccountSvcDB {
         JOIN module m ON pm.moduleid = m.moduleid
         WHERE a.isenabled = TRUE 
           AND a.isdeleted = FALSE
+          AND (UPPER(a.accountname) LIKE '%' || $1 || '%' OR
+          UPPER(p.pkgname) LIKE '%' || $1 || '%')
         GROUP BY 
             s.accountid,
             a.accountname,
@@ -3070,16 +3146,296 @@ export default class AccountSvcDB {
             p.pkgname,
             c.credits
       `;
-      let result = await this.pgPoolI.Query(query);
-
-      if (result.rowCount === 0) {
-        throw new Error("Account not found");
+      let result;
+      let totalcount;
+      if (download) {
+        // When downloading, get all data without pagination
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        // Normal pagination flow
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [
+          searchtext,
+        ]);
+        result = await this.pgPoolI.Query(query, params);
+        const countcquery = `SELECT COUNT(*) FROM account_summary s JOIN account a ON a.accountid = s.accountid JOIN account_package_subscription aps ON aps.accountid = a.accountid JOIN package p ON aps.pkgid = p.pkgid WHERE a.isenabled = TRUE AND a.isdeleted = FALSE AND (UPPER(a.accountname) LIKE '%' || $1 || '%' OR
+          UPPER(p.pkgname) LIKE '%' || $1 || '%')`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          searchtext,
+        ]);
+        totalcount = parseInt(countcresult.rows[0].count);
       }
 
-      return result.rows;
+      if (result.rowCount === 0) {
+        return {
+          accounts: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: download ? totalcount : limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+
+      if (download) {
+        // Return all data for download
+        return {
+          accounts: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
+
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      return {
+        accounts: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: limit > result.rowCount ? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
     } catch (error) {
       this.logger.error("getAccountSummary error:", error);
       throw new Error("Failed to get account summary");
+    }
+  }
+
+  async getAllAccountUsers(searchtext, offset, limit, download) {
+    try {
+      let baseQuery = `        
+          SELECT DISTINCT 
+            a.accountname AS user_accountname, 
+            u.displayname AS user_displayname, 
+            ep.ssoid AS user_email, 
+            ms.ssoid AS user_mobile, 
+            v.dealer, 
+            v.vehicle_city AS delivered_city, 
+            fv.vinno, 
+            v.license_plate, 
+            vm.modeldisplayname 
+          FROM users u 
+          LEFT JOIN user_fleet uf ON uf.userid = u.userid 
+          LEFT JOIN account a ON a.accountid = uf.accountid 
+          LEFT JOIN fleet_vehicle fv ON fv.accountid = uf.accountid AND fv.fleetid = uf.fleetid 
+          LEFT JOIN vehicle v ON v.vinno = fv.vinno 
+          LEFT JOIN vehicle_model vm ON vm.modelcode = v.modelcode 
+          LEFT JOIN email_pwd_sso ep ON ep.userid = u.userid 
+          LEFT JOIN mobile_sso ms ON ms.userid = u.userid 
+          WHERE a.isenabled = TRUE 
+            AND a.isdeleted = FALSE
+            AND (UPPER(a.accountname) LIKE '%' || $1 || '%' OR
+            UPPER(ep.ssoid) LIKE '%' || $1 || '%' OR
+            UPPER(ms.ssoid) LIKE '%' || $1 || '%' OR
+            UPPER(u.displayname) LIKE '%' || $1 || '%' OR
+            UPPER(v.vinno) LIKE '%' || $1 || '%' OR
+            UPPER(v.license_plate) LIKE '%' || $1 || '%' OR
+            UPPER(v.dealer) LIKE '%' || $1 || '%' OR
+            UPPER(v.vehicle_city) LIKE '%' || $1 || '%' OR
+            UPPER(vm.modeldisplayname) LIKE '%' || $1 || '%')
+          ORDER BY a.accountname NULLS LAST, ms.ssoid NULLS LAST, v.dealer NULLS LAST, v.vehicle_city NULLS LAST, vm.modeldisplayname NULLS LAST
+        `;
+      let result;
+      let totalcount;
+      if (download) {
+        // When downloading, get all data without pagination
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        // Normal pagination flow
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        
+        // Fix: Remove ORDER BY from COUNT query and use DISTINCT COUNT
+        const countcquery = `SELECT COUNT(DISTINCT u.userid) 
+        FROM users u 
+        LEFT JOIN user_fleet uf ON uf.userid = u.userid 
+        LEFT JOIN account a ON a.accountid = uf.accountid 
+        LEFT JOIN fleet_vehicle fv ON fv.accountid = uf.accountid AND fv.fleetid = uf.fleetid 
+        LEFT JOIN vehicle v ON v.vinno = fv.vinno 
+        LEFT JOIN vehicle_model vm ON vm.modelcode = v.modelcode 
+        LEFT JOIN email_pwd_sso ep ON ep.userid = u.userid 
+        LEFT JOIN mobile_sso ms ON ms.userid = u.userid 
+        WHERE a.isenabled = TRUE 
+          AND a.isdeleted = FALSE
+          AND (UPPER(a.accountname) LIKE '%' || $1 || '%' OR
+          UPPER(ep.ssoid) LIKE '%' || $1 || '%' OR
+          UPPER(ms.ssoid) LIKE '%' || $1 || '%' OR
+          UPPER(u.displayname) LIKE '%' || $1 || '%' OR
+          UPPER(v.vinno) LIKE '%' || $1 || '%' OR
+          UPPER(v.license_plate) LIKE '%' || $1 || '%' OR
+          UPPER(v.dealer) LIKE '%' || $1 || '%' OR
+          UPPER(v.vehicle_city) LIKE '%' || $1 || '%' OR
+          UPPER(vm.modeldisplayname) LIKE '%' || $1 || '%')`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
+      
+      if (result.rowCount === 0) {
+        return {
+          users: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: download ? totalcount : limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+      
+      if (download) {
+        // Return all data for download
+        return {
+          users: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
+      
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      return {
+        users: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: limit > result.rowCount ? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
+    } catch (error) {
+      this.logger.error("getAllAccountUsers error:", error);
+      throw error;
+    }
+  }
+
+  async getAllLoggedInAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection){
+    try {
+      // Build WHERE clause conditionally based on searchtext
+      let orderbyclause = `ORDER BY a.accountname NULLS LAST, ms.ssoid NULLS LAST, v.dealer NULLS LAST, v.vehicle_city NULLS LAST, vm.modeldisplayname NULLS LAST`;
+      if (orderbyfield && orderbydirection) {
+        orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
+      }
+      const searchCondition = searchtext && searchtext.trim() !== '' 
+        ? `AND (UPPER(COALESCE(a.accountname, '')) LIKE '%' || $1 || '%' OR
+            UPPER(COALESCE(ep.ssoid, '')) LIKE '%' || $1 || '%' OR
+            UPPER(COALESCE(ms.ssoid, '')) LIKE '%' || $1 || '%' OR
+            UPPER(COALESCE(u.displayname, '')) LIKE '%' || $1 || '%' OR
+            UPPER(COALESCE(v.vinno, '')) LIKE '%' || $1 || '%' OR
+            UPPER(COALESCE(v.license_plate, '')) LIKE '%' || $1 || '%' OR
+            UPPER(COALESCE(v.dealer, '')) LIKE '%' || $1 || '%' OR
+            UPPER(COALESCE(v.vehicle_city, '')) LIKE '%' || $1 || '%' OR
+            UPPER(COALESCE(vm.modeldisplayname, '')) LIKE '%' || $1 || '%')`
+        : '';
+      
+      let baseQuery = `
+        SELECT DISTINCT 
+          a.accountname AS user_accountname, 
+          u.displayname AS user_displayname, 
+          ep.ssoid AS user_email, 
+          ms.ssoid AS user_mobile, 
+          v.dealer, 
+          v.vehicle_city AS delivered_city, 
+          fv.vinno, 
+          v.license_plate, 
+          vm.modeldisplayname 
+        FROM (SELECT DISTINCT userid FROM user_login_audit) ua 
+        JOIN users u ON u.userid = ua.userid 
+        LEFT JOIN user_fleet uf ON uf.userid = u.userid 
+        LEFT JOIN account a ON a.accountid = uf.accountid 
+        LEFT JOIN fleet_vehicle fv ON fv.accountid = uf.accountid AND fv.fleetid = uf.fleetid 
+        LEFT JOIN vehicle v ON v.vinno = fv.vinno 
+        LEFT JOIN vehicle_model vm ON vm.modelcode = v.modelcode 
+        LEFT JOIN email_pwd_sso ep ON ep.userid = u.userid 
+        LEFT JOIN mobile_sso ms ON ms.userid = u.userid 
+        WHERE (a.accountid IS NULL OR (a.isenabled = TRUE AND a.isdeleted = FALSE))
+          ${searchCondition}
+        ${orderbyclause}
+      `;
+      
+      let result;
+      let totalcount;
+      const params = searchtext && searchtext.trim() !== '' ? [searchtext] : [];
+      
+      if (download) {
+        // When downloading, get all data without pagination
+        result = await this.pgPoolI.Query(baseQuery, params);
+        totalcount = result.rowCount;
+      } else {
+        // Normal pagination flow
+        let { query, params: paginationParams } = addPaginationToQuery(baseQuery, offset, limit, params);
+        result = await this.pgPoolI.Query(query, paginationParams);
+        
+        // Count query - use DISTINCT to match the main query
+        const countQuery = `
+          SELECT COUNT(*) 
+          FROM (SELECT DISTINCT userid FROM user_login_audit) ua 
+          JOIN users u ON u.userid = ua.userid 
+          LEFT JOIN user_fleet uf ON uf.userid = u.userid 
+          LEFT JOIN account a ON a.accountid = uf.accountid 
+          LEFT JOIN fleet_vehicle fv ON fv.accountid = uf.accountid AND fv.fleetid = uf.fleetid 
+          LEFT JOIN vehicle v ON v.vinno = fv.vinno 
+          LEFT JOIN vehicle_model vm ON vm.modelcode = v.modelcode 
+          LEFT JOIN email_pwd_sso ep ON ep.userid = u.userid 
+          LEFT JOIN mobile_sso ms ON ms.userid = u.userid 
+          WHERE (a.accountid IS NULL OR (a.isenabled = TRUE AND a.isdeleted = FALSE))
+            ${searchCondition}
+        `;
+        const countcresult = await this.pgPoolI.Query(countQuery, params);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
+      
+      if (result.rowCount === 0) {
+        return {
+          users: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: download ? totalcount : limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+      
+      if (download) {
+        // Return all data for download
+        return {
+          users: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
+      
+      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      return {
+        users: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: nextOffset < totalcount,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
+    } catch (error) {
+      this.logger.error("getAllLoggedInAccountUsers error:", error);
+      throw error;
     }
   }
 

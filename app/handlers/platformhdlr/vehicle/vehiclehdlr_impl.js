@@ -1060,24 +1060,24 @@ export default class VehicleHdlrImpl {
     return allFields;
   };
 
-  ListPendingVehiclesLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
+  ListPendingVehiclesLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection, download) => {
     searchtext = preprocessingText(searchtext);
     orderbyfield = preprocessingText(orderbyfield);
     orderbyfield = orderbyfield.toLowerCase();
     orderbydirection = preprocessingText(orderbydirection);
-    let vehicles = await this.platformSvcI.ListPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection);
+    let vehicles = await this.platformSvcI.ListPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download);
     if (!vehicles) {
       vehicles = [];
     }
     return vehicles;
   };
 
-  ListDoneVehiclesLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
+  ListDoneVehiclesLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection, download) => {
     searchtext = preprocessingText(searchtext);
     orderbyfield = preprocessingText(orderbyfield);
     orderbyfield = orderbyfield.toLowerCase();
     orderbydirection = preprocessingText(orderbydirection);
-    let vehicles = await this.platformSvcI.ListDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection);
+    let vehicles = await this.platformSvcI.ListDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download);
     if (!vehicles) {
       vehicles = [];
     }

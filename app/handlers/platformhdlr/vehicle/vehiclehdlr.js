@@ -1130,20 +1130,27 @@ export default class VehicleHdlr {
           .optional()
           .nullable()
           .default("desc"),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
       });
-      let { searchtext, offset, limit, orderbyfield, orderbydirection } = validateAllInputs(schema, {
+      const parsedownload = req.query.download === "true";
+      let { searchtext, offset, limit, orderbyfield, orderbydirection, download } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
         orderbyfield: req.query.orderbyfield,
         orderbydirection: req.query.orderbydirection,
+        download: parsedownload,
       });
       let result = await this.vehicleHdlrImpl.ListPendingVehiclesLogic(
         searchtext,
         offset,
         limit,
         orderbyfield,
-        orderbydirection
+        orderbydirection,
+        download
       );
       APIResponseOK(req, res, result, "Pending vehicles listed successfully");
     } catch (e) {
@@ -1206,21 +1213,28 @@ export default class VehicleHdlr {
           .optional()
           .nullable()
           .default("desc"),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
       });
-      let { searchtext, offset, limit, orderbyfield, orderbydirection } =
+      const parsedownload = req.query.download === "true";
+      let { searchtext, offset, limit, orderbyfield, orderbydirection, download } =
         validateAllInputs(schema, {
           searchtext: req.query.searchtext,
           offset: parseQueryInt(req.query.offset),
           limit: parseQueryInt(req.query.limit),
           orderbyfield: req.query.orderbyfield,
           orderbydirection: req.query.orderbydirection,
+          download: parsedownload,
         });
       let result = await this.vehicleHdlrImpl.ListDoneVehiclesLogic(
         searchtext,
         offset,
         limit,
         orderbyfield,
-        orderbydirection
+        orderbydirection,
+        download
       );
       APIResponseOK(req, res, result, "Done vehicles listed successfully");
     } catch (e) {

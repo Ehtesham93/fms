@@ -646,13 +646,19 @@ export default class PUserSvcDB {
     }
   }
 
-  async listPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection) {
+  async listPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
     try {
       orderbyfield = orderbyfield || 'createdat';
       orderbydirection = orderbydirection || 'desc';
       searchtext = searchtext || '';
       offset = offset || 0;
       limit = limit || 1000;
+      let limitquery = "";
+      let offsetquery = "";
+      if (!download) {
+        limitquery = `LIMIT $3`;
+        offsetquery = `OFFSET $2`;
+      }
       let baseQuery = `
         WITH user_list AS (
           SELECT rpu.userid
@@ -666,7 +672,7 @@ export default class PUserSvcDB {
             upper(rpu.vehiclemobile) LIKE '%' || upper($1) || '%'
           )
           ORDER BY rpu.${orderbyfield} ${orderbydirection}
-          OFFSET $2 LIMIT $3
+          ${offsetquery} ${limitquery}
         )
         SELECT 
           rpu.userid, 
@@ -702,26 +708,45 @@ export default class PUserSvcDB {
         JOIN users u2 ON rpu.updatedby = u2.userid
         ORDER BY rpu.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+      let result;
+      let totalcount;
+      if (download) {
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        const countcquery = `WITH user_list AS (
+          SELECT rpu.userid
+          FROM reviewpendinguser rpu
+          WHERE (
+            upper(rpu.displayname) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.email) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.status) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.gender) LIKE '%' || upper($1) || '%' OR
+            upper(rpu.vehiclemobile) LIKE '%' || upper($1) || '%'
+          )
+        ) SELECT COUNT(*) FROM user_list`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
       if (result.rowCount === 0) {
         return [];
       }
       const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-      const countcquery = `WITH user_list AS (
-        SELECT rpu.userid
-        FROM reviewpendinguser rpu
-        WHERE (
-          upper(rpu.displayname) LIKE '%' || upper($1) || '%' OR
-          upper(rpu.mobile) LIKE '%' || upper($1) || '%' OR
-          upper(rpu.email) LIKE '%' || upper($1) || '%' OR
-          upper(rpu.status) LIKE '%' || upper($1) || '%' OR
-          upper(rpu.gender) LIKE '%' || upper($1) || '%' OR
-          upper(rpu.vehiclemobile) LIKE '%' || upper($1) || '%'
-        )
-      ) SELECT COUNT(*) FROM user_list`;
-      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
-      const totalcount = parseInt(countcresult.rows[0].count);
+      if (download) {
+        return {
+          users: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
       return {
         users: result.rows,
         previousoffset: previousOffset,
@@ -736,13 +761,24 @@ export default class PUserSvcDB {
     }
   }
 
-  async listDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection) {
+  async listDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
     try {
       orderbyfield = orderbyfield || 'updatedat';
+      if (orderbyfield === "status") {
+        orderbyfield = "original_status";
+      }else if (orderbyfield === "reason") {
+        orderbyfield = "resolution_reason";
+      }
       orderbydirection = orderbydirection || 'desc';
       searchtext = searchtext || '';
       offset = offset || 0;
       limit = limit || 1000;
+      let limitquery = "";
+      let offsetquery = "";
+      if (!download) {
+        limitquery = `LIMIT $3`;
+        offsetquery = `OFFSET $2`;
+      }
       let baseQuery = `
         WITH user_list AS (
           SELECT rdu.userid, rdu.reviewed_at
@@ -755,7 +791,7 @@ export default class PUserSvcDB {
             upper(rdu.vehiclemobile) LIKE '%' || upper($1) || '%'
           )
           ORDER BY rdu.${orderbyfield} ${orderbydirection}
-          OFFSET $2 LIMIT $3
+          ${offsetquery} ${limitquery}
         )
         SELECT 
           rdu.userid, 
@@ -790,25 +826,44 @@ export default class PUserSvcDB {
         JOIN users u3 ON rdu.updatedby = u3.userid
         ORDER BY rdu.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+      let result;
+      let totalcount;
+      if (download) {
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        const countcquery = `WITH user_list AS (
+          SELECT rdu.userid
+          FROM reviewdoneuser rdu
+          WHERE (
+            upper(rdu.displayname) LIKE '%' || upper($1) || '%' OR
+            upper(rdu.mobile) LIKE '%' || upper($1) || '%' OR
+            upper(rdu.email) LIKE '%' || upper($1) || '%' OR
+            upper(rdu.gender) LIKE '%' || upper($1) || '%' OR
+            upper(rdu.vehiclemobile) LIKE '%' || upper($1) || '%'
+          )
+        ) SELECT COUNT(*) FROM user_list`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
       if (result.rowCount === 0) {
         return [];
       }
+      if (download) {
+        return {
+          users: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
       const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-      const countcquery = `WITH user_list AS (
-        SELECT rdu.userid
-        FROM reviewdoneuser rdu
-        WHERE (
-          upper(rdu.displayname) LIKE '%' || upper($1) || '%' OR
-          upper(rdu.mobile) LIKE '%' || upper($1) || '%' OR
-          upper(rdu.email) LIKE '%' || upper($1) || '%' OR
-          upper(rdu.gender) LIKE '%' || upper($1) || '%' OR
-          upper(rdu.vehiclemobile) LIKE '%' || upper($1) || '%'
-        )
-      ) SELECT COUNT(*) FROM user_list`;
-      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
-      const totalcount = parseInt(countcresult.rows[0].count);
       return {
         users: result.rows,
         previousoffset: previousOffset,

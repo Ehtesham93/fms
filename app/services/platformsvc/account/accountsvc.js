@@ -407,12 +407,12 @@ export default class AccountSvc {
     return await this.accountSvcDB.getVehicleFleetInfo(vinno);
   }
 
-  async ListPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection) {
-    return await this.accountSvcDB.listPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection);
+  async ListPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+    return await this.accountSvcDB.listPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download);
   }
 
-  async ListDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection) {
-    return await this.accountSvcDB.listDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection);
+  async ListDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+    return await this.accountSvcDB.listDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download);
   }
 
   async AddReviewDoneAccount(accountData) {
@@ -455,8 +455,15 @@ export default class AccountSvc {
     return await this.accountSvcDB.listPendingAccountReviews();
   }
 
-  async GetAccountSummary(){
-    return await this.accountSvcDB.getAccountSummary();
+  async GetAccountSummary(searchtext, offset, limit, download){
+    return await this.accountSvcDB.getAccountSummary(searchtext, offset, limit, download);
+  }
+  async GetAllAccountUsers(searchtext, offset, limit, download){
+    return await this.accountSvcDB.getAllAccountUsers(searchtext, offset, limit, download);
+  }
+
+  async GetAllLoggedInAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection){
+    return await this.accountSvcDB.getAllLoggedInAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection);
   }
   async ListAllAccounts() {
     return await this.accountSvcDB.listAllAccounts();

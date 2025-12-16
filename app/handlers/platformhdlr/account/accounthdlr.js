@@ -154,6 +154,8 @@ export default class AccountHdlr {
     router.post("/isaccountnameavailable", this.IsAccountNameAvailable);
     router.get("/listallaccounts", this.ListAllAccounts);
     router.post("/createcorporateaccount", this.CreateCorporateAccount);
+    router.get("/users", this.GetAllAccountUsers);
+    router.get("/users/loggedin", this.GetAllLoggedInAccountUsers);
   }
 
   CreateAccount = async (req, res, next) => {
@@ -352,7 +354,37 @@ export default class AccountHdlr {
 
   GetAccountSummary = async (req, res, next) => {
     try {
-      let result = await this.accountHdlrImpl.GetAccountSummaryLogic();
+      const schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
+      });
+      const parseDownload = req.query.download === "true";
+      const { searchtext, offset, limit, download } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        download: parseDownload,
+      });
+      let result = await this.accountHdlrImpl.GetAccountSummaryLogic(searchtext, offset, limit, download);
       APIResponseOK(req, res, result, "Account summary fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountSummary error: ", error);
@@ -371,6 +403,128 @@ export default class AccountHdlr {
           "GET_ACCOUNT_SUMMARY_ERR",
           error.toString(),
           "Get account summary failed"
+        );
+      }
+    }
+  };
+
+  GetAllAccountUsers = async (req, res, next) => {
+    try {
+      const schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
+      });
+      const parseDownload = req.query.download === "true";
+      const { searchtext, offset, limit, download } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        download: parseDownload,
+      });
+      let result = await this.accountHdlrImpl.GetAllAccountUsersLogic(searchtext, offset, limit, download);
+      APIResponseOK(req, res, result, "All account users fetched successfully");
+    } catch (error) {
+      this.logger.error("GetAllAccountUsers error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ALL_ACCOUNT_USERS_ERR",
+          error.toString(),
+          "Get all account users failed"
+        );
+      }
+    }
+  };
+
+  GetAllLoggedInAccountUsers = async (req, res, next) => {
+    try {
+      const schema = z.object({
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
+        orderbyfield: z
+          .string({ message: "Order by is required" })
+          .optional()
+          .nullable(),
+        orderbydirection: z
+          .string({ message: "Order by direction is required" })
+          .optional()
+          .nullable(),
+      });
+      const parseDownload = req.query.download === "true";
+      const { searchtext, offset, limit, download, orderbyfield, orderbydirection } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        download: parseDownload,
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
+      });
+      let result = await this.accountHdlrImpl.GetAllLoggedInAccountUsersLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+      APIResponseOK(req, res, result, "All logged in account users fetched successfully");
+    } catch (error) {
+      this.logger.error("GetAllLoggedInAccountUsers error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          error.errdata,
+          error.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_ALL_LOGGED_IN_ACCOUNT_USERS_ERR",
+          error.toString(),
+          "Get all logged in account users failed"
         );
       }
     }
@@ -2440,21 +2594,28 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("desc"),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
       });
-      let { searchtext, offset, limit, orderbyfield, orderbydirection } =
+      const parsedownload = req.query.download === "true";
+      let { searchtext, offset, limit, orderbyfield, orderbydirection, download } =
         validateAllInputs(schema, {
-          searchtext: req.query.searchtext,
-          offset: parseQueryInt(req.query.offset),
-          limit: parseQueryInt(req.query.limit),
-          orderbyfield: req.query.orderbyfield,
-          orderbydirection: req.query.orderbydirection,
-        });
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
+        download: parsedownload,
+      });
       let result = await this.accountHdlrImpl.ListPendingAccountsLogic(
         searchtext,
         offset,
         limit,
         orderbyfield,
-        orderbydirection
+        orderbydirection,
+        download
       );
       APIResponseOK(req, res, result, "Pending accounts listed successfully");
     } catch (e) {
@@ -2517,20 +2678,27 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("desc"),
+        download: z
+          .boolean({ message: "Download must be a boolean" })
+          .optional()
+          .default(false),
       });
-      let { searchtext, offset, limit, orderbyfield, orderbydirection } = validateAllInputs(schema, {
+      const parsedownload = req.query.download === "true";
+      let { searchtext, offset, limit, orderbyfield, orderbydirection, download } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
         orderbyfield: req.query.orderbyfield,
         orderbydirection: req.query.orderbydirection,
+        download: parsedownload,
       });
       let result = await this.accountHdlrImpl.ListDoneAccountsLogic(
         searchtext,
         offset,
         limit,
         orderbyfield,
-        orderbydirection
+        orderbydirection,
+        download
       );
       APIResponseOK(req, res, result, "Done accounts listed successfully");
     } catch (e) {

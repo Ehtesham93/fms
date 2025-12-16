@@ -731,51 +731,85 @@ export default class UserSvcDB {
     }
   }
 
-  async getAllUsers(searchtext, offset, limit) {
+  async getAllUsers(searchtext, offset, limit, download) {
     try {
       let baseQuery = `
-            SELECT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, u.ismobileverified, u.createdat, u.createdby, u.updatedat, u.updatedby, eps.ssoid as email, mps.ssoid as mobile 
-            FROM users u
-            LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
-            LEFT JOIN mobile_sso mps ON u.userid = mps.userid
-            WHERE u.isdeleted = false AND (
-              UPPER(u.displayname) LIKE '%' || $1 || '%' OR
-              eps.ssoid LIKE '%' || $1 || '%' OR
-              UPPER(mps.ssoid) LIKE '%' || $1 || '%'
-            )
-            ORDER BY u.updatedat DESC
-        `;
-      let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
-      let result = await this.pgPoolI.Query(query, params);
+        SELECT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, u.ismobileverified, u.createdat, u.createdby, u.updatedat, u.updatedby, eps.ssoid as email, mps.ssoid as mobile, 
+        CASE 
+          WHEN uli.ssotype = 'mobile' THEN 'MOBILE_OTP'
+          WHEN uli.ssotype = 'mpin' THEN 'MOBILE_MPIN'
+          WHEN uli.ssotype = 'email' THEN 'WEB_EMAIL'
+          WHEN uli.ssotype = 'superadmin' THEN 'API_TOKEN'
+          ELSE ''
+        END as loginvia, 
+        COALESCE(uli.createdat::text, '') as lastloginat
+        FROM users u
+        LEFT JOIN user_login_audit uli ON u.userid = uli.userid
+        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        WHERE u.isdeleted = false AND (
+          UPPER(u.displayname) LIKE '%' || $1 || '%' OR
+          eps.ssoid LIKE '%' || $1 || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || $1 || '%'
+        )
+        ORDER BY u.updatedat DESC
+      `;
+      let result;
+      let totalcount;
+      
+      if (download) {
+        // When downloading, get all data without pagination
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        // Normal pagination flow
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        
+        const countcquery = `SELECT COUNT(*) FROM users u
+        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        WHERE u.isdeleted = false AND (
+          UPPER(u.displayname) LIKE '%' || $1 || '%' OR
+          eps.ssoid LIKE '%' || $1 || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || $1 || '%'
+        )`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
+      
       if (result.rowCount === 0) {
         return {
           users: [],
           previousoffset: 0,
           nextoffset: 0,
-          limit: limit,
+          limit: download ? totalcount : limit,
           hasmore: false,
           totalcount: 0,
           totalpages: 0,
         };
       }
+      
+      if (download) {
+        // Return all data for download
+        return {
+          users: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
       const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-      const countcquery = `SELECT COUNT(*) FROM users u
-      LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
-      LEFT JOIN mobile_sso mps ON u.userid = mps.userid
-      WHERE u.isdeleted = false AND (
-        UPPER(u.displayname) LIKE '%' || $1 || '%' OR
-        eps.ssoid LIKE '%' || $1 || '%' OR
-        UPPER(mps.ssoid) LIKE '%' || $1 || '%'
-      )`;
-      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
-      const totalcount = parseInt(countcresult.rows[0].count);
       return {
         users: result.rows,
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: nextOffset < totalcount,
+        hasmore: limit > result.rowCount ? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };
@@ -808,7 +842,7 @@ export default class UserSvcDB {
     }
   }
 
-  async getAccountFleetUsers(accountid, searchtext, offset, limit) {
+  async getAccountFleetUsers(accountid, searchtext, offset, limit, download) {
     try {
       let baseQuery = `
         SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, 
@@ -826,21 +860,17 @@ export default class UserSvcDB {
         )
         ORDER BY u.updatedat DESC
     `;
+    let result;
+    let totalcount;
+    if (download) {
+      // When downloading, get all data without pagination
+      result = await this.pgPoolI.Query(baseQuery, [accountid, searchtext]);
+      totalcount = result.rowCount;
+    } else {
+      // Normal pagination flow
       let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [accountid, searchtext]);
-      let result = await this.pgPoolI.Query(query, params);
-      if (result.rowCount === 0) {
-        return {
-          users: [],
-          previousoffset: 0,
-          nextoffset: 0,
-          limit: limit,
-          hasmore: false,
-          totalcount: 0,
-          totalpages: 0,
-        };
-      }
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
-      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      result = await this.pgPoolI.Query(query, params);
+      
       const countcquery = `SELECT COUNT(*) FROM users u
       JOIN fleet_user_role fur ON u.userid = fur.userid
       LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
@@ -851,71 +881,137 @@ export default class UserSvcDB {
         UPPER(mps.ssoid) LIKE '%' || $2 || '%'
       )`;
       const countcresult = await this.pgPoolI.Query(countcquery, [accountid, searchtext]);
-      const totalcount = parseInt(countcresult.rows[0].count);
+      totalcount = parseInt(countcresult.rows[0].count);
+    }
+
+    if (result.rowCount === 0) {
+      return {
+        users: [],
+        previousoffset: 0,
+        nextoffset: 0,
+        limit: download ? totalcount : limit,
+        hasmore: false,
+        totalcount: 0,
+        totalpages: 0,
+      };
+    }
+    
+    if (download) {
+      // Return all data for download
       return {
         users: result.rows,
-        previousoffset: previousOffset,
-        nextoffset: nextOffset,
-        limit: limit,
-        hasmore: nextOffset < totalcount,
+        previousoffset: 0,
+        nextoffset: 0,
+        limit: totalcount,
+        hasmore: false,
         totalcount: totalcount,
-        totalpages: Math.ceil(totalcount / limit),
+        totalpages: 1,
       };
+    }
+    const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+    const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+
+    return {
+      users: result.rows,
+      previousoffset: previousOffset,
+      nextoffset: nextOffset,
+      limit: limit,
+      hasmore: limit > result.rowCount ? false : true,
+      totalcount: totalcount,
+      totalpages: Math.ceil(totalcount / limit),
+    };
     } catch (error) {
       throw new Error("Failed to fetch account fleet users");
     }
   }
 
-  async getNonPlatformUsers(platformaccountid, searchtext, offset, limit) {
+  async getNonPlatformUsers(platformaccountid, searchtext, offset, limit, download) {
     try {
       let baseQuery = `
-            SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, 
-            u.ismobileverified, u.createdat, u2.displayname as createdby, u.updatedat, u3.displayname as updatedby,
-            eps.ssoid as email, mps.ssoid as mobile FROM users u
-            JOIN fleet_user_role fur ON u.userid = fur.userid
-            LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
-            LEFT JOIN mobile_sso mps ON u.userid = mps.userid
-            LEFT JOIN users u2 ON u.createdby = u2.userid
-            LEFT JOIN users u3 ON u.updatedby = u3.userid
-            WHERE fur.accountid != $1 AND u.isdeleted = false AND (
-              UPPER(u.displayname) LIKE '%' || $2 || '%' OR
-              eps.ssoid LIKE '%' || $2 || '%' OR
-              UPPER(mps.ssoid) LIKE '%' || $2 || '%'
-            )
-            ORDER BY u.updatedat DESC
-        `;
-      let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [platformaccountid, searchtext]);
-      let result = await this.pgPoolI.Query(query, params);
+        SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, 
+        u.ismobileverified, u.createdat, u2.displayname as createdby, u.updatedat, u3.displayname as updatedby, 
+        CASE 
+          WHEN uli.ssotype = 'mobile' THEN 'MOBILE_OTP'
+          WHEN uli.ssotype = 'mpin' THEN 'MOBILE_MPIN'
+          WHEN uli.ssotype = 'email' THEN 'WEB_EMAIL'
+          WHEN uli.ssotype = 'superadmin' THEN 'API_TOKEN'
+          ELSE ''
+        END as loginvia, 
+        COALESCE(uli.createdat::text, '') as lastloginat,
+        uli.createdat as lastloginat_raw,
+        eps.ssoid as email, mps.ssoid as mobile 
+        FROM users u
+        LEFT JOIN user_login_audit uli ON u.userid = uli.userid
+        JOIN fleet_user_role fur ON u.userid = fur.userid
+        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        LEFT JOIN users u2 ON u.createdby = u2.userid
+        LEFT JOIN users u3 ON u.updatedby = u3.userid
+        WHERE fur.accountid != $1 AND u.isdeleted = false AND (
+          UPPER(u.displayname) LIKE '%' || $2 || '%' OR
+          eps.ssoid LIKE '%' || $2 || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+        )
+        ORDER BY uli.createdat DESC
+      `;
+      let result;
+      let totalcount;
+      if (download) {
+        // When downloading, get all data without pagination
+        result = await this.pgPoolI.Query(baseQuery, [platformaccountid, searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        // Normal pagination flow
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [platformaccountid, searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        
+        const countcquery = `SELECT COUNT(*) FROM users u
+        JOIN fleet_user_role fur ON u.userid = fur.userid
+        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        WHERE fur.accountid != $1 AND u.isdeleted = false AND (
+          UPPER(u.displayname) LIKE '%' || $2 || '%' OR
+          eps.ssoid LIKE '%' || $2 || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+        )`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [platformaccountid, searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
+
       if (result.rowCount === 0) {
         return {
           users: [],
           previousoffset: 0,
           nextoffset: 0,
-          limit: limit,
+          limit: download ? totalcount : limit,
           hasmore: false,
           totalcount: 0,
           totalpages: 0,
         };
       }
+      
+      if (download) {
+        // Return all data for download
+        return {
+          users: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }      
+      
       const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-      const countcquery = `SELECT COUNT(*) FROM users u
-      JOIN fleet_user_role fur ON u.userid = fur.userid
-      LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
-      LEFT JOIN mobile_sso mps ON u.userid = mps.userid
-      WHERE fur.accountid != $1 AND u.isdeleted = false AND (
-        UPPER(u.displayname) LIKE '%' || $2 || '%' OR
-        eps.ssoid LIKE '%' || $2 || '%' OR
-        UPPER(mps.ssoid) LIKE '%' || $2 || '%'
-      )`;
-      const countcresult = await this.pgPoolI.Query(countcquery, [platformaccountid, searchtext]);
-      const totalcount = parseInt(countcresult.rows[0].count);
+     
       return {
         users: result.rows,
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: nextOffset < totalcount,
+        hasmore: limit > result.rowCount ? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };

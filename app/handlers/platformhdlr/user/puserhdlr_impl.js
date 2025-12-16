@@ -67,30 +67,30 @@ export default class PUserHdlrImpl {
     };
   };
 
-  ListPlatformUsersLogic = async (searchtext, offset, limit) => {
+  ListPlatformUsersLogic = async (searchtext, offset, limit, download) => {
     const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailregex.test(searchtext)) {
       searchtext = preprocessingText(searchtext);
     }
-    let users = await this.userSvcI.GetPlatformUsers(searchtext, offset, limit);
+    let users = await this.userSvcI.GetPlatformUsers(searchtext, offset, limit, download);
     return users;
   };
 
-  ListAccountUsersLogic = async (searchtext, offset, limit) => {
+  ListAccountUsersLogic = async (searchtext, offset, limit, download) => {
     const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailregex.test(searchtext)) {
       searchtext = preprocessingText(searchtext);
     }
-    let users = await this.userSvcI.GetAccountUsers(searchtext, offset, limit);
+    let users = await this.userSvcI.GetAccountUsers(searchtext, offset, limit, download);
     return users;
   };
 
-  ListUsersLogic = async (searchtext, offset, limit) => {
+  ListUsersLogic = async (searchtext, offset, limit, download) => {
     const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailregex.test(searchtext)) {
       searchtext = preprocessingText(searchtext);
     }
-    let users = await this.userSvcI.GetAllUsers(searchtext, offset, limit);
+    let users = await this.userSvcI.GetAllUsers(searchtext, offset, limit, download);
     return users;
   };
 
@@ -570,24 +570,30 @@ export default class PUserHdlrImpl {
     }
   };
 
-  ListPendingUsersLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
-    searchtext = preprocessingText(searchtext);
+  ListPendingUsersLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection, download) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
+    }
     orderbyfield = preprocessingText(orderbyfield);
     orderbyfield = orderbyfield.toLowerCase();
     orderbydirection = preprocessingText(orderbydirection);
-    let users = await this.pUserSvcI.ListPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection);
+    let users = await this.pUserSvcI.ListPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download);
     if (!users) {
       users = [];
     }
     return users;
   };
 
-  ListDoneUsersLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection) => {
-    searchtext = preprocessingText(searchtext);
+  ListDoneUsersLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection, download) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
+    }
     orderbyfield = preprocessingText(orderbyfield);
     orderbyfield = orderbyfield.toLowerCase();
     orderbydirection = preprocessingText(orderbydirection);
-    let users = await this.pUserSvcI.ListDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection);
+    let users = await this.pUserSvcI.ListDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download);
     if (!users) {
       users = [];
     }
@@ -1368,6 +1374,7 @@ export default class PUserHdlrImpl {
       // Update vehicle mobile
       const updatevehicle = await this.platformSvcI.UpdateVehicleMobile(
         vin,
+        original_input.customeraddresscity,
         vehiclemobile,
         userid
       );
@@ -1976,7 +1983,12 @@ export default class PUserHdlrImpl {
       if (nemo3_account_id) {
         taskid = nemo3_account_id;
       } else {
-        taskid = uuidv4();
+        const existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(accountname, vin);
+        if (existingtask) {
+          taskid = existingtask;
+        } else {
+          taskid = uuidv4();
+        }
       }
     }
     const original_input = {
@@ -2082,7 +2094,6 @@ export default class PUserHdlrImpl {
       if (manualreview) {
         return manualreview;
       }
-      accountname = processedcustomername;
       return await this.handleCorporateCustomerOnboarding(
         taskid,
         accountname,

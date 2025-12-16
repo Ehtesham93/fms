@@ -456,7 +456,7 @@ export default class PlatformSvcDB {
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: nextOffset < totalcount,
+        hasmore: limit > result.rowCount ? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };
@@ -669,13 +669,19 @@ export default class PlatformSvcDB {
     }
   }
 
-  async listPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection) {
+  async listPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
     try {
       orderbyfield = orderbyfield || 'createdat';
       orderbydirection = orderbydirection || 'desc';
       searchtext = searchtext || '';
       offset = offset || 0;
       limit = limit || 1000;
+      let limitquery = "";
+      let offsetquery = "";
+      if (!download) {
+        limitquery = `LIMIT $3`;
+        offsetquery = `OFFSET $2`;
+      }
       let baseQuery = `
         WITH vin_list AS (
           SELECT r.vinno
@@ -693,7 +699,7 @@ export default class PlatformSvcDB {
             upper(r.engineno) LIKE '%' || upper($1) || '%'
           )
           ORDER BY r.${orderbyfield} ${orderbydirection}
-          OFFSET $2 LIMIT $3
+          ${offsetquery} ${limitquery}
         )
         SELECT 
           rpv.vinno, 
@@ -729,14 +735,15 @@ export default class PlatformSvcDB {
         JOIN users u2 ON rpv.updatedby = u2.userid
         ORDER BY rpv.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
-      if (result.rowCount === 0) {
-        return [];
-      }
-      const nextOffset =
-        result.rows.length < limit ? 0 : offset + result.rows.length;
-      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-      const countcquery = `WITH vin_list AS (
+      let result;
+      let totalcount;
+      if (download) {
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        const countcquery = `WITH vin_list AS (
           SELECT r.vinno
           FROM reviewpendingvehicle r
           WHERE (
@@ -752,8 +759,26 @@ export default class PlatformSvcDB {
             upper(r.engineno) LIKE '%' || upper($1) || '%'
           )
         ) SELECT COUNT(*) FROM vin_list`;
-      const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
-      const totalcount = parseInt(countcresult.rows[0].count);
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
+      if (result.rowCount === 0) {
+        return [];
+      }
+      if (download) {
+        return {
+          vehicles: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
       return {
         vehicles: result.rows,
         previousoffset: previousOffset,
@@ -769,13 +794,24 @@ export default class PlatformSvcDB {
   }
 
 
-  async listDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection) {
+  async listDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
     try {  
       orderbyfield = orderbyfield || 'updatedat';
+      if (orderbyfield === "status") {
+        orderbyfield = "original_status";
+      }else if (orderbyfield === "reason") {
+        orderbyfield = "resolution_reason";
+      }
       orderbydirection = orderbydirection || 'desc';
       searchtext = searchtext || '';
       offset = offset || 0;
       limit = limit || 1000;
+      let limitquery = "";
+      let offsetquery = "";
+      if (!download) {
+        limitquery = `LIMIT $3`;
+        offsetquery = `OFFSET $2`;
+      }
       let baseQuery = `
         WITH vin_list AS (
           SELECT r.vinno, r.reviewed_at
@@ -793,7 +829,7 @@ export default class PlatformSvcDB {
             upper(r.engineno) LIKE '%' || upper($1) || '%'
           )
           ORDER BY r.${orderbyfield} ${orderbydirection}
-          OFFSET $2 LIMIT $3
+          ${offsetquery} ${limitquery}
         )
         SELECT
           rdv.vinno,
@@ -829,14 +865,15 @@ export default class PlatformSvcDB {
         JOIN users u3 ON rdv.updatedby = u3.userid
         ORDER BY rdv.${orderbyfield} ${orderbydirection}
       `;
-      let result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
-      if (result.rowCount === 0) {
-        return [];
-      }
-      const nextOffset =
-        result.rows.length < limit ? 0 : offset + result.rows.length;
-      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-      let countQuery = `WITH vin_list AS (
+      let result;
+      let totalcount;
+      if (download) {
+        result = await this.pgPoolI.Query(baseQuery, [searchtext]);
+        totalcount = result.rowCount;
+      } else {
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        result = await this.pgPoolI.Query(query, params);
+        const countcquery = `WITH vin_list AS (
           SELECT r.vinno
           FROM reviewdonevehicle r
           WHERE (
@@ -852,9 +889,26 @@ export default class PlatformSvcDB {
             upper(r.engineno) LIKE '%' || upper($1) || '%'
           )
         ) SELECT COUNT(*) FROM vin_list`;
-      const countResult = await this.pgPoolI.Query(countQuery, [searchtext]);
-      const totalcount = parseInt(countResult.rows[0].count);
-      
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
+      if (result.rowCount === 0) {
+        return [];
+      }
+      if (download) {
+        return {
+          vehicles: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
       return {
         vehicles: result.rows,
         previousoffset: previousOffset,
@@ -887,24 +941,25 @@ export default class PlatformSvcDB {
     }
   }
 
-  async updateVehicleMobile(vinno, mobileno, userid) {
+  async updateVehicleMobile(vinno, vehiclecity, mobileno, userid) {
     try {
       let currtime = new Date();
       let alreadyExists = await this.pgPoolI.Query(
-        `SELECT vinno, mobile FROM vehicle WHERE vinno = $1`,
+        `SELECT vinno, mobile, vehicle_city FROM vehicle WHERE vinno = $1`,
         [vinno]
       );
       if (alreadyExists.rowCount === 0) {
         throw new Error("Vehicle not found");
       }
 
-      if (alreadyExists.rows[0].mobile === mobileno) {
+      if (alreadyExists.rows[0].mobile === mobileno && alreadyExists.rows[0].vehicle_city === vehiclecity) {
         return true;
       }
 
-      let query = `UPDATE vehicle SET mobile = $1, updatedat = $2, updatedby = $3 WHERE vinno = $4`;
+      let query = `UPDATE vehicle SET mobile = $1, vehicle_city = $2, updatedat = $3, updatedby = $4 WHERE vinno = $5`;
       let result = await this.pgPoolI.Query(query, [
         mobileno,
+        vehiclecity,
         currtime,
         userid,
         vinno,
@@ -1598,7 +1653,7 @@ export default class PlatformSvcDB {
         vehicles: result.rows,
         offset: nextOffset,
         limit: limit,
-        hasmore: nextOffset > result.rowCount,
+        hasmore: limit > result.rowCount ? false : true,
       };
     } catch (error) {
       this.logger.error("SearchVehicles error:", error);
