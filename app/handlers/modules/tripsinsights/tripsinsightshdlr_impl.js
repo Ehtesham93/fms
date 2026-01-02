@@ -154,8 +154,10 @@ export default class TripsinsighthdlrImpl {
             let boostmode = 0;
             if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
               boostmode = (trip.boostsocusage / socconsumed) * 100;
-            } else if (distance > 0) {
+            } else if (distance > 0 && trip.boostdist != null && trip.boostdist > 0) {
               // Fallback to distance-based calculation
+              boostmode = (trip.boostdist / distance) * 100;
+            } else if (duration > 0 && trip.boostduration != null && trip.boostduration > 0) {
               boostmode = (trip.boostduration / duration) * 100;
             }
             boostmode = Math.max(0, Math.min(100, boostmode));
