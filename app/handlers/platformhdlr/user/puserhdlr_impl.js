@@ -67,30 +67,33 @@ export default class PUserHdlrImpl {
     };
   };
 
-  ListPlatformUsersLogic = async (searchtext, offset, limit, download) => {
+  ListPlatformUsersLogic = async (searchtext, offset, limit, download, orderbyfield, orderbydirection) => {
     const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailregex.test(searchtext)) {
       searchtext = preprocessingText(searchtext);
     }
-    let users = await this.userSvcI.GetPlatformUsers(searchtext, offset, limit, download);
+    orderbydirection = preprocessingText(orderbydirection);
+    let users = await this.userSvcI.GetPlatformUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection);
     return users;
   };
 
-  ListAccountUsersLogic = async (searchtext, offset, limit, download) => {
+  ListAccountUsersLogic = async (searchtext, offset, limit, download, orderbyfield, orderbydirection) => {
     const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailregex.test(searchtext)) {
       searchtext = preprocessingText(searchtext);
     }
-    let users = await this.userSvcI.GetAccountUsers(searchtext, offset, limit, download);
+    orderbydirection = preprocessingText(orderbydirection);
+    let users = await this.userSvcI.GetAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection);
     return users;
   };
 
-  ListUsersLogic = async (searchtext, offset, limit, download) => {
+  ListUsersLogic = async (searchtext, offset, limit, download, orderbyfield, orderbydirection) => {
     const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailregex.test(searchtext)) {
       searchtext = preprocessingText(searchtext);
     }
-    let users = await this.userSvcI.GetAllUsers(searchtext, offset, limit, download);
+    orderbydirection = preprocessingText(orderbydirection);
+    let users = await this.userSvcI.GetAllUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection);
     return users;
   };
 
@@ -282,7 +285,7 @@ export default class PUserHdlrImpl {
   };
 
   AddUserPlatformRoleLogic = async (userid, roleids, updatedby) => {
-    let res = await this.pUserSvcI.AddUserPlatformRole(userid, roleids);
+    let res = await this.pUserSvcI.AddUserPlatformRole(userid, roleids, updatedby);
     if (!res) {
       this.logger.error("Failed to add user platform role");
       throw new Error("Failed to add user platform role");
@@ -300,7 +303,7 @@ export default class PUserHdlrImpl {
         message: "Cannot remove admin role",
       };
     }
-    let res = await this.pUserSvcI.RemoveUserPlatformRole(userid, roleid);
+    let res = await this.pUserSvcI.RemoveUserPlatformRole(userid, roleid, updatedby);
     if (!res) {
       this.logger.error("Failed to remove user platform role");
       throw new Error("Failed to remove user platform role");
@@ -415,7 +418,7 @@ export default class PUserHdlrImpl {
         if (authres === undefined || authres === null || !authres) {
           this.logger.error("Failed to create user in auth service");
           // Rollback by deleting all user records
-          await this.userSvcI.DeleteUserRecordsByUserid(res.userid);
+          await this.userSvcI.DeleteUserRecordsByUserid(res.userid, createdby);
           throw new Error("Failed to create user in auth service");
         }
 
@@ -424,7 +427,7 @@ export default class PUserHdlrImpl {
       } catch (error) {
         this.logger.error("Failed to register user with auth service", error);
         // Rollback by deleting all user records
-        await this.userSvcI.DeleteUserRecordsByUserid(res.userid);
+        await this.userSvcI.DeleteUserRecordsByUserid(res.userid, createdby);
         throw new Error("Failed to register user with auth service");
       }
 
@@ -623,7 +626,7 @@ export default class PUserHdlrImpl {
   preprocessingname = (name) => {
     return name
       .toUpperCase() // Convert to uppercase
-      .replace(/[^A-Z0-9\s]/g, " ") // Replace anything other than alphabets, numbers, and spaces with space
+      .replace(/[^A-Z0-9\s&]/g, " ") // Replace anything other than alphabets, numbers, spaces, &, and . with space
       .replace(/\s+/g, " ") // Replace multiple whitespaces with single space
       .trim(); // Trim leading and trailing whitespaces
   };
@@ -1160,7 +1163,7 @@ export default class PUserHdlrImpl {
   }
 
   async handleUserAdditionToAccount(
-    createduserid,
+    createdbyuserid,
     contact,
     accountid,
     taskid,
@@ -1180,10 +1183,10 @@ export default class PUserHdlrImpl {
     }
     let adduser = null;
     if (userrole) { // when userrole is provided, add user to account with role
-      adduser = await this.userSvcI.AddUserToAccountWithRole(userid, accountid, userrole);
+      adduser = await this.userSvcI.AddUserToAccountWithRole(userid, accountid, userrole, createdbyuserid);
     } else {
       adduser = await this.AddUserToAccountLogic(
-        createduserid,
+        createdbyuserid,
         contact,
         accountid
       );
@@ -1204,7 +1207,7 @@ export default class PUserHdlrImpl {
           userid
         );
         return {
-          userid: createduserid,
+          userid: createdbyuserid,
           accountid: accountid,
           errcode: "USER_ASSIGNMENT_FAILED",
           status: "PENDING_USER_ASSIGNMENT",
@@ -1223,7 +1226,7 @@ export default class PUserHdlrImpl {
         );
       }
       return {
-        userid: createduserid,
+        userid: createdbyuserid,
         accountid: accountid,
         errcode: "USER_ASSIGNMENT_FAILED",
         status: "PENDING_USER_ASSIGNMENT",
@@ -1241,7 +1244,6 @@ export default class PUserHdlrImpl {
     taskid,
     original_input,
     userid,
-    createduserid,
     accountid
   ) {
     try {
@@ -1283,7 +1285,6 @@ export default class PUserHdlrImpl {
           );
         }
         return {
-          userid: createduserid,
           accountid: accountid,
           errcode: "SERVICE_ONBOARDING_FAILED",
           status: "PENDING_SERVICE_ONBOARDING",
@@ -1294,7 +1295,6 @@ export default class PUserHdlrImpl {
       return null; // Success
     } catch (error) {
       return {
-        userid: createduserid,
         accountid: accountid,
         errcode: "SERVICE_ONBOARDING_FAILED",
         status: "PENDING_SERVICE_ONBOARDING",
@@ -1313,13 +1313,12 @@ export default class PUserHdlrImpl {
     taskid,
     accountname,
     original_input,
-    createduserid
   ) {
     let vehicleExists = await this.platformSvcI.CheckVehicleExists(vin);
     if (vehicleExists) {
       const isVehicleAddedToAccount =
         await this.pUserSvcI.checkIsVehicleAddedToAccount(vin);
-      const isVehicleAddedToSameAccount = isVehicleAddedToAccount.accountid === accountid;
+      const isVehicleAddedToSameAccount = isVehicleAddedToAccount? isVehicleAddedToAccount.accountid === accountid : false;
       
       let addvehicle = null;
       if (!isVehicleAddedToAccount) {
@@ -1346,7 +1345,7 @@ export default class PUserHdlrImpl {
               error_status: "VEHICLE_ASSIGNMENT",
               status: "PENDING_VEHICLE_ASSIGNMENT",
               reason:
-                "Vehicle addition failed. Vehicle already exists in another account pending manual review.",
+                "Vehicle assignment failed. Vehicle already exists in another account pending manual review.",
               original_input: original_input,
             },
             userid
@@ -1358,23 +1357,26 @@ export default class PUserHdlrImpl {
             original_input,
             "VEHICLE_ASSIGNMENT",
             userid,
-            `Vehicle addition failed. Vehicle already exists in another account pending manual review.`,
+            `Vehicle assignment failed. Vehicle already exists in another account pending manual review.`,
             "PENDING_VEHICLE_ASSIGNMENT"
           );
         }
         return {
-          userid: createduserid,
           accountid: accountid,
           errcode: "VEHICLE_ASSIGNMENT_FAILED",
           status: "PENDING_VEHICLE_ASSIGNMENT",
           message:
-            "Account and vehicle created successfully. Vehicle addition failed. Vehicle already exists in another account pending manual review.",
+            "Vehicle assignment failed. Vehicle already exists in another account pending manual review.",
         };
       }
       // Update vehicle mobile
+      let checkandcreatecity = await this.platformSvcI.CheckAndCreateCity(original_input.customeraddresscity);
+      if (!checkandcreatecity) {
+        checkandcreatecity = original_input.customeraddresscity;
+      }
       const updatevehicle = await this.platformSvcI.UpdateVehicleMobile(
         vin,
-        original_input.customeraddresscity,
+        checkandcreatecity,
         vehiclemobile,
         userid
       );
@@ -1388,7 +1390,6 @@ export default class PUserHdlrImpl {
         taskid,
         original_input,
         userid,
-        createduserid,
         accountid
       );
       if (serviceResult) return serviceResult;
@@ -1422,12 +1423,11 @@ export default class PUserHdlrImpl {
         );
       }
       return {
-        userid: createduserid,
         accountid: accountid,
         errcode: "VEHICLE_ASSIGNMENT_FAILED",
         status: "PENDING_VEHICLE_ASSIGNMENT",
         message:
-          "Account and vehicle created successfully. Vehicle assignment failed. Vehicle not found pending manual review.",
+          "Vehicle assignment failed. Vehicle not found pending manual review.",
       };
     }
   }
@@ -1519,6 +1519,16 @@ export default class PUserHdlrImpl {
         customergender,
         userid
       );
+      const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(taskid);
+      if(pendinguser){
+        await this.AddUserToReviewDone(
+          taskid,
+          user,
+          userid,
+          original_input,
+          {}
+        );
+      }
     }
 
     // Add user to account
@@ -1554,7 +1564,6 @@ export default class PUserHdlrImpl {
       taskid,
       accountname,
       original_input,
-      user.userid
     );
     if (vehicleResult) return vehicleResult;
 
@@ -1657,6 +1666,17 @@ export default class PUserHdlrImpl {
         customergender,
         userid
       );
+
+      const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(taskid);
+      if(pendinguser){
+        await this.AddUserToReviewDone(
+          taskid,
+          user,
+          userid,
+          original_input,
+          {}
+        );
+      }
     }
 
     // Add user to account
@@ -1691,7 +1711,6 @@ export default class PUserHdlrImpl {
       taskid,
       accountname,
       original_input,
-      user.userid
     );
     if (vehicleResult) return vehicleResult;
 
@@ -1765,6 +1784,13 @@ export default class PUserHdlrImpl {
         if (account) {
           createaccount = false;
           accountid = account.accountid;
+        }else{
+          account = await this.platformSvcI.GetAccountById(taskid);
+          if(account) {
+            createaccount = false;
+            accountid = account.accountid;
+            accountname = account.accountname;
+          }
         }
     }
     if (createaccount) {
@@ -1776,6 +1802,36 @@ export default class PUserHdlrImpl {
       );
       accountid = accountRes.accountid;
       account = accountRes.account;
+    }
+    original_input.nemo3_account_id = accountid;
+
+    // Handle vehicle addition
+    const vehicleResult = await this.handleVehicleAddition(
+      accountid,
+      vin,
+      licenseplate,
+      vehiclemobile,
+      userid,
+      taskid,
+      accountname,
+      original_input,
+    );
+    if (vehicleResult) return vehicleResult;
+    await this.AddAccountToReviewDone(
+      taskid,
+      accountname,
+      account,
+      original_input,
+      userid,
+      "Vehicle assignment successful",
+      {},
+      "VEHICLE_ASSIGNMENT_SUCCESS"
+    );
+
+
+    const manualreview = await this.handleManualreviewCases(original_input, existingmobile, existingemail, userid, taskid);
+    if (manualreview) {
+      return manualreview;
     }
 
     // Create user
@@ -1797,6 +1853,16 @@ export default class PUserHdlrImpl {
         userid
       );
       action = "USER_ALREADY_EXISTS";
+      const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(taskid);
+      if(pendinguser){
+        await this.AddUserToReviewDone(
+          taskid,
+          user,
+          userid,
+          original_input,
+          {}
+        );
+      }
     } else if (existingmobile !== null && existingemail === null) {
       user = await this.userSvcI.GetUserDetails(
         existingmobile
@@ -1814,6 +1880,16 @@ export default class PUserHdlrImpl {
         userid
       );
       action = "USER_ALREADY_EXISTS";
+      const pendinguser = await this.pUserSvcI.GetPendingUserReviewById(taskid);
+      if(pendinguser){
+        await this.AddUserToReviewDone(
+          taskid,
+          user,
+          userid,
+          original_input,
+          {}
+        );
+      }
    } else {
       user = await this.TaskCreateUser(
         taskid,
@@ -1883,30 +1959,6 @@ export default class PUserHdlrImpl {
       "USER_ASSIGNMENT_SUCCESS"
     );
 
-    // Handle vehicle addition
-    const vehicleResult = await this.handleVehicleAddition(
-      accountid,
-      vin,
-      licenseplate,
-      vehiclemobile,
-      userid,
-      taskid,
-      accountname,
-      original_input,
-      user.userid
-    );
-    if (vehicleResult) return vehicleResult;
-    await this.AddAccountToReviewDone(
-      taskid,
-      accountname,
-      account,
-      original_input,
-      userid,
-      "Vehicle assignment successful",
-      {},
-      "VEHICLE_ASSIGNMENT_SUCCESS"
-    );
-
     return {
       userid: user.userid,
       accountid: accountid,
@@ -1937,7 +1989,7 @@ export default class PUserHdlrImpl {
 
       return dateString; // Return as-is if not in expected format
     } catch (error) {
-      console.log("Date conversion error:", error);
+      this.logger.error("Date conversion error:", error);
       return null;
     }
   };
@@ -1969,28 +2021,37 @@ export default class PUserHdlrImpl {
     const processedcustomername = this.preprocessingname(customername);
     const vehiclemobile = this.preprocessingmobile(customercontactmobile);
     const usermobile = this.preprocessingmobile(nemo_user_mobile);
+    customeraddresscity = preprocessingText(customeraddresscity);
     if (accountname === null) {
       accountname = `${processedcustomername} ${usermobile}`;
     }
-    if (taskid === null && customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL) {
-      const existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(accountname, vin);
+    let pendingaccount = null;
+    if(taskid === null) {
+      let existingtask = null;
+      existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(processedcustomername, vin);
       if (existingtask) {
         taskid = existingtask;
       } else {
-        taskid = uuidv4();
-      }
-    } else if (taskid === null && customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
-      if (nemo3_account_id) {
-        taskid = nemo3_account_id;
-      } else {
-        const existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(accountname, vin);
+        existingtask = await this.accountSvcI.GetPendingAccountReviewByAccountName(accountname, vin);
         if (existingtask) {
           taskid = existingtask;
-        } else {
-          taskid = uuidv4();
+        }else{
+          const existingusertask = await this.pUserSvcI.GetPendingUserReviewByUserName(processedcustomername, vin);
+          if (existingusertask) {
+            taskid = existingusertask;
+          }else{
+            taskid = uuidv4();
+          }
         }
       }
+    } else {
+      pendingaccount =
+          await this.accountSvcI.GetPendingAccountReviewById(taskid);
+        if(pendingaccount) {
+          nemo3_account_id = pendingaccount.original_input.nemo3_account_id;
+        }
     }
+
     const original_input = {
       corporatetype: corporatetype,
       customertype: customertype,
@@ -2008,58 +2069,69 @@ export default class PUserHdlrImpl {
       licenseplate: licenseplate,
       vin: vin,
       nemo_user_mobile: usermobile,
+      nemo3_account_id: nemo3_account_id,
+      userrole: userrole,
     };
 
     if (customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL) {
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
-      const existingaccount =
-        await this.platformSvcI.GetAccountByName(accountname);
+      let existingaccount = null;
+      if (nemo3_account_id) {
+        existingaccount = await this.platformSvcI.GetAccountById(nemo3_account_id);
+        accountname = existingaccount.accountname;
+      } else {
+        existingaccount = await this.platformSvcI.GetAccountByName(accountname);
+        if(!existingaccount) {
+          existingaccount = await this.platformSvcI.GetAccountById(taskid);
+        }
+        if(existingaccount) {
+          accountname = existingaccount.accountname;
+        }
+      }
 
-        if (existingaccount === null) {
-          const pendingaccount =
-            await this.accountSvcI.GetPendingAccountReviewById(taskid);
-          if ( existingmobile === null || ( pendingaccount && pendingaccount.status === "DUPLICATE_ACCOUNT_CREATION" && pendingaccount.error_status === "ACCOUNT_CREATION" && type === "review")){
-            return await this.handleIndividualCustomerOnboarding(
-              taskid,
-              accountname,
-              userid,
-              original_input,
-              existingmobile,
-              usermobile,
-              processedcustomername,
-              customercontactemail,
-              customeraddress,
-              customeraddresscity,
-              customeraddresscountry,
-              customeraddresspincode,
-              customerdateofbirth,
-              customergender,
-              vehiclemobile,
-              vin,
-              licenseplate
-            );
-          } else {
-            await this.AddAccountToReviewPending(
-              taskid,
-              accountname,
-              original_input,
-              "ACCOUNT_CREATION",
-              userid,
-              `Duplicate account creation when User is already present with for the given contact onboarding failed. Account onboarding pending manual review.`,
-              "DUPLICATE_ACCOUNT_CREATION"
-            );
-  
-            const user = await this.userSvcI.GetUserDetails(existingmobile);
-  
-            return {
-              userid: user.userid,
-              errcode: "DUPLICATE_ACCOUNT_CREATION",
-              status: "DUPLICATE_ACCOUNT_CREATION",
-              message:
-                "Duplicate account creation. Account creation pending manual review.",
-            };
-  
-          }
+      if (existingaccount === null) {
+        if ( existingmobile === null || ( pendingaccount && pendingaccount.status === "DUPLICATE_ACCOUNT_CREATION" && pendingaccount.error_status === "ACCOUNT_CREATION" && type === "review")){
+          return await this.handleIndividualCustomerOnboarding(
+            taskid,
+            accountname,
+            userid,
+            original_input,
+            existingmobile,
+            usermobile,
+            processedcustomername,
+            customercontactemail,
+            customeraddress,
+            customeraddresscity,
+            customeraddresscountry,
+            customeraddresspincode,
+            customerdateofbirth,
+            customergender,
+            vehiclemobile,
+            vin,
+            licenseplate
+          );
+        } else {
+          await this.AddAccountToReviewPending(
+            taskid,
+            accountname,
+            original_input,
+            "ACCOUNT_CREATION",
+            userid,
+            `Duplicate account creation when User is already present with for the given contact onboarding failed. Account onboarding pending manual review.`,
+            "DUPLICATE_ACCOUNT_CREATION"
+          );
+
+          const user = await this.userSvcI.GetUserDetails(existingmobile);
+
+          return {
+            userid: user.userid,
+            errcode: "DUPLICATE_ACCOUNT_CREATION",
+            status: "DUPLICATE_ACCOUNT_CREATION",
+            message:
+              "Duplicate account creation. Account creation pending manual review.",
+          };
+
+        }
       } else if (existingaccount !== null) {
         return await this.handleExistingIndividualAccount(
           taskid,
@@ -2087,13 +2159,10 @@ export default class PUserHdlrImpl {
       } else {
         nemo3_account_id = original_input.nemo3_account_id;
       }
+
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
       const existingemail =
         await this.userSvcI.CheckEmailExists(customercontactemail);
-      const manualreview = await this.handleManualreviewCases(original_input, existingmobile, existingemail, userid, taskid);
-      if (manualreview) {
-        return manualreview;
-      }
       return await this.handleCorporateCustomerOnboarding(
         taskid,
         accountname,
@@ -2187,7 +2256,7 @@ export default class PUserHdlrImpl {
       original_input.nemo_user_mobile,
       "review",
       taskid,
-      accountname
+      accountname,
     );
   }
   // Handle USER_REVIEW error
@@ -2254,7 +2323,7 @@ export default class PUserHdlrImpl {
       mobile,
       "review",
       taskid,
-      accountname
+      accountname,
     );
   }
 
@@ -2296,7 +2365,7 @@ export default class PUserHdlrImpl {
             original_input.nemo_user_mobile,
             "retry",
             review.userid,
-            null
+            null,
           );
         } catch (error) {
           this.logger.error("RetryUserOnboardLogic failed", error);
@@ -2309,6 +2378,7 @@ export default class PUserHdlrImpl {
       throw error;
     }
   }
+
   handleAccountRetry = async ( userid) => {
     try {
       let pendingreviews = await this.accountSvcI.ListPendingAccountReviews();
@@ -2333,7 +2403,7 @@ export default class PUserHdlrImpl {
             original_input.nemo_user_mobile,
             "retry",
             review.accountid,
-            review.accountname
+            review.accountname,
           );
         } catch (error) {
           this.logger.error("RetryAccountOnboardLogic failed", error);
@@ -2476,7 +2546,7 @@ export default class PUserHdlrImpl {
         if (authres === undefined || authres === null || !authres) {
           this.logger.error("Failed to create user in auth service");
           // Rollback by deleting all user records
-          await this.userSvcI.DeleteUserRecordsByUserid(user.userid);
+          await this.userSvcI.DeleteUserRecordsByUserid(user.userid, createdby);
           throw new Error("Failed to create user in auth service");
         }
 
@@ -2485,7 +2555,7 @@ export default class PUserHdlrImpl {
       } catch (error) {
         this.logger.error("Failed to register user with auth service", error);
         // Rollback by deleting all user records
-        await this.userSvcI.DeleteUserRecordsByUserid(user.userid);
+        await this.userSvcI.DeleteUserRecordsByUserid(user.userid, createdby);
         throw new Error("Failed to register user with auth service");
       }
 

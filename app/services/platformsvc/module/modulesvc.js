@@ -11,6 +11,14 @@ export default class ModuleSvc {
     return await this.moduleSvcDB.createModule(module);
   }
 
+  async LogModuleHistory(module, updatedby, updatedat, action, previousstate) {
+    return await this.moduleSvcDB.logModuleHistory(module, updatedby, updatedat, action, previousstate);
+  }
+
+  async LogModulePermHistory(moduleid, permid, action, updatedby, updateFields) {
+    return await this.moduleSvcDB.logModulePermHistory(moduleid, permid, action, updatedby, updateFields);
+  }
+
   async GetModuleHistory( starttime, endtime) {
     return await this.moduleSvcDB.getModuleHistory( starttime, endtime);
   }

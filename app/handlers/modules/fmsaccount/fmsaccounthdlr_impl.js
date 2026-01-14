@@ -727,10 +727,20 @@ export default class fmsAccountHdlrImpl {
     if (!result) {
       throw new Error("Failed to move vehicle");
     }
+
+    const message = {
+      srcfleetid: fromfleetid,
+      dstfleetid: tofleetid,
+      srcaccountid: accountid,
+      dstaccountid: accountid,
+      action: "MOVED",
+      description: "Vehicle moved from source fleet to destination fleet",
+      timestamp: new Date().toISOString(),
+    }
     // set and publish vehicle update
     await publishVehicleUpdate(
       accountid,
-      "fleetvehiclemoved",
+      message,
       this.redisSvc,
       this.logger
     );
@@ -747,10 +757,24 @@ export default class fmsAccountHdlrImpl {
     if (!result) {
       throw new Error("Failed to remove vehicle");
     }
+    let rootFleetId = await this.fmsAccountSvcI.GetRootFleetId(accountid);
+    if (!rootFleetId) {
+      rootFleetId = null;
+    }
+    // set and publish vehicle update
+    const message = {
+      srcfleetid: fleetid,
+      dstfleetid: rootFleetId,
+      srcaccountid: accountid,
+      dstaccountid: accountid,
+      action: "REMOVED",
+      description: "Vehicle removed from fleet",
+      timestamp: new Date().toISOString(),
+    }
     // set and publish vehicle update
     await publishVehicleUpdate(
       accountid,
-      "fleetvehicleremoved",
+      message,
       this.redisSvc,
       this.logger
     );
@@ -1050,6 +1074,22 @@ export default class fmsAccountHdlrImpl {
     };
   };
 
+  GetRoleHistoryLogic = async (starttime, endtime) => {
+    let result = await this.fmsAccountSvcI.GetRoleHistory(starttime, endtime);
+    if (!result) {
+      return [];
+    }
+    return result;
+  };
+
+  GetRolePermHistoryLogic = async (starttime, endtime) => {
+    let result = await this.fmsAccountSvcI.GetRolePermHistory(starttime, endtime);
+    if (!result) {
+      return [];
+    }
+    return result;
+  };
+
   // subscription management
   GetAccountSubscriptionsLogic = async (accountid) => {
     let defaultPkgs = await this.fmsAccountSvcI.GetDefaultAccountPkgs();
@@ -1298,39 +1338,6 @@ export default class fmsAccountHdlrImpl {
       },
     };
   };
-
-  // GetSubscriptionVehiclesHistoryLogic = async (accountid) => {
-  //   // let rootFleetId = await this.fmsAccountSvcI.GetRootFleetId(accountid);
-  //   // if (!rootFleetId) {
-  //   //   throw new Error("Failed to get root fleet for account");
-  //   // }
-
-  //   // const isforcedfilter = true;
-  //   // let allVehicles = await this.GetVehiclesLogic(
-  //   //   accountid,
-  //   //   rootFleetId,
-  //   //   true,
-  //   //   isforcedfilter
-  //   // );
-  //   // if (!allVehicles) {
-  //   //   allVehicles = [];
-  //   // }
-  //   // accountid,lastupdated,regno,vin, isowner, status
-  //   // const vinNumbers = allVehicles.map((vehicle) => vehicle.vinno);
-  //   // const gpsDataMap =
-  //   //   await this.fmsAccountSvcI.GetLastestGpsDataForVehicles(vinNumbers);
-
-  //   // const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
-
-  //   let subscriptionHistoryInfo =
-  //     await this.fmsAccountSvcI.GetSubscriptionHistoryInfo(accountid);
-    
-  //   console.log(subscriptionHistoryInfo);
-  //   return {
-  //     accountid: accountid,
-      
-  //   };
-  // };
 
   GetSubscriptionVehiclesHistoryLogic = 
   async (accountid, starttime, endtime) => {
@@ -1673,9 +1680,28 @@ export default class fmsAccountHdlrImpl {
       };
     }
 
+    let srcrootFleetId = await this.fmsAccountSvcI.GetRootFleetId(srcaccountid);
+    if (!srcrootFleetId) {
+      srcrootFleetId = null;
+    }
+    let dstrootFleetId = await this.fmsAccountSvcI.GetRootFleetId(dstaccountid);
+    if (!dstrootFleetId) {
+      dstrootFleetId = null;
+    }
+    // set and publish vehicle update
+    const message = {
+      srcfleetid: srcrootFleetId,
+      dstfleetid: dstrootFleetId,
+      srcaccountid: srcaccountid,
+      dstaccountid: dstaccountid,
+      action: "TAGGED",
+      description: "Vehicle tagged from source account to destination account",
+      timestamp: new Date().toISOString(),
+    }
+    // set and publish vehicle update
     await publishVehicleUpdate(
       dstaccountid,
-      "tagged",
+      message,
       this.redisSvc,
       this.logger
     );
@@ -1723,9 +1749,28 @@ export default class fmsAccountHdlrImpl {
       };
     }
 
+    let srcrootFleetId = await this.fmsAccountSvcI.GetRootFleetId(srcaccountid);
+    if (!srcrootFleetId) {
+      srcrootFleetId = null;
+    }
+    let dstrootFleetId = await this.fmsAccountSvcI.GetRootFleetId(dstaccountid);
+    if (!dstrootFleetId) {
+      dstrootFleetId = null;
+    }
+    // set and publish vehicle update
+    const message = {
+      srcfleetid: srcrootFleetId,
+      dstfleetid: dstrootFleetId,
+      srcaccountid: srcaccountid,
+      dstaccountid: dstaccountid,
+      action: "UNTAGGED",
+      description: "Vehicle untagged from source account to destination account",
+      timestamp: new Date().toISOString(),
+    }
+    // set and publish vehicle update
     await publishVehicleUpdate(
       dstaccountid,
-      "untagged",
+      message,
       this.redisSvc,
       this.logger
     );
@@ -1841,7 +1886,7 @@ export default class fmsAccountHdlrImpl {
       userRoles.some((role) => role.rolename.toLowerCase() === "admin");
     const isView =
       userPermissions.includes("all.all.view") ||
-      userRoles.some((role) => role.rolename.toLowerCase() === "view");
+      userRoles.some((role) => role.rolename.toLowerCase() === "viewer");
     if (isAdmin) {
       if (!userPermissions.includes("all.all.all")) {
         userPermissions.push("all.all.all");
@@ -1900,6 +1945,18 @@ export default class fmsAccountHdlrImpl {
 
   GetAccountAssignmentHistoryLogic = async (accountid, starttime, endtime) => {
     let history = await this.platformSvcI.GetConsoleAccountAssignmentHistory(
+      accountid,
+      starttime,
+      endtime
+    );
+    if (!history) {
+      history = [];
+    }
+    return history;
+  };
+
+  GetFleetUserRoleHistoryLogic = async (accountid, starttime, endtime) => {
+    let history = await this.fmsAccountSvcI.GetFleetUserRoleHistory(
       accountid,
       starttime,
       endtime

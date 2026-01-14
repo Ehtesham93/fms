@@ -84,7 +84,22 @@ export default class VehicleHdlrImpl {
       throw new Error("Failed to add vehicle to custom fleet");
     }
     // set and publish vehicle update
-    await publishVehicleUpdate(accountid, "added", this.redisSvc, this.logger);
+    const message = {
+      srcfleetid: fleetid,
+      dstfleetid: fleetid,
+      srcaccountid: accountid,
+      dstaccountid: accountid,
+      action: "ADDED",
+      description: "Vehicle added to custom fleet",
+      timestamp: new Date().toISOString(),
+    }
+    // set and publish vehicle update
+    await publishVehicleUpdate(
+      accountid,
+      message,
+      this.redisSvc,
+      this.logger
+    );
 
     return { accountid: accountid, fleetid: fleetid, vinno: vinno };
   };
@@ -447,7 +462,7 @@ export default class VehicleHdlrImpl {
 
       return dateString; // Return as-is if not in expected format
     } catch (error) {
-      console.log("Date conversion error:", error);
+      this.logger.error("Date conversion error:", error);
       return null;
     }
   };
@@ -494,9 +509,28 @@ export default class VehicleHdlrImpl {
       };
     }
 
+    let srcrootFleetId = await this.fmsAccountSvcI.GetRootFleetId(srcaccountid);
+    if (!srcrootFleetId) {
+      srcrootFleetId = null;
+    }
+    let dstrootFleetId = await this.fmsAccountSvcI.GetRootFleetId(dstaccountid);
+    if (!dstrootFleetId) {
+      dstrootFleetId = null;
+    }
+    // set and publish vehicle update
+    const message = {
+      srcfleetid: srcrootFleetId,
+      dstfleetid: dstrootFleetId,
+      srcaccountid: srcaccountid,
+      dstaccountid: dstaccountid,
+      action: "TAGGED",
+      description: "Vehicle tagged from source account to destination account",
+      timestamp: new Date().toISOString(),
+    }
+    // set and publish vehicle update
     await publishVehicleUpdate(
       dstaccountid,
-      "tagged",
+      message,
       this.redisSvc,
       this.logger
     );
@@ -544,9 +578,28 @@ export default class VehicleHdlrImpl {
       };
     }
 
+    let srcrootFleetId = await this.fmsAccountSvcI.GetRootFleetId(srcaccountid);
+    if (!srcrootFleetId) {
+      srcrootFleetId = null;
+    }
+    let dstrootFleetId = await this.fmsAccountSvcI.GetRootFleetId(dstaccountid);
+    if (!dstrootFleetId) {
+      dstrootFleetId = null;
+    }
+    // set and publish vehicle update
+    const message = {
+      srcfleetid: srcrootFleetId,
+      dstfleetid: dstrootFleetId,
+      srcaccountid: srcaccountid,
+      dstaccountid: dstaccountid,
+      action: "UNTAGGED",
+      description: "Vehicle untagged from source account to destination account",
+      timestamp: new Date().toISOString(),
+    }
+    // set and publish vehicle update
     await publishVehicleUpdate(
       dstaccountid,
-      "untagged",
+      message,
       this.redisSvc,
       this.logger
     );
@@ -1375,5 +1428,15 @@ export default class VehicleHdlrImpl {
       this.logger.error("SearchVehiclesLogic failed", error);
       throw error;
     }
+  };
+  GetVehicleHistoryLogic = async (starttime, endtime) => {
+    let history = await this.platformSvcI.GetVehicleHistory(
+      starttime,
+      endtime
+    );
+    if (!history) {
+      history = [];
+    }
+    return history;
   };
 }

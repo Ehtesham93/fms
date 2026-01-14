@@ -830,7 +830,7 @@ export default class AccountSvcDB {
       // Add user roles for each role in roleids
       for (const roleid of roleids) {
         query = `
-          INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
+          INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6)
           ON CONFLICT (accountid, fleetid, userid, roleid) DO NOTHING
         `;
         result = await txclient.query(query, [
@@ -838,6 +838,8 @@ export default class AccountSvcDB {
           fleetid,
           existingUser,
           roleid,
+          currtime,
+          invitedby,
         ]);
       }
 
@@ -865,6 +867,22 @@ export default class AccountSvcDB {
         ]);
         if (result.rowCount !== 1) {
           throw new Error("Failed to create invite done record");
+        }
+        query = `
+          INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `;
+        result = await txclient.query(query, [
+          accountid,
+          fleetid,
+          existingUser,
+          roleid,
+          true,
+          'ADD',
+          currtime,
+          invitedby,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create fleet user role history record");
         }
       }
 
@@ -1026,6 +1044,17 @@ export default class AccountSvcDB {
       throw err;
     }
     try {
+      // Capture current assignments before delete
+      const assignmentsRes = await txclient.query(
+        `
+        SELECT fleetid, roleid
+        FROM fleet_user_role
+        WHERE accountid = $1 AND userid = $2
+        `,
+        [accountid, userid]
+      );
+      const assignments = assignmentsRes.rows; // may be empty
+
       let query = `
                 DELETE FROM fleet_user_role WHERE accountid = $1 AND userid = $2
             `;
@@ -1038,6 +1067,18 @@ export default class AccountSvcDB {
             userid: userid,
             updatedby: updatedby,
           }
+        );
+      }
+
+      // Insert history for each removed assignment
+      for (const { fleetid, roleid } of assignments) {
+        await txclient.query(
+          `
+          INSERT INTO fleet_user_role_history
+            (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `,
+          [accountid, fleetid, userid, roleid, false, 'REMOVE', currtime, updatedby]
         );
       }
 
@@ -1272,6 +1313,7 @@ export default class AccountSvcDB {
   }
 
   async addAdminToAccRootFleet(accountid, contact, updatedby) {
+    let currtime = new Date();
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
@@ -1332,16 +1374,35 @@ export default class AccountSvcDB {
       }
 
       query = `
-        INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
+        INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6)
       `;
       result = await txclient.query(query, [
         accountid,
         fleetid,
         userid,
         roleid,
+        currtime,
+        updatedby,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add user to account");
+      }
+
+      query = `
+        INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      result = await txclient.query(query, [
+        accountid,
+        fleetid,
+        userid,
+        roleid,
+        true,
+        'ADD',
+        currtime,
+        updatedby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to add log to fleet_user_role_history");
       }
 
       //Extract the count safely
@@ -2508,17 +2569,19 @@ export default class AccountSvcDB {
 
       query = `
             SELECT accountid, fleetid, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby 
-            FROM fleet_vehicle WHERE vinno = $1
+            FROM fleet_vehicle WHERE vinno = $1 AND accountid = $2
         `;
-      result = await txclient.query(query, [vinno]);
+      result = await txclient.query(query, [vinno, accountid]);
       if (result.rowCount === 0) {
         throw new Error("Vehicle not found in fleet");
+      } else if (!result.rows[0].isowner) {
+        throw new Error("Vehicle is not owned by this account");
       }
 
       const vehicleData = result.rows[0];
-      if (vehicleData.accountid !== accountid) {
-        throw new Error("Vehicle does not belong to this account");
-      }
+      // if (vehicleData.accountid !== accountid) {
+      //   throw new Error("Vehicle does not belong to this account");
+      // }
 
       query = `
             INSERT INTO fleet_vehicle_history (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby, action) 
@@ -2596,10 +2659,10 @@ export default class AccountSvcDB {
     }
   }
 
-  async getVehicleFleetInfo(vinno) {
+  async getVehicleFleetInfo(vinno, accountid) {
     try {
-      let query = `SELECT accountid, fleetid FROM fleet_vehicle WHERE vinno = $1`;
-      let result = await this.pgPoolI.Query(query, [vinno]);
+      let query = `SELECT accountid, fleetid, isowner FROM fleet_vehicle WHERE vinno = $1 and accountid = $2`;
+      let result = await this.pgPoolI.Query(query, [vinno, accountid]);
       return result.rowCount > 0 ? result.rows[0] : null;
     } catch (error) {
       throw new Error("Failed to get vehicle fleet info");
@@ -2668,8 +2731,7 @@ export default class AccountSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
-        result = await this.pgPoolI.Query(query, params);
+        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
         const countcquery = `WITH account_list AS (
           SELECT rpa.accountid
           FROM reviewpendingaccount rpa
@@ -2683,7 +2745,15 @@ export default class AccountSvcDB {
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
-        return [];
+        return {
+          accounts: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: Math.ceil(totalcount / limit),
+        };
       }
       if (download) {
         return {
@@ -2729,7 +2799,7 @@ export default class AccountSvcDB {
         orderbyfield = "resolution_reason";
       }
 
-      orderbydirection = orderbydirection || "desc";
+      orderbydirection = orderbydirection || "DESC";
       searchtext = searchtext || "";
       offset = offset || 0;
       limit = limit || 1000;
@@ -2778,8 +2848,7 @@ export default class AccountSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
-        result = await this.pgPoolI.Query(query, params);
+        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
         const countcquery = `WITH account_list AS (
           SELECT rda.accountid
           FROM reviewdoneaccount rda
@@ -2792,7 +2861,15 @@ export default class AccountSvcDB {
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
-        return [];
+        return {
+          accounts: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: Math.ceil(totalcount / limit),
+        };
       }
       if (download) {
         return {
@@ -3088,8 +3165,30 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAccountSummary(searchtext, offset, limit, download) {
+  async getAccountSummary(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
     try {
+      orderbyfield = orderbyfield || "accountname";
+      orderbydirection = orderbydirection || "asc";
+      let orderbyclause = `ORDER BY a.accountname NULLS LAST, p.pkgname NULLS LAST`;
+      if (orderbyfield && orderbydirection) {
+        if (orderbyfield === "accountname") {
+          orderbyfield = "a.accountname";
+        } else if (orderbyfield === "packagename") {
+          orderbyfield = "p.pkgname";
+        } else if (orderbyfield === "availablecredit") {
+          orderbyfield = "c.credits";
+        } else if (orderbyfield === "taggedin") {
+          orderbyfield = "COUNT(tvi.srcaccountid)";
+        } else if (orderbyfield === "taggedout") {
+          orderbyfield = "COUNT(tvo.srcaccountid)";
+        } else if (orderbyfield === "expiredate") {
+          // Order by the actual date value, not the formatted string
+          orderbyfield = `(NOW() + ((CAST(c.credits AS INTEGER) / CASE WHEN (s.vehicles * CAST(SUM(m.creditspervehicleday) AS INTEGER)) = 0 THEN 1 ELSE (s.vehicles * CAST(SUM(m.creditspervehicleday) AS INTEGER)) END)::int * INTERVAL '1 day')) AT TIME ZONE 'Asia/Kolkata'`;
+        } else{
+          orderbyfield = `s.${orderbyfield}`;
+        }
+        orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
+      }
       let baseQuery = `
         SELECT 
             s.accountid,
@@ -3145,7 +3244,8 @@ export default class AccountSvcDB {
             s.subscribed,
             p.pkgname,
             c.credits
-      `;
+      ${orderbyclause}
+    `;
       let result;
       let totalcount;
       if (download) {
@@ -3232,15 +3332,15 @@ export default class AccountSvcDB {
           LEFT JOIN mobile_sso ms ON ms.userid = u.userid 
           WHERE a.isenabled = TRUE 
             AND a.isdeleted = FALSE
-            AND (UPPER(a.accountname) LIKE '%' || $1 || '%' OR
-            UPPER(ep.ssoid) LIKE '%' || $1 || '%' OR
-            UPPER(ms.ssoid) LIKE '%' || $1 || '%' OR
-            UPPER(u.displayname) LIKE '%' || $1 || '%' OR
-            UPPER(v.vinno) LIKE '%' || $1 || '%' OR
-            UPPER(v.license_plate) LIKE '%' || $1 || '%' OR
-            UPPER(v.dealer) LIKE '%' || $1 || '%' OR
-            UPPER(v.vehicle_city) LIKE '%' || $1 || '%' OR
-            UPPER(vm.modeldisplayname) LIKE '%' || $1 || '%')
+            AND (UPPER(a.accountname) LIKE '%' || UPPER($1) || '%' OR
+            UPPER(ep.ssoid) LIKE '%' || UPPER($1) || '%' OR
+            UPPER(ms.ssoid) LIKE '%' || UPPER($1) || '%' OR
+            UPPER(u.displayname) LIKE '%' || UPPER($1) || '%' OR
+            UPPER(v.vinno) LIKE '%' || UPPER($1) || '%' OR
+            UPPER(v.license_plate) LIKE '%' || UPPER($1) || '%' OR
+            UPPER(v.dealer) LIKE '%' || UPPER($1) || '%' OR
+            UPPER(v.vehicle_city) LIKE '%' || UPPER($1) || '%' OR
+            UPPER(vm.modeldisplayname) LIKE '%' || UPPER($1) || '%')
           ORDER BY a.accountname NULLS LAST, ms.ssoid NULLS LAST, v.dealer NULLS LAST, v.vehicle_city NULLS LAST, vm.modeldisplayname NULLS LAST
         `;
       let result;

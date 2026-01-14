@@ -603,7 +603,7 @@ export default class FleetInsightsHdlr {
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -782,7 +782,7 @@ export default class FleetInsightsHdlr {
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -1117,7 +1117,7 @@ export default class FleetInsightsHdlr {
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -1266,7 +1266,7 @@ export default class FleetInsightsHdlr {
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);

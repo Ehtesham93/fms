@@ -4,6 +4,7 @@ import {
   formatEpochToDateTime,
   toFormattedString,
 } from "../../../utils/epochconverter.js";
+import { DRIVING_MODES, DRIVING_MODE_TYPE } from "../../../utils/constant.js";
 
 export default class TripsinsighthdlrImpl {
   constructor(tripsinsightssvcI, fmsAccountSvcI, logger) {
@@ -70,7 +71,6 @@ export default class TripsinsighthdlrImpl {
           vehicles: {},
         };
       }
-
       const result = await this.ProcessTripData(vinNumbers, starttime, endtime);
       return result;
     } catch (error) {
@@ -96,11 +96,11 @@ export default class TripsinsighthdlrImpl {
       }
 
       const vinToRegnoMap = {};
-      regnodata.forEach(({ vinno, license_plate }) => {
+      regnodata.forEach(({ vinno, license_plate, modelfamilycode }) => {
         if (license_plate && license_plate.trim() !== "") {
-          vinToRegnoMap[vinno] = license_plate;
+          vinToRegnoMap[vinno] = {license_plate, modelfamilycode};
         } else {
-          vinToRegnoMap[vinno] = `${vinno}`;
+          vinToRegnoMap[vinno] = {license_plate: `${vinno}`, modelfamilycode: modelfamilycode};
         }
       });
 
@@ -129,8 +129,8 @@ export default class TripsinsighthdlrImpl {
             if (!batchVehicles[vin]) {
               batchVehicles[vin] = { tripcount: 0, trips: [] };
             }
-            batchVehicles[vin].tripcount += 1;
 
+            batchVehicles[vin].tripcount += 1;
             const distance = (trip.endodo || 0) - (trip.startodo || 0);
             if (distance > 0) batchTotalDistance += distance;
 
@@ -166,6 +166,64 @@ export default class TripsinsighthdlrImpl {
             const maxspeed =
               typeof trip.maxspeed === "number" ? trip.maxspeed : 0;
             const idleTime = formatEpochToDuration(trip.idletime || 0);
+            let drivingModes = [];
+            let tripDrivingModes = trip?.drivemodes || {};
+            let vinModel = '';
+            let vinModes = [];
+            if(tripDrivingModes && tripDrivingModes.length > 0) {
+              tripDrivingModes = JSON.parse(tripDrivingModes);
+              vinModel = tripDrivingModes?.model || '';
+              vinModes = tripDrivingModes?.modes || [];
+            }else{
+              vinModel = vinToRegnoMap[vin].modelfamilycode || '';
+            }
+            
+            if (vinModel && vinModel !== '') {
+              const allModelModes = DRIVING_MODES[vinModel];
+              drivingModes = allModelModes.map((modeObj) => ({
+                mode: modeObj.mode,
+                value: '0%',
+                color: modeObj.color
+              }));
+              if(vinModes && vinModes.length > 0) {
+                if (vinModes.length === 1) {
+                  const singleMode = vinModes[0];
+                  const modeName = singleMode.mode?.toLowerCase();
+                  const modeIndex = drivingModes.findIndex(m => m.mode.toLowerCase() === modeName);
+                  if (modeIndex !== -1) {
+                    drivingModes[modeIndex].value = '100%';
+                  }
+                } else {
+                  let totalDuration = 0;
+                  vinModes.forEach((mode) => {
+                    if(mode.mode && DRIVING_MODE_TYPE[mode.mode]) {
+                      totalDuration += mode.duration || 0;
+                    }
+                  });
+                  
+                  if (totalDuration > 0) {
+                    vinModes.forEach((mode) => {
+                      const modeName = mode.mode?.toLowerCase();
+                      const modeIndex = drivingModes.findIndex(m => m.mode.toLowerCase() === modeName);
+                      if (modeIndex !== -1) {
+                        const percentage = (mode.duration / totalDuration) * 100;
+                        drivingModes[modeIndex].value = `${Math.round(percentage)}%`;
+                      }
+                    });
+                  }
+                }
+              } else {
+                for(const mode of drivingModes) {
+                  const modeName = mode.mode?.toLowerCase();
+                  if(modeName && modeName === 'eco' || modeName === 'range') {
+                    mode.value = `${Math.round(ecomode)}%`;
+                  } else if (modeName && modeName === 'boost' || modeName === 'race') {
+                    mode.value = `${Math.round(boostmode)}%`;
+                  }
+                }
+              }
+            }
+
 
             batchVehicles[vin].trips.push({
               starttime: formatEpochToDateTime(trip.starttime),
@@ -178,6 +236,7 @@ export default class TripsinsighthdlrImpl {
               maxspeed: `${parseFloat(maxspeed.toFixed(2))} km/h`,
               socconsumed: `${parseFloat(socconsumed.toFixed(2))}%`,
               duration,
+              drivemodes: drivingModes,
               ecomode: `${ecomode}%`,
               boostmode: `${boostmode}%`,
               idleTime: idleTime,
@@ -208,7 +267,7 @@ export default class TripsinsighthdlrImpl {
         totalenergyconsumed += result.batchTotalEnergy;
         // Merge vehicles
         for (const vin in result.batchVehicles) {
-          const regno = vinToRegnoMap[vin];
+          const regno = vinToRegnoMap[vin].license_plate;
           if (!vehicles[vin]) {
             vehicles[vin] = { regno: regno, tripcount: 0, trips: [] };
           }
@@ -288,14 +347,45 @@ export default class TripsinsighthdlrImpl {
         const socconsumed = trip.startsoc - trip.endsoc;
 
         let boostmode = 0;
-        if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
-          boostmode = (trip.boostsocusage / socconsumed) * 100;
-        } else if (duration > 0) {
-          // Fallback to duration-based calculation
-          boostmode = (trip.boostduration / duration) * 100;
+        let ecomode = 0;
+
+        let tripDrivingModes = trip?.drivemodes || {};
+        if(tripDrivingModes && tripDrivingModes.length > 0) {
+          tripDrivingModes = JSON.parse(tripDrivingModes);
         }
-        boostmode = Math.max(0, Math.min(100, boostmode));
-        const ecomode = 100 - Math.round(boostmode);
+        const vinModel = tripDrivingModes?.model || '';
+        const vinModes = tripDrivingModes?.modes || [];
+        if (vinModel && vinModel !== '') {
+          let totalDuration = 0;
+          let ecomodeDuration = 0;
+          let boostmodeDuration = 0;
+          for (const mode of vinModes) {
+            const modeName = mode.mode?.toLowerCase();
+            if (modeName && (modeName === 'eco' || modeName === 'range' || modeName === 'ride' || modeName === 'eccopluse')) {
+              totalDuration += mode.duration || 0;
+              ecomodeDuration += mode.duration || 0;
+            } else if (modeName && (modeName === 'boost' || modeName === 'race')) {
+              totalDuration += mode.duration || 0;
+              boostmodeDuration += mode.duration || 0;
+            }
+          }
+          if (totalDuration > 0) {
+            ecomode = Math.round((ecomodeDuration / totalDuration) * 100);
+            boostmode = Math.round((boostmodeDuration / totalDuration) * 100);
+          }
+        } else {
+          if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+            boostmode = (trip.boostsocusage / socconsumed) * 100;
+          } else if (duration > 0 && trip.boostduration != null && trip.boostduration > 0) {
+            // Fallback to duration-based calculation
+            boostmode = (trip.boostduration / duration) * 100;
+          } else if (distance > 0 && trip.boostdist != null && trip.boostdist > 0) {
+            // Fallback to distance-based calculation
+            boostmode = (trip.boostdist / distance) * 100;
+          }
+          boostmode = Math.max(0, Math.min(100, boostmode));
+          ecomode = 100 - Math.round(boostmode);
+        }
 
         const calcrange =
           typeof trip.calcrange === "number" ? trip.calcrange : 0;
@@ -310,15 +400,15 @@ export default class TripsinsighthdlrImpl {
           duration: Math.round(duration * 100) / 100,
           socconsumed: Math.round(socconsumed * 100) / 100,
           calcrange: Math.round(calcrange * 100) / 100,
-          boostmode: Math.round(boostmode * 100) / 100,
-          ecomode: Math.round(ecomode * 100) / 100,
+          boostmode: boostmode,
+          ecomode: ecomode,
           maxspeed: Math.round(maxspeed * 100) / 100,
           distancekm: `${Math.round(distance * 100) / 100} km`,
           durationformatted: formatEpochToDuration(duration),
           socconsumedpercent: `${Math.round(socconsumed * 100) / 100}%`,
           calcrangekm: `${Math.round(calcrange * 100) / 100} km`,
-          boostmodepercent: `${Math.round(boostmode * 100) / 100}%`,
-          ecomodepercent: `${Math.round(ecomode * 100) / 100}%`,
+          boostmodepercent: `${boostmode}%`,
+          ecomodepercent: `${ecomode}%`,
           maxspeedkmh: `${Math.round(maxspeed * 100) / 100} km/h`,
         };
       });
@@ -379,14 +469,46 @@ export default class TripsinsighthdlrImpl {
         const socconsumed = trip.startsoc - trip.endsoc;
 
         let boostmode = 0;
-        if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
-          boostmode = (trip.boostsocusage / socconsumed) * 100;
-        } else if (duration > 0) {
-          // Fallback to duration-based calculation
-          boostmode = (trip.boostduration / duration) * 100;
+        let ecomode = 0;
+
+        let totalDuration = 0;
+        let tripDrivingModes = trip?.drivemodes || {};
+        if(tripDrivingModes && tripDrivingModes.length > 0) {
+          tripDrivingModes = JSON.parse(tripDrivingModes);
         }
-        boostmode = Math.max(0, Math.min(100, boostmode));
-        const ecomode = 100 - Math.round(boostmode);
+        const vinModel = tripDrivingModes?.model || '';
+        const vinModes = tripDrivingModes?.modes || [];
+        if (vinModel && vinModel !== '') {
+          let ecomodeDuration = 0;
+          let boostmodeDuration = 0;
+          for (const mode of vinModes) {
+            const modeName = mode.mode?.toLowerCase();
+            if (modeName && (modeName === 'eco' || modeName === 'range' || modeName === 'ride' || modeName === 'eccopluse')) {
+              totalDuration += mode.duration || 0;
+              ecomodeDuration += mode.duration || 0;
+            } else if (modeName && (modeName === 'boost' || modeName === 'race')) {
+              totalDuration += mode.duration || 0;
+              boostmodeDuration += mode.duration || 0;
+            }
+          }
+          if (totalDuration > 0) {
+            ecomode = Math.round((ecomodeDuration / totalDuration) * 100);
+            boostmode = Math.round((boostmodeDuration / totalDuration) * 100);
+          }
+        }  else {
+          if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+            boostmode = (trip.boostsocusage / socconsumed) * 100;
+          } else if (duration > 0 && trip.boostduration != null && trip.boostduration > 0) {
+            // Fallback to duration-based calculation
+            boostmode = (trip.boostduration / duration) * 100;
+          } else if (distance > 0 && trip.boostdist != null && trip.boostdist > 0) {
+            // Fallback to distance-based calculation
+            boostmode = (trip.boostdist / distance) * 100;
+          }
+          boostmode = Math.max(0, Math.min(100, boostmode));
+          ecomode = 100 - Math.round(boostmode);
+        }
+
 
         const calcrange =
           typeof trip.calcrange === "number" ? trip.calcrange : 0;
@@ -402,15 +524,15 @@ export default class TripsinsighthdlrImpl {
           duration: Math.round(duration * 100) / 100,
           socconsumed: Math.round(socconsumed * 100) / 100,
           calcrange: Math.round(calcrange * 100) / 100,
-          boostmode: Math.round(boostmode * 100) / 100,
-          ecomode: Math.round(ecomode * 100) / 100,
+          boostmode: boostmode,
+          ecomode: ecomode,
           maxspeed: Math.round(maxspeed * 100) / 100,
           distancekm: `${Math.round(distance * 100) / 100} km`,
           durationformatted: formatEpochToDuration(duration),
           socconsumedpercent: `${Math.round(socconsumed * 100) / 100}%`,
           calcrangekm: `${Math.round(calcrange * 100) / 100} km`,
-          boostmodepercent: `${Math.round(boostmode * 100) / 100}%`,
-          ecomodepercent: `${Math.round(ecomode * 100) / 100}%`,
+          boostmodepercent: `${boostmode}%`,
+          ecomodepercent: `${ecomode}%`,
           maxspeedkmh: `${Math.round(maxspeed * 100) / 100} km/h`,
         };
       });
@@ -910,7 +1032,8 @@ export default class TripsinsighthdlrImpl {
       );
       const drivingmodeusage = this.calculateDrivingModeUsage(
         starttime,
-        tripData
+        tripData,
+        1
       );
       // TODO: Implement range comparison
       const rangecomparison = {};
@@ -1019,25 +1142,63 @@ export default class TripsinsighthdlrImpl {
     // Use already-calculated boostmode/ecomode from GetTripsByFleetLogic
     // But we need raw data for accurate aggregate calculation
     tripData.forEach((trip) => {
-      const distance = (trip.endodo || 0) - (trip.startodo || 0);
-      const boostDistance = trip.boostdist || 0;
-      const idleTime = trip.idletime || 0;
-      const boostSocUsage = trip.boostsocusage || 0;
-      const tripSocUsage = (trip.startsoc || 0) - (trip.endsoc || 0);
-      const boostDuration = trip.boostduration || 0;
-      const tripDuration = (trip.movingtime || 0) + (trip.idletime || 0);
+      let distance = 0;
+      let boostDistance = 0;
+      let boostSocUsage = 0;
+      let tripSocUsage = 0;
+      let boostDuration = 0;
+      let tripDuration = 0;
 
+      let driveModes = trip.drivemodes || {};
+      if(driveModes && driveModes.length > 0) {
+        driveModes = JSON.parse(driveModes);
+      }
+      const modes = driveModes.modes || [];
+      if(modes && modes.length > 0) {
+        modes.forEach(mode => {
+          const modeName = mode.mode?.toLowerCase();
+          if (modeName && (modeName === 'eco' || modeName === 'range' || modeName === 'ride' || modeName === 'eccopluse')) {
+            distance += mode.distancetravelled || 0;
+            tripSocUsage += mode.socconsumed || 0;
+            tripDuration += mode.duration || 0;
+          } else if (modeName && (modeName === 'boost' || modeName === 'race')) {
+            boostDistance += mode.distancetravelled || 0;
+            boostSocUsage += mode.socconsumed || 0;
+            boostDuration += mode.duration || 0;
+            distance += mode.distancetravelled || 0;
+            tripSocUsage += mode.socconsumed || 0;
+            tripDuration += mode.duration || 0;
+          }
+        } )
+
+      }  else {
+        distance = trip.endodo - trip.startodo;
+
+        tripDuration = (trip.movingtime || 0) + (trip.idletime || 0);
+
+        tripSocUsage = trip.startsoc - trip.endsoc;
+        if (tripSocUsage > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+          boostSocUsage += (trip.boostsocusage || 0);
+        } else if (tripDuration > 0 && trip.boostduration != null && trip.boostduration > 0) {
+          // Fallback to duration-based calculation
+          boostDuration += (trip.boostduration || 0);
+        } else if (distance > 0 && trip.boostdist != null && trip.boostdist > 0) {
+          // Fallback to distance-based calculation
+          boostDistance += (trip.boostdist || 0);
+        }
+      }
       if (distance > 0) {
         totalDistance += distance;
         totalBoostDistance += Math.min(boostDistance, distance);
       }
 
-      totalIdleTime += idleTime;
+      totalIdleTime += trip.idletime || 0;
       totalBoostSocUsage += boostSocUsage;
       totalSocUsage += tripSocUsage;
       totalBoostDuration += boostDuration;
       totalDuration += tripDuration;
     });
+    
 
     let shortTrips = 0;
     let totalAllTrips = allTripData.length;
@@ -1247,23 +1408,74 @@ export default class TripsinsighthdlrImpl {
           return; // Skip if date not in range
         }
 
+        let distance = 0;
+        let boostDistance = 0;
+        let duration = 0;
+        let boostDuration = 0;
+        let boostSocUsage = 0;
+        let tripSocUsage = 0;
+        let boostModePercentage = 0;
+        let driveModes = trip.drivemodes || {};
+        if(driveModes && driveModes.length > 0) {
+          driveModes = JSON.parse(driveModes);
+        }
+        const modes = driveModes.modes || [];
+        if(modes && modes.length > 0) {
+          modes.forEach(mode => {
+            const modeName = mode.mode?.toLowerCase();
+            if (modeName && (modeName === 'eco' || modeName === 'range' || modeName === 'ride' || modeName === 'eccopluse')) {
+              distance += mode.distancetravelled || 0;
+              tripSocUsage += mode.socconsumed || 0;
+              duration += mode.duration || 0;
+            } else if (modeName && (modeName === 'boost' || modeName === 'race')) {
+              boostDistance += mode.distancetravelled || 0;
+              boostSocUsage += mode.socconsumed || 0;
+              boostDuration += mode.duration || 0;
+              distance += mode.distancetravelled || 0;
+              tripSocUsage += mode.socconsumed || 0;
+              duration += mode.duration || 0;
+            }
+          } )
+          if (boostDistance > 0) {
+            boostModePercentage = (boostDistance / distance) * 100;
+          } else if (tripSocUsage > 0) {
+            boostModePercentage = (boostSocUsage / tripSocUsage) * 100;
+          } else if (duration > 0) {
+            boostModePercentage = (boostDuration / duration) * 100;
+          }
+        }  else {
+
+          distance = trip.endodo - trip.startodo;
+  
+          duration = (trip.movingtime || 0) + (trip.idletime || 0);
+  
+          tripSocUsage = trip.startsoc - trip.endsoc;
+          if (tripSocUsage > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+            boostModePercentage = (trip.boostsocusage / tripSocUsage) * 100;
+          } else if (duration > 0 && trip.boostduration != null && trip.boostduration > 0) {
+            // Fallback to duration-based calculation
+            boostModePercentage = (trip.boostduration / duration) * 100;
+          } else if (distance > 0 && trip.boostdist != null && trip.boostdist > 0) {
+            // Fallback to distance-based calculation
+            boostModePercentage = (trip.boostdist / distance) * 100;
+          }
+        }
         // Calculate status for this individual trip based on category
         let status;
         let shouldInclude = false;
 
         if (category === "boost_mode") {
           // Only include trips with distance > 2km for boost/eco mode
-          if (trip.distance > 2) {
+          if (distance > 2) {
             // boostmode is already a percentage (0-100) from GetTripsByFleetLogic
-            const boostModePercentage = trip.boostmode || 0;
             status = this.calculateStatusForMetric(boostModePercentage, "boost_mode");
             shouldInclude = true;
           }
         } else if (category === "eco_mode") {
           // Only include trips with distance > 2km for boost/eco mode
-          if (trip.distance > 2) {
+          if (distance > 2) {
             // ecomode is already a percentage (0-100) from GetTripsByFleetLogic
-            const ecoModePercentage = trip.ecomode || 0;
+            const ecoModePercentage = 100 - Math.round(boostModePercentage);
             status = this.calculateStatusForMetric(ecoModePercentage, "eco_mode");
             shouldInclude = true;
           }
@@ -1274,7 +1486,7 @@ export default class TripsinsighthdlrImpl {
           shouldInclude = true;
         } else if (category === "short_trips") {
           // Only include short trips (< 2km)
-          if (trip.distance > 0 && trip.distance < 2) {
+          if (distance > 0 && distance < 2) {
             status = this.calculateStatusForMetric(100, "short_trips");
             shouldInclude = true;
           }
@@ -1869,19 +2081,56 @@ export default class TripsinsighthdlrImpl {
 
       dayData.tripData.forEach((trip) => {
         // Use the raw trip data fields (endodo, startodo, boostdist, idletime)
-        const distance = (trip.endodo || 0) - (trip.startodo || 0);
-        const boostDistance = trip.boostdist || 0;
-        const idleTime = trip.idletime || 0;
-        const boostSocUsage = trip.boostsocusage || 0;
-        const tripSocUsage = (trip.startsoc || 0) - (trip.endsoc || 0);
-        const boostDuration = trip.boostduration || 0;
-        const tripDuration = (trip.movingtime || 0) + (trip.idletime || 0);
+        let distance = 0;
+        let boostDistance = 0;
+        let boostSocUsage = 0;
+        let tripSocUsage = 0;
+        let boostDuration = 0;
+        let tripDuration = 0;
+
+        let driveModes = trip.drivemodes || {};
+        if(driveModes && driveModes.length > 0) {
+          driveModes = JSON.parse(driveModes);
+        }
+        const modes = driveModes.modes || [];
+        if(modes && modes.length > 0) {
+          modes.forEach(mode => {
+            const modeName = mode.mode?.toLowerCase();
+            if (modeName && (modeName === 'eco' || modeName === 'range' || modeName === 'ride' || modeName === 'eccopluse')) {
+              distance += mode.distancetravelled || 0;
+              tripSocUsage += mode.socconsumed || 0;
+              tripDuration += mode.duration || 0;
+            } else if (modeName && (modeName === 'boost' || modeName === 'race')) {
+              boostDistance += mode.distancetravelled || 0;
+              boostSocUsage += mode.socconsumed || 0;
+              boostDuration += mode.duration || 0;
+              distance += mode.distancetravelled || 0;
+              tripSocUsage += mode.socconsumed || 0;
+              tripDuration += mode.duration || 0;
+            }
+          } )
+        } else {
+          distance = trip.endodo - trip.startodo;
+  
+          tripDuration = (trip.movingtime || 0) + (trip.idletime || 0);
+  
+          tripSocUsage = trip.startsoc - trip.endsoc;
+          if (tripSocUsage > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+            boostSocUsage += (trip.boostsocusage || 0);
+          } else if (tripDuration > 0 && trip.boostduration != null && trip.boostduration > 0) {
+            // Fallback to duration-based calculation
+            boostDuration += (trip.boostduration || 0);
+          } else if (distance > 0 && trip.boostdist != null && trip.boostdist > 0) {
+            // Fallback to distance-based calculation
+            boostDistance += (trip.boostdist || 0);
+          }
+        }
 
         if (distance > 0) {
           totalDistance += distance;
           totalBoostDistance += Math.min(boostDistance, distance);
         }
-        totalIdleTime += idleTime;
+        totalIdleTime += trip.idletime || 0;
         totalBoostSocUsage += boostSocUsage;
         totalSocUsage += tripSocUsage;
         totalBoostDuration += boostDuration;
@@ -1891,7 +2140,20 @@ export default class TripsinsighthdlrImpl {
       let shortTrips = 0;
       let totalAllDistance = 0;
       dayData.allTripData.forEach((trip) => {
-        const distance = (trip.endodo || 0) - (trip.startodo || 0);
+        let distance = 0;
+        let driveModes = trip.drivemodes || {};
+        if(driveModes && driveModes.length > 0) {
+          driveModes = JSON.parse(driveModes);
+        }
+        const modes = driveModes.modes || [];
+        modes.forEach(mode => {
+          const modeName = mode.mode?.toLowerCase();
+          if (modeName && (modeName === 'eco' || modeName === 'range' || modeName === 'ride' || modeName === 'eccopluse')) {
+            distance += mode.distancetravelled || 0;
+          } else if (modeName && (modeName === 'boost' || modeName === 'race')) {
+            distance += mode.distancetravelled || 0;
+          }
+        } )
         if (distance > 0) {
           totalAllDistance += distance;
           if (distance < SHORT_TRIP_DISTANCE) {
@@ -2116,20 +2378,48 @@ export default class TripsinsighthdlrImpl {
             };
           }
 
-          const tripDistance = (trip.endodo || 0) - (trip.startodo || 0);
-          const boostDistance = trip.boostdist || 0;
-
-          const tripSocUsage = (trip.startsoc || 0) - (trip.endsoc || 0);
-          const boostSocUsage = trip.boostsocusage || 0;
-
-          const ecoSocUsage = Math.max(0, tripSocUsage - boostSocUsage);
-
-          const actualBoostDistance = Math.min(boostDistance, tripDistance);
-          const ecoDistance = Math.max(0, tripDistance - actualBoostDistance);
+          let boostDistance = 0;
+          let ecoDistance = 0;
+          let boostSocUsage = 0;
+          let ecoSocUsage = 0;
+          let tripDistance = 0;
+          let tripSocUsage = 0;
+          let driveModes = trip.drivemodes || {};
+          if(driveModes && driveModes.length > 0) {
+            driveModes = JSON.parse(driveModes);
+          }
+          const modes = driveModes.modes || [];
+          if(modes && modes.length > 0) {
+            modes.forEach(mode => {
+              const modeName = mode.mode?.toLowerCase();
+              if (modeName && (modeName === 'eco' || modeName === 'range' || modeName === 'ride' || modeName === 'eccopluse')) {
+                ecoDistance += mode.distancetravelled || 0;
+                ecoSocUsage += mode.socconsumed || 0;
+                tripDistance += mode.distancetravelled || 0;
+                tripSocUsage += mode.socconsumed || 0;
+              } else if (modeName && (modeName === 'boost' || modeName === 'race')) {
+                boostDistance += mode.distancetravelled || 0;
+                boostSocUsage += mode.socconsumed || 0;
+                tripDistance += mode.distancetravelled || 0;
+                tripSocUsage += mode.socconsumed || 0;
+              }
+            } )
+          } else {
+            tripDistance = trip.endodo - trip.startodo;
+    
+            tripSocUsage = trip.startsoc - trip.endsoc;
+            if (tripSocUsage > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+              boostSocUsage += (trip.boostsocusage || 0);
+            } else if (tripDistance > 0 && trip.boostdist != null && trip.boostdist > 0) {
+              boostDistance += (trip.boostdist || 0);
+            }
+            ecoDistance = tripDistance - boostDistance;
+            ecoSocUsage = tripSocUsage - boostSocUsage;
+          }
 
           if (tripDistance > 0) {
             drivingModeUsage[dateKey].totaldistance += tripDistance;
-            drivingModeUsage[dateKey].boostdistance += actualBoostDistance;
+            drivingModeUsage[dateKey].boostdistance += boostDistance;
             drivingModeUsage[dateKey].ecodistance += ecoDistance;
             drivingModeUsage[dateKey].boostsocusage += boostSocUsage;
             drivingModeUsage[dateKey].ecosocusage += ecoSocUsage;

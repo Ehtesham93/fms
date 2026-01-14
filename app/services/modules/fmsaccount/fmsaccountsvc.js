@@ -51,12 +51,13 @@ export default class FmsAccountSvc {
     return await this.fmsAccountSvcDB.validateInvite(inviteid, userid);
   }
 
-  async DeleteUserRecords(userid, accountid, fleetid, inviteid) {
+  async DeleteUserRecords(userid, accountid, fleetid, inviteid, deletedby) {
     return await this.fmsAccountSvcDB.deleteUserRecords(
       userid,
       accountid,
       fleetid,
-      inviteid
+      inviteid,
+      deletedby
     );
   }
 
@@ -417,6 +418,10 @@ export default class FmsAccountSvc {
     return await this.fmsAccountSvcDB.deleteRole(roleid, deletedby);
   }
 
+  async GetRoleHistory(starttime, endtime) {
+    return await this.fmsAccountSvcDB.getRoleHistory(starttime, endtime);
+  }
+
   async DoesFleetHaveVehicles(accountid, fleetid) {
     return await this.fmsAccountSvcDB.doesFleetHaveVehicles(accountid, fleetid);
   }
@@ -556,4 +561,10 @@ export default class FmsAccountSvc {
   async GetAccountInfo(accountid) {
     return await this.fmsAccountSvcDB.getAccountInfo(accountid);
   }
+
+  async GetFleetUserRoleHistory(accountid, starttime, endtime) {
+    return await this.fmsAccountSvcDB.getFleetUserRoleHistory(accountid, starttime, endtime);
+  }
 }
+
+

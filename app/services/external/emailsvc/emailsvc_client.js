@@ -28,7 +28,7 @@ export default class EmailSvcClient {
   // }
 
   async sendEmail(fromemail, toemail, subject, emailbody) {
-    console.log("Sending email to ", toemail);
+    this.logger.info("Sending email to ", toemail);
     // console.log("Email body: ", emailbody);
     // console.log("Email subject: ", subject);
     let url = `${this.config.emailsvc.url}${this.config.emailsvc.sendEmailPath}`;

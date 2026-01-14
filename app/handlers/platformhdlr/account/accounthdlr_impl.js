@@ -104,9 +104,10 @@ export default class AccountHdlrImpl {
     return { accountid: accountid, overview: account };
   };
 
-  GetAccountSummaryLogic = async (searchtext, offset, limit, download) => {
+  GetAccountSummaryLogic = async (searchtext, offset, limit, download, orderbyfield, orderbydirection) => {
     searchtext = preprocessingText(searchtext);
-    const getsummary = await this.accountSvcI.GetAccountSummary(searchtext, offset, limit, download);
+    orderbydirection = preprocessingText(orderbydirection);
+    const getsummary = await this.accountSvcI.GetAccountSummary(searchtext, offset, limit, download, orderbyfield, orderbydirection);
     return getsummary;
   };
 
@@ -962,8 +963,28 @@ export default class AccountHdlrImpl {
       this.logger.error("Failed to add vehicle to account");
       throw new Error("Failed to add vehicle to account");
     }
+
+    let rootFleetId = await this.fmsAccountSvcI.GetRootFleetId(accountid);
+    if (!rootFleetId) {
+      rootFleetId = null;
+    }
     // set and publish vehicle update
-    await publishVehicleUpdate(accountid, "added", this.redisSvc, this.logger);
+    const message = {
+      srcfleetid: rootFleetId,
+      dstfleetid: rootFleetId,
+      srcaccountid: accountid,
+      dstaccountid: accountid,
+      action: "ADDED",
+      description: "Vehicle added to account",
+      timestamp: new Date().toISOString(),
+    }
+    // set and publish vehicle update
+    await publishVehicleUpdate(
+      accountid,
+      message,
+      this.redisSvc,
+      this.logger
+    );
 
     return { accountid: accountid, fleetid: res.fleetid, vehicle: res.vehicle };
   };
@@ -977,18 +998,17 @@ export default class AccountHdlrImpl {
       };
     }
 
-    const vehicleFleetInfo = await this.accountSvcI.GetVehicleFleetInfo(vinno);
+    const vehicleFleetInfo = await this.accountSvcI.GetVehicleFleetInfo(vinno, accountid);
     if (!vehicleFleetInfo) {
       throw {
         errcode: "VEHICLE_NOT_IN_FLEET",
         message: "Vehicle not found in fleet",
       };
     }
-
-    if (vehicleFleetInfo.accountid !== accountid) {
+    if (!vehicleFleetInfo.isowner) {
       throw {
         errcode: "VEHICLE_NOT_OWNED",
-        message: "Vehicle does not belong to this account",
+        message: "Vehicle is not owned by this account",
       };
     }
 
@@ -1001,10 +1021,19 @@ export default class AccountHdlrImpl {
       this.logger.error("Failed to remove vehicle from account");
       throw new Error("Failed to remove vehicle from account");
     }
+    const message = {
+      srcfleetid: vehicleFleetInfo.fleetid,
+      dstfleetid: vehicleFleetInfo.fleetid,
+      srcaccountid: accountid,
+      dstaccountid: accountid,
+      action: "REMOVED",
+      description: "Vehicle removed from account",
+      timestamp: new Date().toISOString(),
+    }
     // set and publish vehicle update
     await publishVehicleUpdate(
       accountid,
-      "removed",
+      message,
       this.redisSvc,
       this.logger
     );

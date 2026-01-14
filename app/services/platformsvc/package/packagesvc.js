@@ -44,6 +44,14 @@ export default class PackageSvc {
     return await this.packageSvcDB.getPkgInfo(pkgid);
   }
 
+  async LogPackageHistory(pkg, updatedby, updatedat, action, previousstate) {
+    return await this.packageSvcDB.logPackageHistory(pkg, updatedby, updatedat, action, previousstate);
+  }
+
+  async LogPackageModHistory(pkgid, moduleid, action, updatedby, updatedat) {
+    return await this.packageSvcDB.logPackageModHistory(pkgid, moduleid, action, updatedby, updatedat);
+  }
+
   async GetPkgModules(pkgid) {
     return await this.packageSvcDB.getPkgModules(pkgid);
   }

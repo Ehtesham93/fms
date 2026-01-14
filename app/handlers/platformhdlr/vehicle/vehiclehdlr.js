@@ -43,6 +43,8 @@ export default class VehicleHdlr {
     // vehicle-history
     router.get("/:vinno/getlatestdata", this.GetVehicleLatestData);
     router.post("/:vinno/getcangpsdata", this.GetVehicleCANGPSData);
+    router.get("/history", this.GetVehicleHistory);
+
 
     // tag vehicles
     router.post("/tagvehicle", this.TagVehicle);
@@ -56,6 +58,7 @@ export default class VehicleHdlr {
     router.post("/vehicleserviceonboarding", this.VehicleServiceOnboarding);
     router.post("/retryonboard", this.RetryOnboard);
     router.post("/search", this.SearchVehicles);
+
   }
 
   ValidateEpochTime = (timeStr, fieldName) => {
@@ -1401,6 +1404,69 @@ export default class VehicleHdlr {
           e.toString(),
           "Search vehicles failed"
         );
+      }
+    }
+  };
+
+  GetVehicleHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.vehicle.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get vehicle history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
+      let result = await this.vehicleHdlrImpl.GetVehicleHistoryLogic( starttime, endtime);
+      APIResponseOK(req, res, result, "Vehicle history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetVehicleHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "GET_VEHICLE_HISTORY_ERR", e.toString(), "Get vehicle history failed");
       }
     }
   };

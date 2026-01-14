@@ -1254,7 +1254,7 @@ export default class FleetInsightsHdlrImpl {
                 : null;
             let tripEnergy = 0;
             if (startkwh !== null && endkwh !== null) {
-              tripEnergy = startkwh - endkwh;
+              tripEnergy = Math.abs(startkwh - endkwh);
             }
             totalenergyconsumed += tripEnergy;
             energyconsumed[dateKey].total += tripEnergy;
@@ -1766,7 +1766,7 @@ export default class FleetInsightsHdlrImpl {
             ? trip.enddata.kwh
             : null;
         if (startkwh !== null && endkwh !== null)
-          totalenergyconsumed += startkwh - endkwh;
+          totalenergyconsumed += Math.abs(startkwh - endkwh);
       });
     }
     totaldistancetravelled = Math.round(totaldistancetravelled * 100) / 100;

@@ -434,14 +434,19 @@ export default class PUserSvcDB {
     }
   }
 
-  async addUserRole(accountid, fleetid, userid, roleids) {
+  async addUserRole(accountid, fleetid, userid, roleids, updatedby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
+    let currtime = new Date();
     try {
       let values = [];
       if (roleids.length > 0) {
         const placeholders = roleids
           .map((roleid, index) => {
             const startIndex = index * 4 + 1;
-            values.push(userid, accountid, fleetid, roleid);
+            values.push(userid, accountid, fleetid, roleid, currtime, updatedby);
             return `($${startIndex}, $${startIndex + 1}, $${startIndex + 2}, $${
               startIndex + 3
             })`;
@@ -449,27 +454,56 @@ export default class PUserSvcDB {
           .join(",");
 
         let query = `
-                INSERT INTO fleet_user_role (userid, accountid, fleetid, roleid) VALUES ${placeholders}
+                INSERT INTO fleet_user_role (userid, accountid, fleetid, roleid, assignedat, assignedby) VALUES ${placeholders}
                 ON CONFLICT (userid, accountid, fleetid, roleid) DO NOTHING
             `;
-        let result = await this.pgPoolI.Query(query, values);
+        let result = await txclient.query(query, values);
         if (result.rowCount !== roleids.length) {
           this.logger.error("Some roles were not added", {
             userid: userid,
             accountid: accountid,
             fleetid: fleetid,
             roleids: roleids,
+            updatedby: updatedby,
           });
         }
+        for (const roleid of roleids) { 
+          query = `
+            INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `;
+          result = await txclient.query(query, [
+            accountid,
+            fleetid,
+            userid,
+            roleid,
+            true,
+            'ADD',
+            currtime,
+            updatedby,
+          ]);
+          if (result.rowCount !== 1) {
+            throw new Error("Failed to add log to fleet_user_role_history");
+          }
+        }
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
 
       return true;
     } catch (error) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
       throw new Error("Failed to add user role");
     }
   }
 
-  async removeUserRole(accountid, fleetid, userid, roleid) {
+  async removeUserRole(accountid, fleetid, userid, roleid, updatedby) {
+    let currtime = new Date();
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
@@ -487,6 +521,23 @@ export default class PUserSvcDB {
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to remove user role");
+      }
+
+      query = `
+        INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      result = await txclient.query(query, [
+        accountid,
+        fleetid,
+        userid,
+        roleid,
+        false,
+        'REMOVE',
+        currtime,
+        updatedby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to add log to fleet_user_role_history");
       }
 
       query = `
@@ -714,8 +765,7 @@ export default class PUserSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
-        result = await this.pgPoolI.Query(query, params);
+        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
         const countcquery = `WITH user_list AS (
           SELECT rpu.userid
           FROM reviewpendinguser rpu
@@ -732,7 +782,15 @@ export default class PUserSvcDB {
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
-        return [];
+        return {
+          users: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: Math.ceil(totalcount / limit),
+        };
       }
       const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
@@ -832,8 +890,7 @@ export default class PUserSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
-        result = await this.pgPoolI.Query(query, params);
+        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
         const countcquery = `WITH user_list AS (
           SELECT rdu.userid
           FROM reviewdoneuser rdu
@@ -849,7 +906,15 @@ export default class PUserSvcDB {
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
-        return [];
+        return {
+          users: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: Math.ceil(totalcount / limit),
+        };
       }
       if (download) {
         return {
@@ -1344,6 +1409,20 @@ export default class PUserSvcDB {
       return result.rows[0];
     } catch (error) {
       this.logger.error("Error in getPendingUserReviewById:", error);
+      throw error;
+    }
+  }
+
+  async getPendingUserReviewByUserName(displayname, vin) {
+    try {
+      const query = `SELECT DISTINCT(userid) FROM reviewpendinguser WHERE displayname = $1 AND original_input->>'vin' = $2`;
+      const result = await this.pgPoolI.Query(query, [displayname, vin]);
+      if (result.rowCount === 0) {
+        return null;
+      }
+      return result.rows[0].userid;
+    } catch (error) {
+      this.logger.error("Error in getPendingUserReviewByUserName:", error);
       throw error;
     }
   }

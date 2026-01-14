@@ -538,12 +538,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -813,12 +813,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -1087,12 +1087,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -1227,12 +1227,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -1460,17 +1460,17 @@ export default class Tripsinsighthdlr {
         );
       }
 
-      const hash = crypto
-        .createHash("sha256")
-        .update(JSON.stringify(req.body))
-        .digest("hex");
-      const url = req.protocol + "://" + req.get("host") + req.originalUrl;
-      const fullUrl = `${url}.${hash}`;
-      const redisKey = crypto
-        .createHash("sha256")
-        .update(JSON.stringify(fullUrl))
-        .digest("hex");
-      const redisSvc = this.redisSvc;
+      // const hash = crypto
+      //   .createHash("sha256")
+      //   .update(JSON.stringify(req.body))
+      //   .digest("hex");
+      // const url = req.protocol + "://" + req.get("host") + req.originalUrl;
+      // const fullUrl = `${url}.${hash}`;
+      // const redisKey = crypto
+      //   .createHash("sha256")
+      //   .update(JSON.stringify(fullUrl))
+      //   .digest("hex");
+      // const redisSvc = this.redisSvc;
 
       let result;
 
@@ -1502,12 +1502,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -1655,12 +1655,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -1808,12 +1808,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -1965,12 +1965,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);
@@ -2129,12 +2129,12 @@ export default class Tripsinsighthdlr {
           const [setResult, setError] = await redisSvc.set(
             redisKey,
             JSON.stringify(result),
-            1800
+            900
           );
           if (setError) {
             this.logger.error("Failed to cache data:", setError);
           } else {
-            console.log("Data cached successfully");
+            this.logger.info("Data cached successfully");
           }
         } catch (cacheErr) {
           this.logger.error("Failed to cache data:", cacheErr);

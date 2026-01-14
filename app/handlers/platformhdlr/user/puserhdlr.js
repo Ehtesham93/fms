@@ -474,23 +474,35 @@ export default class PUserHdlr {
           .boolean({ message: "Download must be a boolean" })
           .optional()
           .default(false),
+        orderbyfield: z
+          .string({ message: "Order by field is required" })
+          .optional()
+          .nullable()
+          .default("lastloginat"),
+        orderbydirection: z
+          .string({ message: "Order by direction is required" })
+          .optional()
+          .nullable()
+          .default("desc"),
       });
       const parseDownload = req.query.download === "true";
-      const { searchtext, roletype, offset, limit, download } = validateAllInputs(schema, {
+      const { searchtext, roletype, offset, limit, download, orderbyfield, orderbydirection } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         roletype: req.query.roletype,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
         download: parseDownload,
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
       });
 
       let result;
       if (roletype === "platform") {
-        result = await this.pUserHdlrImpl.ListPlatformUsersLogic(searchtext, offset, limit, download);
+        result = await this.pUserHdlrImpl.ListPlatformUsersLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
       } else if (roletype === "account") {
-        result = await this.pUserHdlrImpl.ListAccountUsersLogic(searchtext, offset, limit, download);
+        result = await this.pUserHdlrImpl.ListAccountUsersLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
       } else {
-        result = await this.pUserHdlrImpl.ListUsersLogic(searchtext, offset, limit, download);
+        result = await this.pUserHdlrImpl.ListUsersLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
       }
 
       APIResponseOK(req, res, result, "Users fetched successfully");

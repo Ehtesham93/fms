@@ -4,6 +4,24 @@ import fs from "fs";
 import path from "path";
 import config from "../app/config/config.js";
 
+function withCdnBase(url) {
+  if (!url) return url;
+  let pathOnly = url;
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    const thirdSlashIndex = url.indexOf('/', url.indexOf('/', url.indexOf('/') + 1) + 1);
+    if (thirdSlashIndex !== -1) {
+      pathOnly = url.substring(thirdSlashIndex + 1);
+    } else {
+      pathOnly = '';
+    }
+  }
+  
+  pathOnly = pathOnly.replace(/^\//, '');
+  
+  const cdnBase = config.CDN_BASE_URL.replace(/\/$/, '');
+  return pathOnly ? `${cdnBase}/${pathOnly}` : cdnBase;
+}
+
 function parseCSVLine(line) {
   const result = [];
   let current = "";
@@ -113,21 +131,22 @@ export async function seedSuperAdmin(platformHdlrI, userid) {
   }
 }
 
-export async function seedFleetUserRole(pgPoolTx) {
+export async function seedFleetUserRole(pgPoolTx, createdby) {
   try {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     let fleetid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     let userid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     let roleid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    let stmt = `INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4) ON CONFLICT (accountid, fleetid, userid, roleid) DO NOTHING`;
-    let res = await pgPoolTx.query(stmt, [accountid, fleetid, userid, roleid]);
+    let currtime = new Date();
+    let stmt = `INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (accountid, fleetid, userid, roleid) DO NOTHING`;
+    let res = await pgPoolTx.query(stmt, [accountid, fleetid, userid, roleid, currtime, createdby]);
     if (res.rowCount === 1) {
       console.log(
-        `Inserted fleet user role: ${accountid}, ${fleetid}, ${userid}, ${roleid}`
+        `Inserted fleet user role: ${accountid}, ${fleetid}, ${userid}, ${roleid}, ${currtime}, ${createdby}`
       );
     } else {
       console.log(
-        `Fleet user role already exists: ${accountid}, ${fleetid}, ${userid}, ${roleid}`
+        `Fleet user role already exists: ${accountid}, ${fleetid}, ${userid}, ${roleid}, ${currtime}, ${createdby}`
       );
     }
   } catch (error) {
@@ -260,6 +279,14 @@ export async function seedAllPermId(pgPoolTx, createdby) {
       console.log(`Inserted permission: all.all.all`);
     } else {
       console.log(`Permission already exists: all.all.all`);
+    }
+    stmt = `insert into perm (permid, createdat, createdby) 
+          values ($1, $2, $3) ON CONFLICT (permid) DO NOTHING`;
+    res = await pgPoolTx.query(stmt, ["all.all.view", currtime, createdby]);
+    if (res.rowCount === 1) {
+      console.log(`Inserted permission: all.all.view`);
+    } else {
+      console.log(`Permission already exists: all.all.view`);
     }
   } catch (error) {
     console.error(`Error creating permission: ${error.message}`);
@@ -552,17 +579,21 @@ export async function seedVehicleModel(platformHdlrI, createdby, pgPoolTx) {
       let vehiclecolour = columns[1].trim();
       const vehiclevariant = columns[2].trim();
       const displayname = columns[3].trim();
-      const modelimage = columns[4].trim();
-      const modelmanual = columns[5].trim();
+      let modelimage = columns[4].trim();
+      let modelmanual = columns[5].trim();
       const range = columns[6].trim();
       const battery_capacity = columns[7].trim();
       const co2_emission_factor = columns[8].trim();
       const fuel_price_factor = columns[9].trim();
-      const modelicon = columns[10].trim();
+      let modelicon = columns[10].trim();
 
       if (vehiclecolour === "/") {
         vehiclecolour = "WHITE";
       }
+      modelimage = withCdnBase(modelimage);
+      modelmanual = withCdnBase(modelmanual);
+      modelicon = withCdnBase(modelicon);
+
 
       if (vehiclecolour) {
         let stmt = `INSERT into color (colorcode, colorname) VALUES ($1, $2) ON CONFLICT (colorcode) DO NOTHING`;
@@ -928,9 +959,10 @@ export async function seedDocuments(pgPoolTx) {
     for (const line of documents) {
       const columns = parseCSVLine(line);
       const id = columns[0].trim();
-      const url = columns[1].trim();
+      let url = columns[1].trim();
       const priority = columns[2].trim();
       const isenabled = columns[3].trim();
+      url = withCdnBase(url);
       if (id) {
         let stmt = `INSERT INTO documents (id, url, priority, isenabled, createdat, updatedat) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`;
         let res = await pgPoolTx.query(stmt, [
@@ -982,9 +1014,10 @@ export async function seedBanners(pgPoolTx) {
     for (const line of banners) {
       const columns = parseCSVLine(line);
       const id = columns[0].trim();
-      const url = columns[1].trim();
+      let url = columns[1].trim();
       const priority = columns[2].trim();
       const isenabled = columns[3].trim();
+      url = withCdnBase(url);
       if (id) {
         let stmt = `INSERT INTO banners (id, url, priority, isenabled, createdat, updatedat) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`;
         let res = await pgPoolTx.query(stmt, [

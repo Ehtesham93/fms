@@ -71,7 +71,7 @@ export const DEFAULT_PACKAGE_INFO = {
 };
 
 export const FLEET_INVITE_EXPIRY_TIME = 7 * 24 * 60 * 60 * 1000;
-export const BATTERY_THRESOLD = 20;
+export const BATTERY_THRESOLD = 25;
 
 export const CONSOLE_MODULE_CODE = "consolemgmt";
 export const ADMIN_PERMISSION = "all.all.all";
@@ -139,3 +139,22 @@ export const GOOGLE_MAPS_ORDERED_RESULT_TYPES = [
   "country", // used for addresses like "USA"
   "plus_code", // used for addresses like "10001+1000"
 ];
+
+export const ORANGE_COLOR = "FF9F0A";
+export const BLUE_COLOR = "0A84FF";
+export const GREEN_COLOR = "30D158";
+
+export const DRIVING_MODES = {
+  // 'treo':[{mode:'eco', color:GREEN_COLOR},{mode:'boost', color:ORANGE_COLOR},{mode:'eccopluse', color:BLUE_COLOR}],
+  'treo':[{mode:'eco', color:GREEN_COLOR},{mode:'boost', color:ORANGE_COLOR}],
+  'a301':[{mode:'range', color:GREEN_COLOR},{mode:'race', color:ORANGE_COLOR},{mode:'ride', color:BLUE_COLOR}],
+  'zeo':[{mode:'eco', color:GREEN_COLOR},{mode:'boost', color:ORANGE_COLOR}],
+};
+
+export const DRIVING_MODE_TYPE = {
+  ECO: 'eco',
+  BOOST: 'boost',
+  RANGE: 'range',
+  RACE: 'race',
+  RIDE: 'ride',
+};

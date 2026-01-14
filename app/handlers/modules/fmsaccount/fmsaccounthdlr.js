@@ -94,6 +94,10 @@ export default class FmsAccountHdlr {
     accountTokenGroup.get("/role/:roleid", this.GetRoleInfo);
     accountTokenGroup.put("/role/:roleid/perms", this.UpdateRolePerms);
     accountTokenGroup.delete("/role/:roleid", this.DeleteRole);
+    accountTokenGroup.get("/rolehistory", this.GetFleetUserRoleHistory);
+
+    // accountTokenGroup.get("/roles/history", this.GetRoleHistory);
+    // accountTokenGroup.get("/roles/perms/history", this.GetRolePermHistory);
 
     // user management
     accountTokenGroup.get("/fleet/:fleetid/users", this.ListUsers);
@@ -2190,6 +2194,132 @@ export default class FmsAccountHdlr {
     }
   };
 
+  GetRoleHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["account.roles.view"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get role history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
+      let result = await this.fmsAccountHdlrImpl.GetRoleHistoryLogic(starttime, endtime);
+      APIResponseOK(req, res, result, "Role history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetRoleHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "GET_ROLE_HISTORY_ERR", e.toString(), "Get role history failed");
+      }
+    }
+  };
+
+  GetRolePermHistory = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["account.roles.view"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get role perm history."
+      );
+    }
+    try {
+      let schema = z.object({
+        starttime: z
+          .number({ message: "Invalid Start Time format" })
+          .min(1000000000000, { message: "Start Time is invalid" })
+          .max(9999999999999, { message: "Start Time is invalid" }),
+        endtime: z
+          .number({ message: "Invalid End Time format" })
+          .min(1000000000000, { message: "End Time is invalid" })
+          .max(9999999999999, { message: "End Time is invalid" }),
+      });
+      const convertedstarttime = parseInt(req.query.starttime);
+      const convertedendtime = parseInt(req.query.endtime);
+      const { starttime, endtime } = validateAllInputs(schema, {
+        starttime: convertedstarttime,
+        endtime: convertedendtime,
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
+      let result = await this.fmsAccountHdlrImpl.GetRolePermHistoryLogic(starttime, endtime);
+      APIResponseOK(req, res, result, "Role perm history fetched successfully");
+    }
+    catch (e) {
+      this.logger.error("GetRolePermHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {  
+        return APIResponseInternalErr(req, res, "GET_ROLE_PERM_HISTORY_ERR", e.toString(), "Get role perm history failed");
+      }
+    }
+  };
+
   // vehicle management
   GetVehicles = async (req, res, next) => {
     try {
@@ -2826,6 +2956,100 @@ export default class FmsAccountHdlr {
           {},
           "Failed to assign user role"
         );
+      }
+    }
+  };
+
+  GetFleetUserRoleHistory = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        accountid: z
+          .string({ message: "Invalid Account ID format" })
+          .uuid({ message: "Invalid Account ID format" }),
+        starttime: z.number({ message: "Invalid Start Time format" }),
+        endtime: z.number({ message: "Invalid End Time format" }),
+      });
+
+      const userPerms = await this.permissionSvc.GetUserFleetPermissions(
+        req.userid,
+        req.accountid,
+        req.params.fleetid
+      );
+
+      let { accountid, starttime, endtime } = validateAllInputs(schema, {
+        accountid: req.accountid,
+        starttime: Number(req.query.starttime || 0),
+        endtime: Number(req.query.endtime || 0),
+      });
+
+      if (starttime >= endtime) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "INVALID_TIME_RANGE",
+          {},
+          "Start time must be less than end time"
+        );
+        return;
+      }
+
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
+        APIResponseBadRequest(
+          req,
+          res,
+          "TIME_RANGE_TOO_LARGE",
+          {},
+          "Time range is too large selected range should be <= 95 days"
+        );
+        return;
+      }
+
+      const startepoch = this.ValidateEpochTime(starttime, "starttime");
+      const endepoch = this.ValidateEpochTime(endtime, "endtime");
+
+      if (startepoch >= endepoch) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Start time must be less than end time"
+        );
+      }
+
+      if (endepoch - startepoch > 1000 * 60 * 60 * 24 * 100) {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          null,
+          "Only 100 days of history is available"
+        );
+      }
+
+      if (!CheckUserPerms(userPerms, ["account.users.view", "account.users.admin"])) {
+        return APIResponseForbidden(
+          req, 
+          res, 
+          "INSUFFICIENT_PERMISSIONS", 
+          null, 
+          "You don't have permission to get fleet user role history."
+        );
+      }
+
+      let result = await this.fmsAccountHdlrImpl.GetFleetUserRoleHistoryLogic(
+        accountid,
+        starttime,
+        endtime
+      );
+      APIResponseOK(req, res, result, "Fleet user role history fetched successfully");
+    }
+    catch (error) {
+      this.logger.error("GetFleetUserRoleHistory error: ", error);
+      if (error.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, error.errcode, {}, error.message);
+      } else {
+        APIResponseInternalErr(req, res, error, "Failed to get fleet user role history");
       }
     }
   };
@@ -4929,13 +5153,13 @@ export default class FmsAccountHdlr {
         return;
       }
 
-      if (endtime - starttime > 35 * 24 * 60 * 60 * 1000) {
+      if (endtime - starttime > 95 * 24 * 60 * 60 * 1000) {
         APIResponseBadRequest(
           req,
           res,
           "TIME_RANGE_TOO_LARGE",
           {},
-          "Time range is too large selected range should be <= 35 days"
+          "Time range is too large selected range should be <= 95 days"
         );
         return;
       }

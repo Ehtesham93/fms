@@ -179,9 +179,9 @@ export default class AccountHdlr {
           .max(128, {
             message: "Account Name must be at most 128 characters long",
           })
-          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _\-&]*[A-Za-z0-9])?$/, {
             message:
-              "Account name can only contain letters, numbers, spaces, hyphens, and underscores",
+              "Account name can only contain letters, numbers, spaces, hyphens, underscores, and ampersand",
           }),
         isenabled: z
           .boolean({ message: "isenabled must be a boolean" })
@@ -376,15 +376,25 @@ export default class AccountHdlr {
           .boolean({ message: "Download must be a boolean" })
           .optional()
           .default(false),
+        orderbyfield: z
+          .string({ message: "Order by is required" })
+          .optional()
+          .nullable(),
+        orderbydirection: z
+          .string({ message: "Order by direction is required" })
+          .optional()
+          .nullable(),
       });
       const parseDownload = req.query.download === "true";
-      const { searchtext, offset, limit, download } = validateAllInputs(schema, {
+      const { searchtext, offset, limit, download, orderbyfield, orderbydirection } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
         download: parseDownload,
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
       });
-      let result = await this.accountHdlrImpl.GetAccountSummaryLogic(searchtext, offset, limit, download);
+      let result = await this.accountHdlrImpl.GetAccountSummaryLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
       APIResponseOK(req, res, result, "Account summary fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountSummary error: ", error);
@@ -2795,9 +2805,9 @@ export default class AccountHdlr {
           .max(128, {
             message: "Account Name must be at most 128 characters long",
           })
-          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _\-&]*[A-Za-z0-9])?$/, {
             message:
-              "Account name can only contain letters, numbers, spaces, hyphens, and underscores",
+              "Account name can only contain letters, numbers, spaces, hyphens, underscores, and ampersand",
           }),
         isenabled: z
           .boolean({ message: "isenabled must be a boolean" })

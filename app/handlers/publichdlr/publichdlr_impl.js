@@ -743,7 +743,7 @@ export default class PublicHdlrImpl {
     let res = await this.userSvcI.SignupWithInvite(
       inviteid,
       displayname,
-      encryptedpassword
+      encryptedpassword,
     );
     if (!res) {
       throw new Error("SIGNUP_FAILED");

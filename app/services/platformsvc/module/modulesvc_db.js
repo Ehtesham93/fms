@@ -124,16 +124,16 @@ export default class ModuleSvcDB {
       let currtime = new Date();
       
       // Get modperminfo - either from updateFields or query from database
-      let modperminfo = updateFields?.modperminfo || null;
+      let modperminfo = updateFields?.modperminfo || {};
       
       if (!modperminfo) {
         let query = `SELECT modperminfo from module_perm where moduleid = $1 AND permid = $2`;
         if (txclient) {
           const {rows} = await txclient.query(query, [moduleid, permid]);
-          modperminfo = rows[0]?.modperminfo || null;
+          modperminfo = rows[0]?.modperminfo || {};
         } else {
           const {rows} = await this.pgPoolI.Query(query, [moduleid, permid]);
-          modperminfo = rows[0]?.modperminfo || null;
+          modperminfo = rows[0]?.modperminfo || {};
         }
       }
 
@@ -478,6 +478,14 @@ export default class ModuleSvcDB {
           createdby: createdby,
         });
       }
+
+      await this.logModulePermHistory(
+        moduleid,
+        permids,
+        'CREATED',
+        createdby,
+        { isenabled: true }
+      );
 
       await this.pgPoolI.TxCommit(txclient);
       return true;

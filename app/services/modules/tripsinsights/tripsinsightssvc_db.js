@@ -25,10 +25,10 @@ export default class TripsInsightSvcDB {
 
       const bucketPromises = timeBuckets.map(async (bucket) => {
         const query = `
-          SELECT 
+          SELECT
             vin, starttime, endtime, startodo, endodo, startsoc, endsoc,
             starttemp, endtemp, startlat, endlat, startlng, endlng,
-            startdte, enddte, boostduration, boostdist, boostsocusage,
+            startdte, enddte, boostduration, boostdist, boostsocusage, drivemodes,
             maxcurrent, maxvoltage, maxbattemp, maxspeed, maxmotortemp, movingtime,
             idletime, bmscyclenum, calcrange, startdata, enddata, proctime
           FROM lmmdata.tripdata_${bucket} 
@@ -40,7 +40,7 @@ export default class TripsInsightSvcDB {
             AND startsoc - endsoc > 1 
             AND startsoc - endsoc <= 100`;
 
-        const params = {
+        const params = {     // change the distinct
           vin: vinno,
           starttime: starttime,
           endtime: endtime,
@@ -145,10 +145,10 @@ export default class TripsInsightSvcDB {
           .map((_, index) => `{vin${index}:String}`)
           .join(",");
         const query = `
-          SELECT 
+          SELECT
             vin, starttime, endtime, startodo, endodo, startsoc, endsoc,
             starttemp, endtemp, startlat, endlat, startlng, endlng, startkwh, endkwh,
-            startdte, enddte, boostduration, boostdist, boostsocusage, maxcurrent, maxvoltage,
+            startdte, enddte, boostduration, boostdist, boostsocusage, drivemodes, maxcurrent, maxvoltage,
             maxbattemp, maxspeed, maxmotortemp, movingtime,
             idletime, bmscyclenum, calcrange, startdata, enddata, proctime
           FROM lmmdata.tripdata_${bucket} 
@@ -160,7 +160,7 @@ export default class TripsInsightSvcDB {
             AND startsoc - endsoc > 1 
             AND startsoc - endsoc <= 100`;
 
-        const params = {
+        const params = {     // change the distinct
           starttime: starttime,
           endtime: endtime,
         };
@@ -271,7 +271,7 @@ export default class TripsInsightSvcDB {
         SELECT 
           vin, starttime, endtime, startodo, endodo, startsoc, endsoc,
             starttemp, endtemp, startlat, endlat, startlng, endlng,
-            startdte, enddte, boostduration, boostdist, boostsocusage, maxcurrent, maxvoltage,
+            startdte, enddte, boostduration, boostdist, boostsocusage, drivemodes, maxcurrent, maxvoltage,
             maxbattemp, maxspeed, maxmotortemp, movingtime,
             idletime, bmscyclenum, calcrange, startdata, enddata, proctime
           FROM lmmdata.tripdata_${bucket} 
@@ -283,7 +283,7 @@ export default class TripsInsightSvcDB {
           AND startsoc - endsoc > 1 
           AND startsoc - endsoc <= 100`;
 
-        const params = {
+        const params = {     // change the distinct
           starttime: starttime,
           endtime: endtime,
         };

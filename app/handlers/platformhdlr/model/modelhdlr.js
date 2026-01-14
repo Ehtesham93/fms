@@ -1068,7 +1068,7 @@ export default class ModelHdlr {
                   result: deleteResult,
                 });
               } catch (deleteErr) {
-                console.log(
+                this.logger.error(
                   `Failed to delete parameter ${
                     existingParam.paramcode
                   }: ${deleteErr.toString()}`
@@ -1120,7 +1120,7 @@ export default class ModelHdlr {
           seenParamCodes.add(param.paramcode);
           uniqueParams.push(param);
         } else {
-          console.log(
+          this.logger.error(
             `Duplicate paramcode found and filtered: ${param.paramcode}`
           );
         }
@@ -1139,7 +1139,7 @@ export default class ModelHdlr {
 
       // Log the filtering results
       if (uniqueParams.length !== params.length) {
-        console.log(
+        this.logger.error(
           `Filtered ${
             params.length - uniqueParams.length
           } duplicate parameters. Original: ${params.length}, Unique: ${

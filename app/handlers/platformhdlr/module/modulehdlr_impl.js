@@ -62,7 +62,6 @@ export default class ModuleHdlrImpl {
 
   GetModuleLogic = async (moduleid) => {
     let module = await this.moduleSvcI.GetModuleInfo(moduleid);
-    console.log(module);
     if (!module) {
       this.logger.error("Module not found");
       throw new Error("Module not found");
@@ -161,15 +160,7 @@ export default class ModuleHdlrImpl {
       permids,
       createdby
     );
-    if (res) {
-      await this.moduleSvcI.LogModulePermHistory(
-        moduleid,
-        permids,
-        createdby,
-        {}
-      );
-    }
-    else{
+    if (!res) {
       this.logger.error("Failed to add module permissions");
       throw new Error("Failed to add module permissions");
     }

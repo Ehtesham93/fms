@@ -403,8 +403,8 @@ export default class AccountSvc {
     return await this.accountSvcDB.getAssignableVehicles(accountid);
   }
 
-  async GetVehicleFleetInfo(vinno) {
-    return await this.accountSvcDB.getVehicleFleetInfo(vinno);
+  async GetVehicleFleetInfo(vinno, accountid) {
+    return await this.accountSvcDB.getVehicleFleetInfo(vinno, accountid);
   }
 
   async ListPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
@@ -455,8 +455,8 @@ export default class AccountSvc {
     return await this.accountSvcDB.listPendingAccountReviews();
   }
 
-  async GetAccountSummary(searchtext, offset, limit, download){
-    return await this.accountSvcDB.getAccountSummary(searchtext, offset, limit, download);
+  async GetAccountSummary(searchtext, offset, limit, download, orderbyfield, orderbydirection){
+    return await this.accountSvcDB.getAccountSummary(searchtext, offset, limit, download, orderbyfield, orderbydirection);
   }
   async GetAllAccountUsers(searchtext, offset, limit, download){
     return await this.accountSvcDB.getAllAccountUsers(searchtext, offset, limit, download);

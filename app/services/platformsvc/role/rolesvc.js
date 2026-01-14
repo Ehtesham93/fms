@@ -71,4 +71,8 @@ export default class RoleSvc {
   async GetRolePermHistory(starttime, endtime) {
     return await this.roleSvcDB.getRolePermHistory(starttime, endtime);
   }
+
+  async GetRolePermHistory(starttime, endtime) {
+    return await this.roleSvcDB.getRolePermHistory(starttime, endtime);
+  }
 }

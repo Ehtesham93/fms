@@ -43,7 +43,7 @@ export default class PUserSvc {
     return await this.pUserSvcDB.getAllRoles(accountid);
   }
 
-  async AddUserPlatformRole(userid, roleids) {
+  async AddUserPlatformRole(userid, roleids, updatedby) {
     const rootFleetId = await this.pUserSvcDB.getRootFleetId(
       PLATFORM_ACCOUNT_ID
     );
@@ -55,11 +55,12 @@ export default class PUserSvc {
       PLATFORM_ACCOUNT_ID,
       rootFleetId,
       userid,
-      roleids
+      roleids,
+      updatedby
     );
   }
 
-  async RemoveUserPlatformRole(userid, roleid) {
+  async RemoveUserPlatformRole(userid, roleid, updatedby) {
     const rootFleetId = await this.pUserSvcDB.getRootFleetId(
       PLATFORM_ACCOUNT_ID
     );
@@ -71,7 +72,8 @@ export default class PUserSvc {
       PLATFORM_ACCOUNT_ID,
       rootFleetId,
       userid,
-      roleid
+      roleid,
+      updatedby
     );
   }
 
@@ -112,6 +114,10 @@ export default class PUserSvc {
 
   async GetPendingUserReviewById(userid) {
     return await this.pUserSvcDB.getPendingUserReviewById(userid);
+  }
+
+  async GetPendingUserReviewByUserName(displayname, vin) {
+    return await this.pUserSvcDB.getPendingUserReviewByUserName(displayname, vin);
   }
 
   async DeletePendingUserReviewById(userid) {

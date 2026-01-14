@@ -387,15 +387,17 @@ export default class HistoryDataSvcDB {
 
       const canResults = [];
       const gpsResults = [];
-      
-      try{
+
+      try {
         await Promise.all([
           // CAN
           ...canQueries.map((query) => {
             return new Promise((resolve, reject) => {
               this.clickHouseClient.queryWithCallback(query, (err, result) => {
                 if (err) return reject(err);
-                result.forEach((row) => { canResults.push(row); });
+                result.forEach((row) => {
+                  canResults.push(row);
+                });
                 resolve();
               });
             });
@@ -405,31 +407,37 @@ export default class HistoryDataSvcDB {
             return new Promise((resolve, reject) => {
               this.clickHouseClient.queryWithCallback(query, (err, result) => {
                 if (err) return reject(err);
-                result.forEach((row) => { gpsResults.push(row); });
+                result.forEach((row) => {
+                  gpsResults.push(row);
+                });
                 resolve();
               });
             });
           }),
         ]);
-      }catch (err){
+      } catch (err) {
         const msg = String(err?.message || err);
 
         // ClickHouse unknown column/identifier messages to match:
         // e.g. "Unknown identifier", "Column ... doesn't exist", "Unknown column"
-        if (err.type === 'UNKNOWN_IDENTIFIER') {
+        if (err.type === "UNKNOWN_IDENTIFIER") {
           // Optional: try to extract the missing column name
           const unknowns = [
-            ...msg.matchAll(/Unknown (?:expression )?identifier [`'"]?([a-zA-Z0-9_]+)[`'"]?/gi),
+            ...msg.matchAll(
+              /Unknown (?:expression )?identifier [`'"]?([a-zA-Z0-9_]+)[`'"]?/gi
+            ),
             ...msg.matchAll(/Unknown column [`'"]?([a-zA-Z0-9_]+)[`'"]?/gi),
           ].map((m) => m[1]);
-      
-          const missing = Array.from(new Set(unknowns.filter((p) => canparams.includes(p))));
-      
+
+          const missing = Array.from(
+            new Set(unknowns.filter((p) => canparams.includes(p)))
+          );
+
           const detail =
             missing.length > 0
               ? `Invalid parameters found: ${missing.join(", ")}`
               : `Invalid parameters found.`;
-      
+
           return new Error(detail);
         }
 
@@ -518,7 +526,7 @@ export default class HistoryDataSvcDB {
   //   try {
   //     const vinList = vinnos.map((vin) => `'${vin}'`).join(",");
   //     const query = `
-  //       SELECT vin, utctime, gpstime, latitude, longitude 
+  //       SELECT vin, utctime, gpstime, latitude, longitude
   //       FROM lmmdata_latest.gpsdatalatest
   //       WHERE vin IN (${vinList});
   //     `;
@@ -561,7 +569,7 @@ export default class HistoryDataSvcDB {
       const redisKey = `gpsinfo.${vin}`;
       const [cachedData, redisError] = await this.redisSvc.get(redisKey);
       if (redisError) {
-        this.logger.error("Redis error:", redisError);
+        this.logger.error("Redis error:", redisError, { redisKey: redisKey });
       } else if (cachedData !== null) {
         const parsed = JSON.parse(cachedData);
         // Ensure utctime and gpstime are integers for comparison
@@ -614,7 +622,7 @@ export default class HistoryDataSvcDB {
           // Both sources have data - compare utctime and return the latest
           const cachedUtctime = cachedData.utctime || 0;
           const clickHouseUtctime = clickHouseData.utctime || 0;
-          
+
           if (cachedUtctime >= clickHouseUtctime) {
             // Return cached data with only the required fields
             gpsDataMap[vin] = {
@@ -648,7 +656,6 @@ export default class HistoryDataSvcDB {
       return error;
     }
   }
-
 
   // async getLatestCanData(vinnos) {
   //   try {
@@ -746,7 +753,7 @@ export default class HistoryDataSvcDB {
         const redisKey = `caninfo.${vin}`;
         const [cachedData, redisError] = await this.redisSvc.get(redisKey);
         if (redisError) {
-          this.logger.error("Redis error:", redisError);
+          this.logger.error("Redis error:", redisError, { redisKey: redisKey });
         } else if (cachedData !== null) {
           const parsed = JSON.parse(cachedData);
           // Ensure utctime is an integer for comparison
@@ -847,7 +854,8 @@ export default class HistoryDataSvcDB {
           // Both sources have data - compare utctime and return the latest
           const cachedUtctime = cachedData.utctime || 0;
           const clickHouseUtctime = clickHouseData.utctime || 0;
-          canDataMap[vin] = cachedUtctime >= clickHouseUtctime ? cachedData : clickHouseData;
+          canDataMap[vin] =
+            cachedUtctime >= clickHouseUtctime ? cachedData : clickHouseData;
         } else if (cachedData) {
           // Only Redis has data
           canDataMap[vin] = cachedData;
@@ -864,5 +872,4 @@ export default class HistoryDataSvcDB {
       throw error;
     }
   }
-
 }

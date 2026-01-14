@@ -674,7 +674,7 @@ export default class FmsAccountSvcDB {
     }
   }
 
-  async deleteUserRecords(userid, accountid, fleetid, inviteid) {
+  async deleteUserRecords(userid, accountid, fleetid, inviteid, deletedby) {
     let currtime = new Date();
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
@@ -720,6 +720,15 @@ export default class FmsAccountSvcDB {
       // Now handle user record deletion in reverse order of creation
       // 3. Delete from fleet_user_role (depends on user_fleet)
       query = `
+        SELECT roleid FROM fleet_user_role WHERE accountid = $1 AND fleetid = $2 AND userid = $3
+      `;
+      result = await txclient.query(query, [accountid, fleetid, userid]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to get roleid");
+      }
+      const roleids = result.rows.map(row => row.roleid); // array of roleids
+
+      query = `
         DELETE FROM fleet_user_role 
         WHERE accountid = $1 AND fleetid = $2 AND userid = $3
       `;
@@ -731,6 +740,25 @@ export default class FmsAccountSvcDB {
           userid,
         });
       }
+
+      for (const roleid of roleids) {
+        query = `
+          INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `;
+        result = await txclient.query(query, [
+          accountid,
+          fleetid,
+          userid,
+          roleid,
+          false,
+          'REMOVE',
+          currtime,
+          deletedby,
+          ]);
+          if (result.rowCount !== 1) {
+            throw new Error("Failed to log user to fleet role in history");
+          }
+        }
 
       // 4. Delete from user_fleet (depends on users)
       query = `
@@ -1229,11 +1257,15 @@ export default class FmsAccountSvcDB {
 
   // role management
   async createRole(role) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     try {
       let checkQuery = `
         SELECT roleid FROM roles WHERE accountid = $1 AND rolename = $2
       `;
-      let checkResult = await this.pgPoolI.Query(checkQuery, [
+      let checkResult = await txclient.query(checkQuery, [
         role.accountid,
         role.rolename,
       ]);
@@ -1245,7 +1277,7 @@ export default class FmsAccountSvcDB {
       let query = `
         INSERT INTO roles (accountid, roleid, rolename, roletype, isenabled, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         role.accountid,
         role.roleid,
         role.rolename,
@@ -1259,18 +1291,35 @@ export default class FmsAccountSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to create role");
       }
+      await this.logRoleHistory(role, role.createdby, currtime, 'CREATE', {}, txclient);
+      await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
       if (error.message === "ROLE_NAME_ALREADY_EXISTS") {
         throw new Error("ROLE_NAME_ALREADY_EXISTS");
       }
+      await this.pgPoolI.TxRollback(txclient);
       throw new Error("Error creating role");
     }
   }
 
   async updateRole(accountid, roleid, updateFields, updatedby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     try {
       const currtime = new Date();
+      
+      let previousStateQuery = `
+        SELECT roleid, rolename, roletype, isenabled FROM roles WHERE accountid = $1 AND roleid = $2
+      `;
+      let previousStateResult = await txclient.query(previousStateQuery, [accountid, roleid]);
+      if (previousStateResult.rowCount === 0) {
+        throw new Error("Role not found");
+      }
+      let previousState = previousStateResult.rows[0];
+      
       updateFields.updatedat = currtime;
       updateFields.updatedby = updatedby;
 
@@ -1285,14 +1334,27 @@ export default class FmsAccountSvcDB {
     `;
 
       const params = [accountid, roleid, ...Object.values(updateFields)];
-      const result = await this.pgPoolI.Query(query, params);
+      const result = await txclient.query(query, params);
       if (result.rowCount !== 1) {
         throw new Error("Failed to update role");
       }
 
+      let role = {
+        accountid: accountid,
+        roleid: roleid,
+        rolename: updateFields.rolename !== undefined ? updateFields.rolename : previousState.rolename,
+        roletype: updateFields.roletype !== undefined ? updateFields.roletype : previousState.roletype,
+        isenabled: updateFields.isenabled !== undefined ? updateFields.isenabled : previousState.isenabled,
+        updatedat: currtime,
+        updatedby: updatedby,
+      };
+      
+      await this.logRoleHistory(role, updatedby, currtime, 'UPDATE', previousState, txclient);
+      await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
-      throw new Error("Unable to update role.");
+      await this.pgPoolI.TxRollback(txclient);
+      throw new Error(`Unable to update role: ${error.message}`);
     }
   }
 
@@ -1332,6 +1394,66 @@ export default class FmsAccountSvcDB {
       return result.rows[0];
     } catch (error) {
       throw new Error("Failed to retrieve role information.");
+    }
+  }
+
+  async logRoleHistory(role, updatedby, updatedat, action, previousstate, txclient = null) {
+    try {
+      const finalUpdatedBy = updatedby ?? role.updatedby;
+      const finalUpdatedAt = updatedat ?? role.updatedat;
+      const currentstate = action === 'DELETE' 
+        ? {} 
+        : {
+            rolename: role.rolename,
+            roletype: role.roletype,
+            isenabled: role.isenabled,
+          };
+      let query = `
+        INSERT INTO role_history (accountid, roleid, rolename, roletype, isenabled, updatedat, updatedby, action, previousstate, currentstate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `;
+      let result = await txclient.query(query, [role.accountid, role.roleid, role.rolename, role.roletype, role.isenabled, finalUpdatedAt, finalUpdatedBy, action, previousstate, currentstate]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log role history");
+      }
+      return true;
+    } catch (error) {
+      await this.pgPoolI.TxRollback(txclient);
+      throw new Error(`Failed to log role history: ${error.message}`);
+    }
+  }
+
+  async getRoleHistory(starttime, endtime) {
+    try {
+      let query = `
+        SELECT a.accountname, r.roleid, r.rolename, r.roletype, r.isenabled, r.updatedat, u.displayname as updatedby, r.action, r.previousstate, r.currentstate 
+        FROM role_history r 
+        JOIN account a ON r.accountid = a.accountid 
+        JOIN users u ON r.updatedby = u.userid 
+        WHERE r.updatedat >= $1 AND r.updatedat <= $2 AND r.accountid != 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+        ORDER BY r.updatedat DESC
+      `;
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      return result.rows;  
+    } catch (error) {
+      throw new Error("Failed to retrieve role history");
+    } 
+  }
+
+  async getRolePermHistory(starttime, endtime) {
+    try {
+      let query = `
+        SELECT a.accountname, r.roleid, r.permid, r.isenabled, r.updatedat, u.displayname as updatedby, r.action 
+        FROM role_perm_history r 
+        JOIN account a ON r.accountid = a.accountid 
+        JOIN users u ON r.updatedby = u.userid 
+        WHERE r.updatedat >= $1 AND r.updatedat <= $2 AND r.accountid != 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+        ORDER BY r.updatedat DESC
+      `;
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      return result.rows;
+    }
+    catch (error) {
+      throw new Error("Failed to retrieve role perm history");
     }
   }
 
@@ -1386,6 +1508,14 @@ export default class FmsAccountSvcDB {
       throw err;
     }
     try {
+
+      const stateQuery = `
+        SELECT permid, isenabled FROM role_perm WHERE accountid = $1 AND roleid = $2
+      `;
+      let stateResult = await txclient.query(stateQuery, [accountid, roleid]);
+      const previousState = stateResult.rows;
+      const previousPermIds = previousState.map((row) => row.permid);
+
       if (permsToAdd.length > 0) {
         let values = [];
         const placeholders = permsToAdd
@@ -1433,6 +1563,21 @@ export default class FmsAccountSvcDB {
         }
       }
 
+      stateResult = await txclient.query(stateQuery, [accountid, roleid]);
+      let currentState = stateResult.rows;
+      let currentPermIds = currentState.map(row => row.permid);
+
+      let removedPerms = previousPermIds.filter(permid => !currentPermIds.includes(permid));
+      let addedPerms = currentPermIds.filter(permid => !previousPermIds.includes(permid));
+
+      for (const permid of removedPerms) {
+        await this.logRolePermHistory(accountid, roleid, permid, updatedby, currtime, 'DISABLE', false, txclient);
+      }
+
+      for (const permid of addedPerms) {
+        await this.logRolePermHistory(accountid, roleid, permid, updatedby, currtime, 'ENABLE', true, txclient);
+      }
+
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
@@ -1446,6 +1591,7 @@ export default class FmsAccountSvcDB {
       throw e;
     }
   }
+  
 
   // vehicle management
   async getVehicles(accountid, fleetid, recursive, isforcedfilter) {
@@ -2010,7 +2156,7 @@ export default class FmsAccountSvcDB {
     if (err) {
       throw err;
     }
-
+    let currtime = new Date();
     try {
       if (userid === assignedby) {
         let adminCheckQuery = `
@@ -2125,15 +2271,32 @@ export default class FmsAccountSvcDB {
         }
 
         query = `
-          INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) 
-          VALUES ($1, $2, $3, $4)
+          INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) 
+          VALUES ($1, $2, $3, $4, $5, $6)
         `;
         result = await txclient.query(query, [
           accountid,
           fleetid,
           userid,
           roleid,
+          currtime,
+          assignedby,
         ]);
+
+        query = `
+          INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `;
+        result = await txclient.query(query, [
+          accountid,
+          fleetid,
+          userid,
+          roleid,
+          true,
+          'ASSIGN',
+          currtime,
+          assignedby,
+        ]);
+
         if (result.rowCount !== 1) {
           throw {
             errcode: "ROLE_ASSIGNMENT_FAILED",
@@ -2154,7 +2317,7 @@ export default class FmsAccountSvcDB {
         userid,
         roleids,
         assignedby,
-        assignedat: new Date(),
+        assignedat: currtime,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -2166,7 +2329,13 @@ export default class FmsAccountSvcDB {
   }
 
   async deassignUserRole(accountid, fleetid, userid, roleid, deassignedby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+      if (err) {
+        throw err;
+      }
     try {
+      let currtime = new Date();
+      // Check if user is an account admin
       if (userid === deassignedby) {
         // Check if user is an account admin
         let adminCheckQuery = `
@@ -2174,7 +2343,7 @@ export default class FmsAccountSvcDB {
         JOIN account_fleet af ON fur.accountid = af.accountid AND fur.fleetid = af.fleetid
         WHERE fur.accountid = $1 AND fur.userid = $2 AND fur.roleid = $3 AND af.isroot = true
       `;
-        let adminResult = await this.pgPoolI.Query(adminCheckQuery, [
+        let adminResult = await txclient.query(adminCheckQuery, [
           accountid,
           deassignedby,
           ADMIN_ROLE_ID,
@@ -2200,7 +2369,7 @@ export default class FmsAccountSvcDB {
       let query = `
         SELECT roleid FROM fleet_user_role WHERE accountid = $1 AND fleetid = $2 AND userid = $3 AND roleid = $4
       `;
-      let roleAssignmentResult = await this.pgPoolI.Query(query, [
+      let roleAssignmentResult = await txclient.query(query, [
         accountid,
         fleetid,
         userid,
@@ -2217,7 +2386,7 @@ export default class FmsAccountSvcDB {
         SELECT COUNT(*) as count FROM fleet_user_role 
         WHERE accountid = $1 AND fleetid = $2 AND userid = $3
       `;
-      let roleCountResult = await this.pgPoolI.Query(roleCountQuery, [
+      let roleCountResult = await txclient.query(roleCountQuery, [
         accountid,
         fleetid,
         userid,
@@ -2235,7 +2404,7 @@ export default class FmsAccountSvcDB {
       query = `
         DELETE FROM fleet_user_role WHERE accountid = $1 AND fleetid = $2 AND userid = $3 AND roleid = $4
       `;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         accountid,
         fleetid,
         userid,
@@ -2248,12 +2417,31 @@ export default class FmsAccountSvcDB {
         throw error;
       }
 
+      let historyQuery = `
+        INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      let historyResult = await txclient.query(historyQuery, [
+        accountid,
+        fleetid,
+        userid,
+        roleid,
+        false,
+        'DEASSIGN',
+        currtime,
+        deassignedby,
+      ]);
+
+      if (historyResult.rowCount !== 1) {
+        const error = new Error("Failed to add log to fleet_user_role_history");
+        throw error;
+      }
+
       // Check if user has any remaining roles in this fleet
       query = `
         SELECT COUNT(*) as count FROM fleet_user_role 
         WHERE accountid = $1 AND fleetid = $2 AND userid = $3
       `;
-      let remainingRolesResult = await this.pgPoolI.Query(query, [
+      let remainingRolesResult = await txclient.query(query, [
         accountid,
         fleetid,
         userid,
@@ -2265,7 +2453,7 @@ export default class FmsAccountSvcDB {
         DELETE FROM user_fleet 
         WHERE accountid = $1 AND fleetid = $2 AND userid = $3
       `;
-        result = await this.pgPoolI.Query(query, [accountid, fleetid, userid]);
+        result = await txclient.query(query, [accountid, fleetid, userid]);
 
         if (result.rowCount !== 1) {
           this.logger.warn(
@@ -2278,6 +2466,10 @@ export default class FmsAccountSvcDB {
           );
         }
       }
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
 
       return {
         accountid,
@@ -2288,6 +2480,10 @@ export default class FmsAccountSvcDB {
         deassignedat: new Date(),
       };
     } catch (error) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
       throw error;
     }
   }
@@ -2379,13 +2575,24 @@ export default class FmsAccountSvcDB {
         throw new Error("User is not a member of this account");
       }
 
+      // Capture current assignments before delete
+      const assignmentsRes = await txclient.query(
+        `
+        SELECT fleetid, roleid
+        FROM fleet_user_role
+        WHERE accountid = $1 AND userid = $2
+        `,
+        [accountid, userid]
+      );
+      const assignments = assignmentsRes.rows; // may be empty
+      
       // Remove user from all fleet_user_role entries for this account
       query = `
         DELETE FROM fleet_user_role 
         WHERE accountid = $1 AND userid = $2
       `;
       result = await txclient.query(query, [accountid, userid]);
-
+      
       // Remove user from all user_fleet entries for this account
       query = `
         DELETE FROM user_fleet 
@@ -2394,6 +2601,18 @@ export default class FmsAccountSvcDB {
       result = await txclient.query(query, [accountid, userid]);
       if (result.rowCount === 0) {
         throw new Error("Failed to remove user from account");
+      }
+      
+      // Insert history for each removed assignment
+      for (const { fleetid, roleid } of assignments) {
+        await txclient.query(
+          `
+          INSERT INTO fleet_user_role_history
+            (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          `,
+          [accountid, fleetid, userid, roleid, false, 'REMOVE', currtime, removedby]
+        );
       }
 
       //Extract the count safely
@@ -2873,6 +3092,7 @@ export default class FmsAccountSvcDB {
           message: "No valid vehicles to subscribe",
           vinresults: vinResults,
           summary: {
+            maxsubscribablevehicles: 0,
             totalvehicles: vinnos.length,
             successcount: 0,
             errorcount: vinResults.length,
@@ -3032,6 +3252,7 @@ export default class FmsAccountSvcDB {
             "Insufficient credits for existing subscriptions (exceeds negative credit limit)",
           vinresults: vinResults,
           summary: {
+            maxsubscribablevehicles: 0,
             totalvehicles: vinnos.length,
             successcount: 0,
             errorcount: vinResults.length,
@@ -3065,6 +3286,9 @@ export default class FmsAccountSvcDB {
       // Modified credit validation for new vehicles
       const finalProjectedCredits = remainingCredits - creditsForNewVehicles;
       if (finalProjectedCredits < NEGATIVE_CREDIT_THRESHOLD) {
+        let maxSubscribableVehicles = Math.floor(
+          remainingCredits / (availableDays * creditPerVehiclePerDay)
+        );
         for (let vinno of connectedVehicles) {
           vinResults.push({
             vinno: vinno,
@@ -3094,6 +3318,7 @@ export default class FmsAccountSvcDB {
           vinresults: vinResults,
           summary: {
             totalvehicles: vinnos.length,
+            maxsubscribablevehicles: maxSubscribableVehicles,
             successcount: 0,
             errorcount: vinResults.length,
             connectedvehicles: connectedVehicles,
@@ -3144,6 +3369,7 @@ export default class FmsAccountSvcDB {
         vinresults: vinResults,
         summary: {
           totalvehicles: vinnos.length,
+          maxsubscribablevehicles: newVehicleCount,
           successcount: connectedVehicles.length,
           errorcount: vinResults.filter((r) => r.status === "error").length,
           connectedvehicles: connectedVehicles,
@@ -4068,15 +4294,14 @@ export default class FmsAccountSvcDB {
     }
     try {
       let query = `
-        SELECT roleid, rolename, roletype FROM roles WHERE roleid = $1
+        SELECT accountid, roleid, rolename, roletype, isenabled FROM roles WHERE roleid = $1
       `;
       let result = await txclient.query(query, [roleid]);
       if (result.rowCount === 0) {
         throw new Error("Role not found");
       }
-
+      let previousState = result.rows[0]; 
       const role = result.rows[0];
-
       query = `
         SELECT COUNT(*) as count FROM fleet_user_role WHERE roleid = $1
       `;
@@ -4097,7 +4322,7 @@ export default class FmsAccountSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete role");
       }
-
+      await this.logRoleHistory(role, deletedby, new Date(), 'DELETE', previousState, txclient);
       await this.pgPoolI.TxCommit(txclient);
       return {
         roleid: roleid,
@@ -4111,6 +4336,24 @@ export default class FmsAccountSvcDB {
     }
   }
 
+  async logRolePermHistory(accountid, roleid, permid, updatedby, updatedat, action, isenabled, txclient = null) {
+    try {
+      let query = `
+        INSERT INTO role_perm_history (accountid, roleid, permid, updatedat, updatedby, isenabled, action) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `;
+      let result = await txclient.query(query, [accountid, roleid, permid, updatedat, updatedby, isenabled, action]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log role perm history");
+      }
+      return true;
+    }
+    catch (error) {
+      this.logger.error("role perm history insert failed", { accountid, roleid, permid, err: error });
+      await this.pgPoolI.TxRollback(txclient);
+      throw new Error(`Failed to log role perm history: ${error.message}`);
+    }
+  }
+  
   async doesFleetHaveVehicles(accountid, fleetid) {
     try {
       let query = `
@@ -5201,7 +5444,8 @@ export default class FmsAccountSvcDB {
       SELECT
         v.vinno,
         v.license_plate,
-        vm.modelinfo
+        vm.modelinfo,
+        vm.modelfamilycode
       FROM
         vehicle v
       JOIN
@@ -5796,6 +6040,39 @@ export default class FmsAccountSvcDB {
     } catch (error) {
       this.logger.error("getAccountInfo error:", error);
       throw new Error("Failed to get account information");
+    }
+  }
+
+  async getFleetUserRoleHistory(accountid, starttime, endtime) {
+    try {
+      // WITH RECURSIVE fleet_hierarchy AS (
+      //   SELECT fleetid, accountid, pfleetid, name
+      //   FROM fleet_tree 
+      //   WHERE accountid = $1
+        
+      //   UNION ALL
+        
+      //   SELECT ft.fleetid, ft.accountid, ft.pfleetid, ft.name
+      //   FROM fleet_tree ft
+      //   INNER JOIN fleet_hierarchy fh ON ft.pfleetid = fh.fleetid AND ft.accountid = fh.accountid
+      // )
+      let query = `
+        SELECT a.accountname, ft.name, u.displayname as username, r.rolename as rolename, fuh.isenabled, fuh.action, fuh.updatedat, u.displayname as updatedby
+        FROM fleet_user_role_history fuh
+        JOIN account a ON fuh.accountid = a.accountid
+        JOIN fleet_tree ft ON fuh.fleetid = ft.fleetid
+        JOIN users u ON fuh.userid = u.userid
+        JOIN roles r ON fuh.roleid = r.roleid
+        WHERE fuh.accountid = $1 AND fuh.updatedat >= $2 AND fuh.updatedat <= $3
+        GROUP BY a.accountname, ft.name, u.displayname, r.rolename,
+         fuh.isenabled, fuh.action, fuh.updatedat
+        ORDER BY fuh.updatedat DESC
+      `;
+      let result = await this.pgPoolI.Query(query, [accountid, new Date(starttime), new Date(endtime)]);
+      return result.rows;
+    } catch (error) {
+      this.logger.error("getFleetUserRoleHistory error: ", error);
+      throw new Error("Failed to get fleet user role history");
     }
   }
 }

@@ -47,6 +47,10 @@ export default class PlatformSvcDB {
   }
 
   async createVehicle(vinno, modelcode, vehicleinfo, mobileno, assignedby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     try {
       let currtime = new Date();
 
@@ -54,7 +58,7 @@ export default class PlatformSvcDB {
       let query = `
             SELECT vinno FROM vehicle WHERE vinno = $1
         `;
-      let result = await this.pgPoolI.Query(query, [vinno]);
+      let result = await txclient.query(query, [vinno]);
       if (result.rowCount > 0) {
         throw new Error("Vehicle already exists");
       }
@@ -63,7 +67,7 @@ export default class PlatformSvcDB {
       // query = `
       //       SELECT modeldisplayname, modelname, modelvariant FROM vehicle_model WHERE modelcode = $1
       //   `;
-      // result = await this.pgPoolI.Query(query, [modelcode]);
+      // result = await txclient.query(query, [modelcode]);
       // if (result.rowCount === 0) {
       //   throw new Error("Model not found");
       // }
@@ -73,7 +77,7 @@ export default class PlatformSvcDB {
       query = `
             INSERT INTO vehicle (vinno, modelcode, mobile, vehicleinfo, createdat, createdby, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
         `;
-      result = await this.pgPoolI.Query(query, [
+      result = await txclient.query(query, [
         vinno,
         modelcode,
         mobileno,
@@ -86,8 +90,90 @@ export default class PlatformSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to create vehicle");
       }
+
+      // Get the created vehicle data to build current state
+      let getVehicleQuery = `
+        SELECT vinno, modelcode, mobile, vehicleinfo, license_plate, color, vehicle_city, dealer, 
+               delivered, delivered_date, data_freq, tgu_model, tgu_sw_version, tgu_phone_no, 
+               tgu_imei_no, engineno, fueltype, retailssaledate
+        FROM vehicle 
+        WHERE vinno = $1
+      `;
+      let vehicleResult = await txclient.query(getVehicleQuery, [vinno]);
+      if (vehicleResult.rowCount !== 1) {
+        throw new Error("Failed to retrieve created vehicle data");
+      }
+
+      const vehicle = vehicleResult.rows[0];
+
+      // Build current state with all vehicle fields
+      const currentState = {
+        vinno: vehicle.vinno,
+        modelcode: vehicle.modelcode,
+        mobile: vehicle.mobile,
+        vehicleinfo: vehicle.vehicleinfo,
+        license_plate: vehicle.license_plate,
+        color: vehicle.color,
+        vehicle_city: vehicle.vehicle_city,
+        dealer: vehicle.dealer,
+        delivered: vehicle.delivered,
+        delivered_date: vehicle.delivered_date,
+        data_freq: vehicle.data_freq,
+        tgu_model: vehicle.tgu_model,
+        tgu_sw_version: vehicle.tgu_sw_version,
+        tgu_phone_no: vehicle.tgu_phone_no,
+        tgu_imei_no: vehicle.tgu_imei_no,
+        engineno: vehicle.engineno,
+        fueltype: vehicle.fueltype,
+        retailssaledate: vehicle.retailssaledate,
+      };
+
+      query = `
+            INSERT INTO vehicle_history (
+              vinno, modelcode, mobile, vehicleinfo, license_plate, color, vehicle_city, dealer,
+              delivered, delivered_date, data_freq, tgu_model, tgu_sw_version, tgu_phone_no,
+              tgu_imei_no, engineno, fueltype, retailssaledate, action, updatedat, updatedby,
+              previousstate, currentstate
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+      `;
+      result = await txclient.query(query, [
+        vehicle.vinno,
+        vehicle.modelcode,
+        vehicle.mobile,
+        vehicle.vehicleinfo,
+        vehicle.license_plate,
+        vehicle.color,
+        vehicle.vehicle_city,
+        vehicle.dealer,
+        vehicle.delivered,
+        vehicle.delivered_date,
+        vehicle.data_freq,
+        vehicle.tgu_model,
+        vehicle.tgu_sw_version,
+        vehicle.tgu_phone_no,
+        vehicle.tgu_imei_no,
+        vehicle.engineno,
+        vehicle.fueltype,
+        vehicle.retailssaledate,
+        "CREATE",
+        currtime,
+        assignedby,
+        {},
+        currentState,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to create vehicle history");
+      }
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
       return true;
     } catch (error) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
       throw error;
     }
   }
@@ -226,12 +312,53 @@ export default class PlatformSvcDB {
   }
 
   async updateVehicleInfo(vinno, updateFields, updatedby) {
+    let currtime = new Date();
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     try {
       if (!updateFields || Object.keys(updateFields).length === 0) {
         throw new Error("No fields provided for update");
       }
 
-      let currtime = new Date();
+      // Get previous state BEFORE update
+      let getPreviousStateQuery = `
+        SELECT vinno, modelcode, mobile, vehicleinfo, license_plate, color, vehicle_city, dealer, 
+               delivered, delivered_date, data_freq, tgu_model, tgu_sw_version, tgu_phone_no, 
+               tgu_imei_no, engineno, fueltype, retailssaledate
+        FROM vehicle 
+        WHERE vinno = $1
+      `;
+      let previousStateResult = await txclient.query(getPreviousStateQuery, [vinno]);
+      
+      if (previousStateResult.rowCount !== 1) {
+        throw new Error("Vehicle not found");
+      }
+
+      const previousVehicle = previousStateResult.rows[0];
+
+      // Build previous state JSON object
+      const previousState = {
+        vinno: previousVehicle.vinno,
+        modelcode: previousVehicle.modelcode,
+        mobile: previousVehicle.mobile,
+        vehicleinfo: previousVehicle.vehicleinfo,
+        license_plate: previousVehicle.license_plate,
+        color: previousVehicle.color,
+        vehicle_city: previousVehicle.vehicle_city,
+        dealer: previousVehicle.dealer,
+        delivered: previousVehicle.delivered,
+        delivered_date: previousVehicle.delivered_date,
+        data_freq: previousVehicle.data_freq,
+        tgu_model: previousVehicle.tgu_model,
+        tgu_sw_version: previousVehicle.tgu_sw_version,
+        tgu_phone_no: previousVehicle.tgu_phone_no,
+        tgu_imei_no: previousVehicle.tgu_imei_no,
+        engineno: previousVehicle.engineno,
+        fueltype: previousVehicle.fueltype,
+        retailssaledate: previousVehicle.retailssaledate,
+      };
 
       const fieldsToUpdate = { ...updateFields };
       fieldsToUpdate.updatedat = currtime;
@@ -249,8 +376,8 @@ export default class PlatformSvcDB {
 
       const params = [vinno, ...Object.values(fieldsToUpdate)];
 
-      let result = await this.pgPoolI.Query(query, params);
-
+      let result = await txclient.query(query, params);
+      
       if (result.rowCount === 0) {
         throw new Error("Vehicle not found");
       }
@@ -259,9 +386,108 @@ export default class PlatformSvcDB {
         throw new Error("Failed to update vehicle info");
       }
 
+      // Get the updated vehicle data to log in history
+      let getCurrentStateQuery = `
+        SELECT vinno, modelcode, mobile, vehicleinfo, license_plate, color, vehicle_city, dealer, 
+               delivered, delivered_date, data_freq, tgu_model, tgu_sw_version, tgu_phone_no, 
+               tgu_imei_no, engineno, fueltype, retailssaledate
+        FROM vehicle 
+        WHERE vinno = $1
+      `;
+      let currentStateResult = await txclient.query(getCurrentStateQuery, [vinno]);
+      
+      if (currentStateResult.rowCount !== 1) {
+        throw new Error("Failed to retrieve updated vehicle data");
+      }
+
+      const currentVehicle = currentStateResult.rows[0];
+
+      // Build current state JSON object
+      const currentState = {
+        vinno: currentVehicle.vinno,
+        modelcode: currentVehicle.modelcode,
+        mobile: currentVehicle.mobile,
+        vehicleinfo: currentVehicle.vehicleinfo,
+        license_plate: currentVehicle.license_plate,
+        color: currentVehicle.color,
+        vehicle_city: currentVehicle.vehicle_city,
+        dealer: currentVehicle.dealer,
+        delivered: currentVehicle.delivered,
+        delivered_date: currentVehicle.delivered_date,
+        data_freq: currentVehicle.data_freq,
+        tgu_model: currentVehicle.tgu_model,
+        tgu_sw_version: currentVehicle.tgu_sw_version,
+        tgu_phone_no: currentVehicle.tgu_phone_no,
+        tgu_imei_no: currentVehicle.tgu_imei_no,
+        engineno: currentVehicle.engineno,
+        fueltype: currentVehicle.fueltype,
+        retailssaledate: currentVehicle.retailssaledate,
+      };
+
+      let historyQuery = `
+        INSERT INTO vehicle_history (
+          vinno, modelcode, mobile, vehicleinfo, license_plate, color, vehicle_city, dealer,
+          delivered, delivered_date, data_freq, tgu_model, tgu_sw_version, tgu_phone_no,
+          tgu_imei_no, engineno, fueltype, retailssaledate, action, updatedat, updatedby, previousstate, currentstate
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+      `;
+      let historyResult = await txclient.query(historyQuery, [
+        currentVehicle.vinno,
+        currentVehicle.modelcode,
+        currentVehicle.mobile,
+        currentVehicle.vehicleinfo,
+        currentVehicle.license_plate,
+        currentVehicle.color,
+        currentVehicle.vehicle_city,
+        currentVehicle.dealer,
+        currentVehicle.delivered,
+        currentVehicle.delivered_date,
+        currentVehicle.data_freq,
+        currentVehicle.tgu_model,
+        currentVehicle.tgu_sw_version,
+        currentVehicle.tgu_phone_no,
+        currentVehicle.tgu_imei_no,
+        currentVehicle.engineno,
+        currentVehicle.fueltype,
+        currentVehicle.retailssaledate,
+        "UPDATE",
+        currtime,
+        updatedby,
+        previousState,
+        currentState,
+      ]);
+
+      if (historyResult.rowCount !== 1) {
+        throw new Error("Failed to add vehicle history");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
       return true;
     } catch (error) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
       throw new Error(`Vehicle info update failed: ${error.message}`);
+    }
+  }
+
+  async getVehicleHistory( starttime, endtime) {
+
+    try {
+      let query = `
+      SELECT vh.vinno, vh.modelcode, vh.mobile, vh.vehicleinfo, vh.license_plate, vh.color, vh.vehicle_city, vh.dealer, vh.delivered, vh.delivered_date, vh.data_freq, vh.tgu_model, vh.tgu_sw_version, vh.tgu_phone_no, vh.tgu_imei_no, vh.engineno, vh.fueltype, vh.retailssaledate, vh.action, vh.updatedat, u.displayname as updatedby, vh.previousstate, vh.currentstate 
+      FROM vehicle_history as vh 
+      JOIN users as u ON vh.updatedby = u.userid
+      WHERE vh.updatedat >= $1 AND vh.updatedat <= $2
+      ORDER BY vh.updatedat DESC`;
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to get vehicle history: ${error.message}`);
     }
   }
 
@@ -362,17 +588,100 @@ export default class PlatformSvcDB {
   }
 
   async deleteVehicle(vinno, deletedby) {
+    let currtime = new Date();
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    } 
     try {
+      let getVehicleQuery = `
+        SELECT vinno, modelcode, mobile, vehicleinfo, license_plate, color, vehicle_city, dealer, 
+               delivered, delivered_date, data_freq, tgu_model, tgu_sw_version, tgu_phone_no, 
+               tgu_imei_no, engineno, fueltype, retailssaledate
+        FROM vehicle 
+        WHERE vinno = $1
+      `;
+      let vehicleResult = await txclient.query(getVehicleQuery, [vinno]);
+      if (vehicleResult.rowCount !== 1) {
+        throw new Error("Failed to retrieve vehicle data");
+      }
+
+      const vehicle = vehicleResult.rows[0];
+
+      // Build previous state as JSON object with all vehicle fields
+      const previousState = {
+        vinno: vehicle.vinno,
+        modelcode: vehicle.modelcode,
+        mobile: vehicle.mobile,
+        vehicleinfo: vehicle.vehicleinfo,
+        license_plate: vehicle.license_plate,
+        color: vehicle.color,
+        vehicle_city: vehicle.vehicle_city,
+        dealer: vehicle.dealer,
+        delivered: vehicle.delivered,
+        delivered_date: vehicle.delivered_date,
+        data_freq: vehicle.data_freq,
+        tgu_model: vehicle.tgu_model,
+        tgu_sw_version: vehicle.tgu_sw_version,
+        tgu_phone_no: vehicle.tgu_phone_no,
+        tgu_imei_no: vehicle.tgu_imei_no,
+        engineno: vehicle.engineno,
+        fueltype: vehicle.fueltype,
+        retailssaledate: vehicle.retailssaledate,
+      };
+
       let query = `DELETE FROM vehicle WHERE vinno = $1`;
-      let result = await this.pgPoolI.Query(query, [vinno]);
+      let result = await txclient.query(query, [vinno]);
 
       if (result.rowCount !== 1) {
         throw new Error("Failed to delete vehicle");
       }
 
+      let historyQuery = `
+        INSERT INTO vehicle_history (vinno, modelcode, mobile, vehicleinfo, license_plate, color, vehicle_city, dealer,
+        delivered, delivered_date, data_freq, tgu_model, tgu_sw_version, tgu_phone_no,
+        tgu_imei_no, engineno, fueltype, retailssaledate, action, updatedat, updatedby, previousstate, currentstate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+      `;
+      let historyResult = await txclient.query(historyQuery, [
+        vehicle.vinno,
+        vehicle.modelcode,
+        vehicle.mobile,
+        vehicle.vehicleinfo,
+        vehicle.license_plate,
+        vehicle.color,
+        vehicle.vehicle_city,
+        vehicle.dealer,
+        vehicle.delivered,
+        vehicle.delivered_date,
+        vehicle.data_freq,
+        vehicle.tgu_model,
+        vehicle.tgu_sw_version,
+        vehicle.tgu_phone_no,
+        vehicle.tgu_imei_no,
+        vehicle.engineno,
+        vehicle.fueltype,
+        vehicle.retailssaledate,
+        "DELETED",
+        currtime,
+        deletedby,
+        previousState,
+        {},
+      ]);
+      if (historyResult.rowCount !== 1) {
+        throw new Error("Failed to add vehicle history");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
       return true;
     } catch (error) {
-      throw new Error(`Vehicle deletion failed: ${error.message}`);
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
+      throw error;
     }
   }
 
@@ -525,7 +834,7 @@ export default class PlatformSvcDB {
 
       return dateString; // Return as-is if not in expected format
     } catch (error) {
-      console.log("Date conversion error:", error);
+      this.logger.error("Date conversion error:", error);
       return null;
     }
   };
@@ -741,8 +1050,7 @@ export default class PlatformSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
-        result = await this.pgPoolI.Query(query, params);
+        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
         const countcquery = `WITH vin_list AS (
           SELECT r.vinno
           FROM reviewpendingvehicle r
@@ -763,7 +1071,15 @@ export default class PlatformSvcDB {
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
-        return [];
+        return {
+          vehicles: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: Math.ceil(totalcount / limit),
+        };
       }
       if (download) {
         return {
@@ -871,8 +1187,7 @@ export default class PlatformSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
-        result = await this.pgPoolI.Query(query, params);
+        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
         const countcquery = `WITH vin_list AS (
           SELECT r.vinno
           FROM reviewdonevehicle r
@@ -893,7 +1208,15 @@ export default class PlatformSvcDB {
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
-        return [];
+        return {
+          vehicles: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: Math.ceil(totalcount / limit),
+        };
       }
       if (download) {
         return {
@@ -942,9 +1265,13 @@ export default class PlatformSvcDB {
   }
 
   async updateVehicleMobile(vinno, vehiclecity, mobileno, userid) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    } 
     try {
       let currtime = new Date();
-      let alreadyExists = await this.pgPoolI.Query(
+      let alreadyExists = await txclient.query(
         `SELECT vinno, mobile, vehicle_city FROM vehicle WHERE vinno = $1`,
         [vinno]
       );
@@ -953,19 +1280,33 @@ export default class PlatformSvcDB {
       }
 
       if (alreadyExists.rows[0].mobile === mobileno && alreadyExists.rows[0].vehicle_city === vehiclecity) {
+        // No update needed - commit the read transaction before returning
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
         return true;
       }
 
       let query = `UPDATE vehicle SET mobile = $1, vehicle_city = $2, updatedat = $3, updatedby = $4 WHERE vinno = $5`;
-      let result = await this.pgPoolI.Query(query, [
+      let result = await txclient.query(query, [
         mobileno,
         vehiclecity,
         currtime,
         userid,
         vinno,
       ]);
-      return result.rowCount > 0;
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to update vehicle mobile");
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+      return true;
     } catch (error) {
+      await this.pgPoolI.TxRollback(txclient);
       throw new Error(`Failed to update vehicle mobile: ${error.message}`);
     }
   }
@@ -1658,6 +1999,61 @@ export default class PlatformSvcDB {
     } catch (error) {
       this.logger.error("SearchVehicles error:", error);
       throw new Error("Failed to search vehicles");
+    }
+  }
+  async checkAndCreateCity(cityname) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
+    try {
+      let query = `SELECT cityname FROM city WHERE cityname = $1`;
+      let result = await txclient.query(query, [cityname.toUpperCase()]);
+      if (result.rows.length > 0) {
+        // City exists, commit the read transaction
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+        return result.rows[0].cityname;
+      }
+  
+      let citycode = cityname.trim();
+      query = `SELECT citycode FROM city WHERE citycode = $1`;
+      result = await txclient.query(query, [cityname.toUpperCase()]);
+      if (result.rows.length > 0) {
+        citycode = `${citycode}_${Math.floor(Math.random() * 1000000)}`;
+      }
+  
+      query = `INSERT INTO city (citycode, cityname)
+        VALUES ($1, $2) ON CONFLICT (cityname) DO NOTHING
+        RETURNING citycode, cityname`;
+      result = await txclient.query(query, [citycode.toUpperCase(), cityname.toUpperCase()]);
+      
+      if (result.rows.length > 0) {
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
+        return result.rows[0].cityname;
+      }
+      
+      // No rows returned (conflict occurred), commit anyway
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+      return null;
+    } catch (error) {
+      this.logger.error("checkAndCreateCity error: ", error);
+      if (txclient) {
+        let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+        if (rollbackerr) {
+          this.logger.error("Rollback error in checkAndCreateCity: ", rollbackerr);
+          throw rollbackerr;
+        }
+      }
+      throw error;
     }
   }
 }

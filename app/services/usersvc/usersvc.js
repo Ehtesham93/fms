@@ -71,22 +71,22 @@ export default class UserSvc {
     return await this.userSvcDB.createFmsUser(user, userssoinfo, createdby, accountid);
   }
 
-  async AddUserToAccountWithRole(userid, accountid, role) {
-    return await this.userSvcDB.addUserToAccountWithRole(userid, accountid, role);
+  async AddUserToAccountWithRole(userid, accountid, role, createdbyuserid) {
+    return await this.userSvcDB.addUserToAccountWithRole(userid, accountid, role, createdbyuserid);
   }
 
-  async GetAllUsers(searchtext, offset, limit, download) {
-    return await this.userSvcDB.getAllUsers(searchtext, offset, limit, download);
+  async GetAllUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
+    return await this.userSvcDB.getAllUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection);
   }
 
-  async GetPlatformUsers(searchtext, offset, limit, download) {
+  async GetPlatformUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    return await this.userSvcDB.getAccountFleetUsers(accountid, searchtext, offset, limit, download);
+    return await this.userSvcDB.getAccountFleetUsers(accountid, searchtext, offset, limit, download, orderbyfield, orderbydirection);
   }
 
-  async GetAccountUsers(searchtext, offset, limit, download) {
+  async GetAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
     let platformaccountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    return await this.userSvcDB.getNonPlatformUsers(platformaccountid, searchtext, offset, limit, download);
+    return await this.userSvcDB.getNonPlatformUsers(platformaccountid, searchtext, offset, limit, download, orderbyfield, orderbydirection);
   }
 
   async GetUserAccounts(userid) {
@@ -101,11 +101,12 @@ export default class UserSvc {
     return await this.userSvcDB.disableUser(userid, updatedby);
   }
 
-  async SignupWithInvite(inviteid, displayname, encryptedpassword) {
+  async SignupWithInvite(inviteid, displayname, encryptedpassword, userid) {
     return await this.userSvcDB.signupWithInvite(
       inviteid,
       displayname,
-      encryptedpassword
+      encryptedpassword,
+      userid
     );
   }
 
@@ -162,8 +163,8 @@ export default class UserSvc {
     );
   }
 
-  async DeleteUserRecordsByUserid(userid) {
-    return await this.userSvcDB.deleteUserRecordsByUserid(userid);
+  async DeleteUserRecordsByUserid(userid, deletedby) {
+    return await this.userSvcDB.deleteUserRecordsByUserid(userid, deletedby);
   }
 
   // mobile

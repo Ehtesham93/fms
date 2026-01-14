@@ -129,7 +129,7 @@ async function main() {
     await seedPackageModule(platformHdlrI, tx, userid);
     await seedConsoleAccount(platformHdlrI, userid);
     await seedSuperAdmin(platformHdlrI, userid);
-    await seedFleetUserRole(tx);
+    await seedFleetUserRole(tx, userid);
     await seedVehicleModelFamily(platformHdlrI, userid);
     // await seedOldVehicleModel(platformHdlrI, userid);
     await seedVehicleModel(platformHdlrI, userid, tx);

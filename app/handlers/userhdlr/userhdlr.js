@@ -327,7 +327,7 @@ export default class UserHdlr {
       this.logger.error("Logout error: ", error);
       res.clearCookie("token");
       res.clearCookie("refreshtoken");
-      console.log("error while logging out", error);
+      this.logger.error("error while logging out", error);
 
       APIResponseOK(
         req,

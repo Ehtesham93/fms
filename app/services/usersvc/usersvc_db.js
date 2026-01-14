@@ -139,16 +139,35 @@ export default class UserSvcDB {
       // }
 
       query = `
-                INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
+                INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6)
             `;
       res = await txclient.query(query, [
         consoleaccountid,
         consoleaccountrootfleetid,
         userid,
         superadminroleid,
+        currtime,
+        createdby,
       ]);
       if (res.rowCount !== 1) {
         throw new Error("Failed to create superadmin");
+      }
+
+      query = `
+        INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      res = await txclient.query(query, [
+        consoleaccountid,
+        consoleaccountrootfleetid,
+        userid,
+        superadminroleid,
+        true,
+        'ADD',
+        currtime,
+        createdby,
+      ]);
+      if (res.rowCount !== 1) {
+        throw new Error("Failed to log superadmin in history");
       }
 
       query = `
@@ -632,7 +651,7 @@ export default class UserSvcDB {
           }
         }
         if (accountid) {
-          await this.addUserToAccountWithRole(user.userid, accountid, "admin");
+          await this.addUserToAccountWithRole(user.userid, accountid, "admin", createdby);
         }
   
         let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -649,15 +668,20 @@ export default class UserSvcDB {
       return true;
     }
 
-  async addUserToAccountWithRole(userid, accountid, role) {
+  async addUserToAccountWithRole(userid, accountid, role, createdbyuserid) {
+    let currtime = new Date();
+    let [txclient, txnerr] = await this.pgPoolI.StartTransaction();
+    if (txnerr) {
+      throw txnerr;
+    }
     try {
-      let [txclient, txnerr] = await this.pgPoolI.StartTransaction();
-      if (txnerr) {
-        throw txnerr;
-      }
       let query = `SELECT * FROM user_fleet WHERE userid = $1 AND accountid = $2`;
       let userfleetresult = await txclient.query(query, [userid, accountid]);
       if (userfleetresult.rowCount > 0) {
+        let commiterr = await this.pgPoolI.TxCommit(txclient);
+        if (commiterr) {
+          throw commiterr;
+        }
         return true;
       }
       
@@ -703,16 +727,35 @@ export default class UserSvcDB {
 
       // Add user to fleet_user_role table with roleid
       query = `
-        INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
+        INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6)
       `;
       result = await txclient.query(query, [
         accountid,
         rootfleetid,
         userid,
         roleid,
+        currtime,
+        createdbyuserid,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add user to fleet role");
+      }
+
+      query = `
+        INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      result = await txclient.query(query, [
+        accountid,
+        rootfleetid,
+        userid,
+        roleid,
+        true,
+        'ADD',
+        currtime,
+        createdbyuserid,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log user to fleet role in history");
       }
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -723,16 +766,33 @@ export default class UserSvcDB {
       return true;
     }
     catch (error) {
-      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
-      if (rollbackerr) {
-        throw rollbackerr;
+      if (txclient) {
+        let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+        if (rollbackerr) {
+          throw rollbackerr;
+        }
       }
       throw error;
     }
   }
 
-  async getAllUsers(searchtext, offset, limit, download) {
+  async getAllUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
     try {
+      let orderbyclause = `ORDER BY uli.createdat DESC NULLS LAST`;
+      if (orderbyfield && orderbydirection) {
+        if (orderbyfield === "lastloginat") {
+          orderbyfield = "uli.createdat";
+        } else if (orderbyfield === "loginvia") {
+          orderbyfield = "uli.ssotype";
+        } else if (orderbyfield === "email") {
+          orderbyfield = "eps.ssoid";
+        } else if (orderbyfield === "mobile") {
+          orderbyfield = "mps.ssoid";
+        }  else {
+          orderbyfield = `u.${orderbyfield}`;
+        }
+        orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
+      }
       let baseQuery = `
         SELECT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, u.ismobileverified, u.createdat, u.createdby, u.updatedat, u.updatedby, eps.ssoid as email, mps.ssoid as mobile, 
         CASE 
@@ -742,17 +802,23 @@ export default class UserSvcDB {
           WHEN uli.ssotype = 'superadmin' THEN 'API_TOKEN'
           ELSE ''
         END as loginvia, 
-        COALESCE(uli.createdat::text, '') as lastloginat
+        COALESCE(uli.createdat::text, '') as lastloginat,
+        uli.createdat as lastloginat_raw
         FROM users u
-        LEFT JOIN user_login_audit uli ON u.userid = uli.userid
+        LEFT JOIN LATERAL (
+          SELECT DISTINCT ON (userid) userid, createdat, ssotype
+          FROM user_login_audit
+          WHERE userid = u.userid
+          ORDER BY userid, createdat DESC
+        ) uli ON true
         LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
         LEFT JOIN mobile_sso mps ON u.userid = mps.userid
         WHERE u.isdeleted = false AND (
-          UPPER(u.displayname) LIKE '%' || $1 || '%' OR
-          eps.ssoid LIKE '%' || $1 || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || $1 || '%'
+          UPPER(u.displayname) LIKE '%' || UPPER($1) || '%' OR
+          UPPER(eps.ssoid) LIKE '%' || UPPER($1) || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || UPPER($1) || '%'
         )
-        ORDER BY u.updatedat DESC
+        ${orderbyclause}
       `;
       let result;
       let totalcount;
@@ -770,9 +836,9 @@ export default class UserSvcDB {
         LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
         LEFT JOIN mobile_sso mps ON u.userid = mps.userid
         WHERE u.isdeleted = false AND (
-          UPPER(u.displayname) LIKE '%' || $1 || '%' OR
-          eps.ssoid LIKE '%' || $1 || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || $1 || '%'
+          UPPER(u.displayname) LIKE '%' || UPPER($1) || '%' OR
+          UPPER(eps.ssoid) LIKE '%' || UPPER($1) || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || UPPER($1) || '%'
         )`;
         const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
         totalcount = parseInt(countcresult.rows[0].count);
@@ -842,8 +908,21 @@ export default class UserSvcDB {
     }
   }
 
-  async getAccountFleetUsers(accountid, searchtext, offset, limit, download) {
+  async getAccountFleetUsers(accountid, searchtext, offset, limit, download, orderbyfield, orderbydirection) {
     try {
+      let orderbyclause = `ORDER BY u.updatedat DESC NULLS LAST`;
+      if (orderbyfield && orderbydirection) {
+        if (orderbyfield === "lastloginat") {
+          orderbyfield = "u.updatedat";
+        } else if (orderbyfield === "email") {
+          orderbyfield = "eps.ssoid";
+        } else if (orderbyfield === "mobile") {
+          orderbyfield = "mps.ssoid";
+        } else {
+          orderbyfield = `u.${orderbyfield}`;
+        }
+        orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
+      }
       let baseQuery = `
         SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, 
         u.isemailverified, u.ismobileverified, u.createdat, u1.displayname as createdby, u.updatedat, u2.displayname as updatedby,
@@ -854,11 +933,11 @@ export default class UserSvcDB {
         LEFT JOIN users u1 ON u.createdby = u1.userid
         LEFT JOIN users u2 ON u.updatedby = u2.userid
         WHERE fur.accountid = $1 AND u.isdeleted = false AND (
-          UPPER(u.displayname) LIKE '%' || $2 || '%' OR
-          eps.ssoid LIKE '%' || $2 || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+          UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%'
         )
-        ORDER BY u.updatedat DESC
+        ${orderbyclause}
     `;
     let result;
     let totalcount;
@@ -876,9 +955,9 @@ export default class UserSvcDB {
       LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
       LEFT JOIN mobile_sso mps ON u.userid = mps.userid
       WHERE fur.accountid = $1 AND u.isdeleted = false AND (
-        UPPER(u.displayname) LIKE '%' || $2 || '%' OR
-        eps.ssoid LIKE '%' || $2 || '%' OR
-        UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+        UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
+        UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+        UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%'
       )`;
       const countcresult = await this.pgPoolI.Query(countcquery, [accountid, searchtext]);
       totalcount = parseInt(countcresult.rows[0].count);
@@ -925,8 +1004,23 @@ export default class UserSvcDB {
     }
   }
 
-  async getNonPlatformUsers(platformaccountid, searchtext, offset, limit, download) {
+  async getNonPlatformUsers(platformaccountid, searchtext, offset, limit, download, orderbyfield, orderbydirection) {
     try {
+      let orderbyclause = `ORDER BY uli.createdat DESC NULLS LAST`;
+      if (orderbyfield && orderbydirection) {
+        if (orderbyfield === "lastloginat") {
+          orderbyfield = "uli.createdat";
+        } else if (orderbyfield === "loginvia") {
+          orderbyfield = "uli.ssotype";
+        } else if (orderbyfield === "email") {
+          orderbyfield = "eps.ssoid";
+        } else if (orderbyfield === "mobile") {
+          orderbyfield = "mps.ssoid";
+        }  else {
+          orderbyfield = `u.${orderbyfield}`;
+        }
+        orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
+      }
       let baseQuery = `
         SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, 
         u.ismobileverified, u.createdat, u2.displayname as createdby, u.updatedat, u3.displayname as updatedby, 
@@ -939,20 +1033,26 @@ export default class UserSvcDB {
         END as loginvia, 
         COALESCE(uli.createdat::text, '') as lastloginat,
         uli.createdat as lastloginat_raw,
+        uli.ssotype as loginvia_raw,
         eps.ssoid as email, mps.ssoid as mobile 
         FROM users u
-        LEFT JOIN user_login_audit uli ON u.userid = uli.userid
-        JOIN fleet_user_role fur ON u.userid = fur.userid
+        LEFT JOIN LATERAL (
+          SELECT DISTINCT ON (userid) userid, createdat, ssotype
+          FROM user_login_audit
+          WHERE userid = u.userid
+          ORDER BY userid, createdat DESC
+        ) uli ON true
+        LEFT JOIN fleet_user_role fur ON u.userid = fur.userid
         LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
         LEFT JOIN mobile_sso mps ON u.userid = mps.userid
         LEFT JOIN users u2 ON u.createdby = u2.userid
         LEFT JOIN users u3 ON u.updatedby = u3.userid
         WHERE fur.accountid != $1 AND u.isdeleted = false AND (
-          UPPER(u.displayname) LIKE '%' || $2 || '%' OR
-          eps.ssoid LIKE '%' || $2 || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+          UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%'
         )
-        ORDER BY uli.createdat DESC
+        ${orderbyclause}
       `;
       let result;
       let totalcount;
@@ -966,13 +1066,13 @@ export default class UserSvcDB {
         result = await this.pgPoolI.Query(query, params);
         
         const countcquery = `SELECT COUNT(*) FROM users u
-        JOIN fleet_user_role fur ON u.userid = fur.userid
+        LEFT JOIN fleet_user_role fur ON u.userid = fur.userid
         LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
         LEFT JOIN mobile_sso mps ON u.userid = mps.userid
         WHERE fur.accountid != $1 AND u.isdeleted = false AND (
-          UPPER(u.displayname) LIKE '%' || $2 || '%' OR
-          eps.ssoid LIKE '%' || $2 || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || $2 || '%'
+          UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%'
         )`;
         const countcresult = await this.pgPoolI.Query(countcquery, [platformaccountid, searchtext]);
         totalcount = parseInt(countcresult.rows[0].count);
@@ -1058,7 +1158,7 @@ export default class UserSvcDB {
     let currtime = new Date();
 
     let [txclient, err] = await this.pgPoolI.StartTransaction();
-    if (err) {
+    if (err) {  
       throw err;
     }
 
@@ -1230,16 +1330,35 @@ export default class UserSvcDB {
       }
 
       query = `
-                    INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
+                    INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6)
                 `;
       result = await txclient.query(query, [
         invite.accountid,
         fleetid,
         userid,
         role,
+        currtime,
+        invite.createdby,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add user to fleet role");
+      }
+
+      query = `
+        INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      result = await txclient.query(query, [
+        invite.accountid,
+        fleetid,
+        userid,
+        role,
+        true,
+        'ADD',
+        currtime,
+        invite.createdby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log user to fleet role in history");
       }
 
       // get userinfo
@@ -1297,6 +1416,16 @@ export default class UserSvcDB {
         // Not failing here, just logging
       }
 
+      query = `
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+            `;
+      result = await txclient.query(query, [inviteid]);
+      if (result.rowCount !== 1) {
+        throw new Error("Invalid invite id");
+      }
+
+      let invite = result.rows[0];
+
       // 2. Delete from fleet_invite_done
       query = `
        DELETE FROM fleet_invite_done 
@@ -1310,6 +1439,15 @@ export default class UserSvcDB {
       // Now handle user record deletion in reverse order of creation
       // 3. Delete from fleet_user_role (depends on user_fleet)
       query = `
+        SELECT roleid FROM fleet_user_role WHERE accountid = $1 AND fleetid = $2 AND userid = $3
+      `;
+      result = await txclient.query(query, [accountid, fleetid, userid]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to get roleid");
+      }
+      const roleids = result.rows.map(row => row.roleid); // array of roleids
+
+      query = `
         DELETE FROM fleet_user_role 
         WHERE accountid = $1 AND fleetid = $2 AND userid = $3
       `;
@@ -1317,6 +1455,24 @@ export default class UserSvcDB {
       if (result.rowCount === 0) {
         // Not failing here, just logging
       }
+      for (const roleid of roleids) {
+        query = `
+          INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `;
+        result = await txclient.query(query, [
+          accountid,
+          fleetid,
+          userid,
+          roleid,
+          false,
+          'REMOVE',
+          currtime,
+          ADMIN_USER_ID,
+          ]);
+          if (result.rowCount !== 1) {
+            throw new Error("Failed to log user to fleet role in history");
+          }
+        }
 
       // 4. Delete from user_fleet (depends on users)
       query = `
@@ -1497,18 +1653,37 @@ export default class UserSvcDB {
       }
 
       query = `
-          INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
+          INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING
         `;
       result = await txclient.query(query, [
         invite.accountid,
         fleetid,
         userid,
         role,
+        currtime,
+        invite.createdby,
       ]);
       if (result.rowCount !== 1) {
         this.logger.error(
           `usersvc_db.acceptInvite: duplicate fleet_user_role entry to add user to fleet role: accountid: ${invite.accountid}, fleetid: ${invite.fleetid}, userid: ${userid}, roleid: ${role}`
         );
+      }
+
+      query = `
+        INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      result = await txclient.query(query, [
+        invite.accountid,
+        fleetid,
+        userid,
+        role,
+        true,
+        'ADD',
+        currtime,
+        invite.createdby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log user to fleet role in history");
       }
 
       // get account name and fleet name for invite text
@@ -1743,16 +1918,35 @@ export default class UserSvcDB {
 
       // Add user to fleet_user_role table with roleid
       query = `
-        INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid) VALUES ($1, $2, $3, $4)
+        INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6)
       `;
       result = await txclient.query(query, [
         accountid,
         rootfleetid,
         userid,
         roleid,
+        currtime,
+        addedby,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add user to fleet role");
+      }
+
+      query = `
+        INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      result = await txclient.query(query, [
+        accountid,
+        rootfleetid,
+        userid,
+        roleid,
+        true,
+        'ADD',
+        currtime,
+        addedby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log user to fleet role in history");
       }
 
       // Add record to fleet_invite_done table to track this direct user addition
@@ -1944,6 +2138,16 @@ export default class UserSvcDB {
       // if (isUserAdmin && adminCount <= 1) {
       //   throw new Error("Cannot remove the last admin from the account");
       // }
+      // Capture current assignments before delete
+      const assignmentsRes = await txclient.query(
+        `
+        SELECT roleid
+        FROM fleet_user_role
+        WHERE accountid = $1 AND fleetid = $2 AND userid = $3 
+        `,
+        [accountid, rootfleetid, userid]
+      );
+      const roleids = assignmentsRes.rows.map(row => row.roleid); // array of roleids
 
       // Remove user from fleet_user_role table
       query = `
@@ -1953,6 +2157,25 @@ export default class UserSvcDB {
       result = await txclient.query(query, [accountid, rootfleetid, userid]);
       if (result.rowCount === 0) {
         throw new Error("Failed to remove user from fleet role");
+      }
+
+      for (const roleid of roleids) {
+        query = `
+          INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `;
+        result = await txclient.query(query, [
+          accountid,
+          rootfleetid,
+          userid,
+          roleid,
+          false,
+          'REMOVE',
+          currtime,
+          removedby,
+          ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to log user to fleet role in history");
+        }
       }
 
       // Remove user from user_fleet table
@@ -2181,7 +2404,7 @@ export default class UserSvcDB {
     }
   }
 
-  async deleteUserRecordsByUserid(userid) {
+  async deleteUserRecordsByUserid(userid, deletedby) {
     let currtime = new Date();
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
@@ -2189,12 +2412,42 @@ export default class UserSvcDB {
     }
 
     try {
+      // Capture current assignments before delete
+      const assignmentsRes = await txclient.query(
+        `
+        SELECT accountid, fleetid, roleid
+        FROM fleet_user_role
+        WHERE userid = $1
+        `,
+        [userid]
+      );
+      const assignments = assignmentsRes.rows; // array of assignments
+
       // 1. Delete from fleet_user_role (if any)
       let query = `
         DELETE FROM fleet_user_role 
         WHERE userid = $1
       `;
       let result = await txclient.query(query, [userid]);
+
+      for (const { accountid, fleetid, roleid } of assignments) {
+        query = `
+          INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `;
+        result = await txclient.query(query, [
+          accountid,
+          fleetid,
+          userid,
+          roleid,
+          false,
+          'REMOVE',
+          currtime,
+          deletedby,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to log user to fleet role in history");
+        }
+      }
 
       // 2. Delete from user_fleet (if any)
       query = `

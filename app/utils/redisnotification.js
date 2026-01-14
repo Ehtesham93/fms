@@ -17,32 +17,26 @@ const getEnvironmentPrefix = () => {
 /**
  * Publishes an account update notification to Redis
  * @param {string} accountid - The account ID
- * @param {string} action - The action performed ("added", "updated", "removed")
- * @param {string} updateType - The type of update ("vehicle", "user", "fleet", etc.)
+ * @param {object} message - The message to publish
  * @param {object} redisSvc - Redis service instance
  * @param {object} logger - Logger instance
  * @returns {Promise<boolean>} - Success status
  */
 export const publishAccountUpdate = async (
   accountid,
-  action,
-  updateType,
+  message,
   redisSvc,
   logger
 ) => {
   try {
     // Create the data to store and publish
-    const updateData = {
-      timestamp: new Date().toISOString(),
-      action: action,
-    };
+    const redismessage = JSON.stringify(message);
 
     const envPrefix = getEnvironmentPrefix();
-    const key = `${envPrefix}account.updates.${accountid}.${updateType}`;
-    const message = JSON.stringify(updateData);
+    const key = `${envPrefix}updates.account.${accountid}.vehicle`;
 
     // Set the key with the data (persistent state)
-    const [setResult, setError] = await redisSvc.set(key, message);
+    const [setResult, setError] = await redisSvc.set(key, redismessage);
     if (setError) {
       logger.error(`Failed to set key ${key}:`, setError);
     } else {
@@ -50,7 +44,7 @@ export const publishAccountUpdate = async (
     }
 
     // Publish to the same key as topic (real-time notification)
-    const [publishResult, publishError] = await redisSvc.publish(key, message);
+    const [publishResult, publishError] = await redisSvc.publish(key, redismessage);
     if (publishError) {
       logger.error(`Failed to publish to topic ${key}:`, publishError);
     } else {
@@ -69,21 +63,20 @@ export const publishAccountUpdate = async (
 /**
  * Publishes a vehicle update notification specifically
  * @param {string} accountid - The account ID
- * @param {string} action - The action performed ("added", "updated", "removed")
+ * @param {object} message - The message to publish
  * @param {object} redisSvc - Redis service instance
  * @param {object} logger - Logger instance
  * @returns {Promise<boolean>} - Success status
  */
 export const publishVehicleUpdate = async (
   accountid,
-  action,
+  message,
   redisSvc,
   logger
 ) => {
   return await publishAccountUpdate(
     accountid,
-    action,
-    "vehicle",
+    message,
     redisSvc,
     logger
   );

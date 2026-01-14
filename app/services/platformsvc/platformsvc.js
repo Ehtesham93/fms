@@ -215,6 +215,13 @@ export default class PlatformSvc {
     );
   }
 
+  async GetVehicleHistory(starttime, endtime) {
+    return await this.platformSvcDB.getVehicleHistory(
+      starttime,
+      endtime
+    );
+  }
+
   async GetConsoleVehicleAssignmentHistory(vinno, starttime, endtime) {
     return await this.platformSvcDB.getConsoleVehicleAssignmentHistory(
       vinno,
@@ -247,5 +254,8 @@ export default class PlatformSvc {
       throw new Error("Search text must be at least 2 characters");
     }
     return await this.platformSvcDB.searchVehicles(searchText, offset, limit);
+  }
+  async CheckAndCreateCity(cityname) {
+    return await this.platformSvcDB.checkAndCreateCity(cityname);
   }
 }

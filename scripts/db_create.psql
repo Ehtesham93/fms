@@ -314,6 +314,8 @@ CREATE TABLE IF NOT EXISTS
         fleetid uuid NOT NULL,
         userid uuid NOT NULL,
         roleid uuid NOT NULL,
+        assignedat timestamptz NOT NULL,
+        assignedby uuid NOT NULL,
         PRIMARY KEY (accountid, fleetid, userid, roleid), -- TODO: why there are no assignedat and assignedby etc..?
         FOREIGN KEY (accountid, fleetid) REFERENCES account_fleet (accountid, fleetid),
         FOREIGN KEY (userid) REFERENCES users (userid),
@@ -425,6 +427,7 @@ CREATE TABLE IF NOT EXISTS
         updatedby uuid NOT NULL,
         previousstate jsonb NOT NULL,
         currentstate jsonb NOT NULL,
+        accountid uuid NOT NULL,
         PRIMARY KEY (roleid, updatedat)
     );
 
@@ -438,6 +441,48 @@ CREATE TABLE IF NOT EXISTS
         updatedat timestamptz NOT NULL,
         updatedby uuid NOT NULL,
         PRIMARY KEY (roleid, permid, updatedat)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    fleet_user_role_history(
+        accountid uuid NOT NULL,
+        fleetid uuid NOT NULL,
+        userid uuid NOT NULL,
+        roleid uuid NOT NULL,
+        isenabled boolean NOT NULL,
+        action text NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        PRIMARY KEY (fleetid, roleid, userid, updatedat)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    vehicle_history (
+        vinno text NOT NULL,
+        vehicleinfo jsonb NOT NULL,
+        updatedat timestamp with time zone NOT NULL,
+        updatedby uuid NOT NULL,
+        modelcode text DEFAULT 'treo'::text NOT NULL,
+        action text NOT NULL,
+        mobile text,
+        license_plate text,
+        color text,
+        vehicle_city text,
+        dealer text,
+        delivered boolean DEFAULT false,
+        delivered_date timestamp with time zone,
+        data_freq smallint,
+        tgu_model text,
+        tgu_sw_version text,
+        tgu_phone_no text,
+        tgu_imei_no text,
+        engineno text,
+        fueltype text,
+        retailssaledate timestamp with time zone,
+        previousstate jsonb NOT NULL,
+        currentstate jsonb NOT NULL,
+        PRIMARY KEY (vinno, updatedat),
+        CHECK ((char_length(mobile) >= 7))
     );
 
 CREATE TABLE IF NOT EXISTS
@@ -624,6 +669,35 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (color) REFERENCES color (colorname),
         FOREIGN KEY (vehicle_city) REFERENCES city (cityname),
         FOREIGN KEY (dealer) REFERENCES dealer (dealername)
+    );
+
+CREATE TABLE IF NOT EXISTS
+    vehicle_history (
+        vinno text NOT NULL,
+        vehicleinfo jsonb NOT NULL,
+        modelcode text DEFAULT 'treo'::text NOT NULL,
+        mobile text,
+        license_plate text,
+        color text,
+        vehicle_city text,
+        dealer text,
+        delivered boolean DEFAULT false,
+        delivered_date timestamp with time zone,
+        data_freq smallint,
+        tgu_model text,
+        tgu_sw_version text,
+        tgu_phone_no text,
+        tgu_imei_no text,
+        engineno text,
+        fueltype text,
+        retailssaledate timestamp with time zone,
+        action text NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        previousstate jsonb NOT NULL,
+        currentstate jsonb NOT NULL,
+        PRIMARY KEY (vinno, updatedat),
+        CHECK ((char_length(mobile) >= 7))
     );
 
 CREATE TABLE IF NOT EXISTS
@@ -954,23 +1028,6 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (updatedby) REFERENCES users (userid)
     );
 
-CREATE TABLE IF NOT EXISTS
-    fleet_invite_pending_backup (
-        accountid uuid NOT NULL,
-        fleetid uuid NOT NULL,
-        inviteid uuid NOT NULL,
-        info jsonb NOT NULL,
-        invitetype text NOT NULL,
-        invitestatus text NOT NULL,
-        createdat timestamp with time zone NOT NULL,
-        createdby uuid NOT NULL,
-        updatedat timestamp with time zone NOT NULL,
-        updatedby uuid NOT NULL,
-        PRIMARY KEY (accountid, fleetid, inviteid),
-        FOREIGN KEY (accountid, fleetid) REFERENCES account_fleet (accountid, fleetid),
-        FOREIGN KEY (createdby) REFERENCES users (userid),
-        CONSTRAINT fleet_invite_pending_updatedby_fkey FOREIGN KEY (updatedby) REFERENCES users (userid)
-    );
 
 CREATE TABLE IF NOT EXISTS
     fleet_invite_done (
@@ -991,21 +1048,6 @@ CREATE TABLE IF NOT EXISTS
         FOREIGN KEY (accountid, fleetid) REFERENCES account_fleet (accountid, fleetid),
         FOREIGN KEY (createdby) REFERENCES users (userid),
         FOREIGN KEY (updatedby) REFERENCES users (userid)
-    );
-
-CREATE TABLE IF NOT EXISTS
-    fleet_invite_done_backup (
-        accountid uuid NOT NULL,
-        fleetid uuid NOT NULL,
-        inviteid uuid NOT NULL,
-        info jsonb NOT NULL,
-        invitetype text NOT NULL,
-        invitestatus text NOT NULL,
-        isexternal boolean NOT NULL,
-        createdat timestamp with time zone NOT NULL,
-        createdby uuid NOT NULL,
-        updatedat timestamp with time zone NOT NULL,
-        updatedby uuid NOT NULL
     );
 
 CREATE TABLE IF NOT EXISTS
@@ -1637,6 +1679,19 @@ ON account_package_subscription (pkgid);
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_enabled_deleted 
 ON account (isenabled, isdeleted) 
 WHERE isenabled = true AND isdeleted = false;
+
+-- Composite index for COUNT queries on (accountid, fleetid, userid)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fleet_user_role_account_fleet_user 
+ON fleet_user_role (accountid, fleetid, userid);
+
+-- Index for admin check query (accountid, userid, roleid)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fleet_user_role_account_user_role 
+ON fleet_user_role (accountid, userid, roleid);
+
+-- Index for account_fleet JOIN (if not exists)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_fleet_account_fleet_root 
+ON account_fleet (accountid, fleetid) 
+WHERE isroot = true;
 
 -- Views
 CREATE OR REPLACE VIEW
