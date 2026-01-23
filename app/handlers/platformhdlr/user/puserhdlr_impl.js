@@ -676,7 +676,7 @@ export default class PUserHdlrImpl {
     status = "REVIEWED_SUCCESS"
   ) => {
     try {
-      const existingdonetask = await this.accountSvcI.GetAccountReviewDoneByAccountName(taskid, accountname, status);
+      const existingdonetask = await this.accountSvcI.GetAccountReviewDoneByAccountName(accountname, status);
       if (existingdonetask) {
         return;
       }
@@ -1374,10 +1374,9 @@ export default class PUserHdlrImpl {
       if (!checkandcreatecity) {
         checkandcreatecity = original_input.customeraddresscity;
       }
-      const updatevehicle = await this.platformSvcI.UpdateVehicleMobile(
+      const updatevehicle = await this.platformSvcI.UpdateVehicleCity(
         vin,
         checkandcreatecity,
-        vehiclemobile,
         userid
       );
       if (!updatevehicle) {
@@ -1605,9 +1604,9 @@ export default class PUserHdlrImpl {
     vin,
     licenseplate,
     userid,
-    original_input
+    original_input,
+    accountname
   ) {
-    const accountname = `${processedcustomername} ${usermobile}`;
     let user = null;
     if (existingmobile === null) {
       user = await this.TaskCreateUser(
@@ -1758,13 +1757,11 @@ export default class PUserHdlrImpl {
     userrole
   ) {
     let account = null;
-    let createaccount = true;
     let action = null;
     if (accountid) {
-      createaccount = false;
       account = await this.platformSvcI.GetAccountById(accountid);
       if (account){
-        const accountreviewdone = await this.accountSvcI.GetAccountReviewDoneByAccountName(accountid, account.accountname, "ACCOUNT_CREATION_SUCCESS");
+        const accountreviewdone = await this.accountSvcI.GetAccountReviewDoneByAccountName(account.accountname, "ACCOUNT_CREATION_SUCCESS");
         if(!accountreviewdone) {
           await this.AddAccountToReviewDone(
             taskid,
@@ -1782,26 +1779,17 @@ export default class PUserHdlrImpl {
       account =
         await this.platformSvcI.GetAccountByName(accountname);
         if (account) {
-          createaccount = false;
           accountid = account.accountid;
         }else{
-          account = await this.platformSvcI.GetAccountById(taskid);
-          if(account) {
-            createaccount = false;
-            accountid = account.accountid;
-            accountname = account.accountname;
-          }
+          const accountRes = await this.TaskCreateAccount(
+            taskid,
+            accountname,
+            userid,
+            original_input
+          );
+          accountid = accountRes.accountid;
+          account = accountRes.account;
         }
-    }
-    if (createaccount) {
-      const accountRes = await this.TaskCreateAccount(
-        taskid,
-        accountname,
-        userid,
-        original_input
-      );
-      accountid = accountRes.accountid;
-      account = accountRes.account;
     }
     original_input.nemo3_account_id = accountid;
 
@@ -2022,8 +2010,16 @@ export default class PUserHdlrImpl {
     const vehiclemobile = this.preprocessingmobile(customercontactmobile);
     const usermobile = this.preprocessingmobile(nemo_user_mobile);
     customeraddresscity = preprocessingText(customeraddresscity);
+    let existingaccount = null;
+    if (nemo3_account_id) {
+      existingaccount = await this.platformSvcI.GetAccountById(nemo3_account_id);
+    }
     if (accountname === null) {
-      accountname = `${processedcustomername} ${usermobile}`;
+      if (existingaccount) {
+        accountname = existingaccount.accountname;
+      } else {
+        accountname = `${processedcustomername} ${usermobile}`;
+      }
     }
     let pendingaccount = null;
     if(taskid === null) {
@@ -2044,12 +2040,6 @@ export default class PUserHdlrImpl {
           }
         }
       }
-    } else {
-      pendingaccount =
-          await this.accountSvcI.GetPendingAccountReviewById(taskid);
-        if(pendingaccount) {
-          nemo3_account_id = pendingaccount.original_input.nemo3_account_id;
-        }
     }
 
     const original_input = {
@@ -2075,15 +2065,8 @@ export default class PUserHdlrImpl {
 
     if (customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL) {
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
-      let existingaccount = null;
-      if (nemo3_account_id) {
-        existingaccount = await this.platformSvcI.GetAccountById(nemo3_account_id);
-        accountname = existingaccount.accountname;
-      } else {
+      if (existingaccount === null) {
         existingaccount = await this.platformSvcI.GetAccountByName(accountname);
-        if(!existingaccount) {
-          existingaccount = await this.platformSvcI.GetAccountById(taskid);
-        }
         if(existingaccount) {
           accountname = existingaccount.accountname;
         }
@@ -2150,16 +2133,11 @@ export default class PUserHdlrImpl {
           vin,
           licenseplate,
           userid,
-          original_input
+          original_input,
+          accountname
         );
       }
     } else if (customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
-      if (nemo3_account_id) {
-        original_input.nemo3_account_id = nemo3_account_id;
-      } else {
-        nemo3_account_id = original_input.nemo3_account_id;
-      }
-
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
       const existingemail =
         await this.userSvcI.CheckEmailExists(customercontactemail);
@@ -2257,6 +2235,8 @@ export default class PUserHdlrImpl {
       "review",
       taskid,
       accountname,
+      original_input.nemo3_account_id,
+      original_input.userrole,
     );
   }
   // Handle USER_REVIEW error
@@ -2324,6 +2304,8 @@ export default class PUserHdlrImpl {
       "review",
       taskid,
       accountname,
+      original_input.nemo3_account_id,
+      original_input.userrole,
     );
   }
 
@@ -2366,6 +2348,8 @@ export default class PUserHdlrImpl {
             "retry",
             review.userid,
             null,
+            original_input.nemo3_account_id,
+            original_input.userrole,
           );
         } catch (error) {
           this.logger.error("RetryUserOnboardLogic failed", error);

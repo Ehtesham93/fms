@@ -37,6 +37,8 @@ export default class ModuleHdlrImpl {
     if (!res) {
       this.logger.error("Failed to create module");
       throw new Error("Failed to create module");
+    } else if (res.errcode === "MODULE_CODE_ALREADY_EXISTS") {
+      throw res;
     }
     
     return {
@@ -256,5 +258,8 @@ export default class ModuleHdlrImpl {
       history = [];
     }
     return history;
+  };
+  IsModuleCodeAvailableLogic = async (modulecode) => {
+    return await this.moduleSvcI.IsModuleCodeAvailable(modulecode);
   };
 }

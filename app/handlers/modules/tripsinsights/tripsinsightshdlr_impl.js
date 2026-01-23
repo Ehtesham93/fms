@@ -134,17 +134,7 @@ export default class TripsinsighthdlrImpl {
             const distance = (trip.endodo || 0) - (trip.startodo || 0);
             if (distance > 0) batchTotalDistance += distance;
 
-            let startkwh =
-              trip.startkwh && typeof trip.startkwh === "number"
-                ? trip.startkwh
-                : null;
-            let endkwh =
-              trip.endkwh && typeof trip.endkwh === "number"
-                ? trip.endkwh
-                : null;
-            if (startkwh !== null && endkwh !== null) {
-              batchTotalEnergy += Math.abs(endkwh - startkwh);
-            }
+            batchTotalEnergy += Math.abs(trip.endkwh - trip.startkwh);
 
             const duration = formatEpochToDuration(
               (trip.movingtime || 0) + (trip.idletime || 0)
@@ -386,6 +376,7 @@ export default class TripsinsighthdlrImpl {
           boostmode = Math.max(0, Math.min(100, boostmode));
           ecomode = 100 - Math.round(boostmode);
         }
+        const energyconsumed = Math.abs(trip.endkwh - trip.startkwh);
 
         const calcrange =
           typeof trip.calcrange === "number" ? trip.calcrange : 0;
@@ -399,7 +390,9 @@ export default class TripsinsighthdlrImpl {
           distance: Math.round(distance * 100) / 100,
           duration: Math.round(duration * 100) / 100,
           socconsumed: Math.round(socconsumed * 100) / 100,
+          energyconsumed: Math.round(energyconsumed * 100) / 100,
           calcrange: Math.round(calcrange * 100) / 100,
+          energyconsumedkwh: `${Math.round(energyconsumed * 100) / 100} kWh`,
           boostmode: boostmode,
           ecomode: ecomode,
           maxspeed: Math.round(maxspeed * 100) / 100,
@@ -509,7 +502,7 @@ export default class TripsinsighthdlrImpl {
           ecomode = 100 - Math.round(boostmode);
         }
 
-
+        const energyconsumed = Math.abs(trip.endkwh - trip.startkwh);
         const calcrange =
           typeof trip.calcrange === "number" ? trip.calcrange : 0;
 
@@ -523,6 +516,8 @@ export default class TripsinsighthdlrImpl {
           distance: Math.round(distance * 100) / 100,
           duration: Math.round(duration * 100) / 100,
           socconsumed: Math.round(socconsumed * 100) / 100,
+          energyconsumed: Math.round(energyconsumed * 100) / 100,
+          energyconsumedkwh: `${Math.round(energyconsumed * 100) / 100} kWh`,
           calcrange: Math.round(calcrange * 100) / 100,
           boostmode: boostmode,
           ecomode: ecomode,

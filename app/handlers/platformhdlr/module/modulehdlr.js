@@ -40,6 +40,7 @@ export default class ModuleHdlr {
     router.delete(`/:moduleid(${UUID_PATTERN})`, this.DeleteModule);
     router.get(`/history`, this.GetModuleHistory);
     router.get(`/perm/history`, this.GetModulePermHistory);
+    router.get(`/:modulecode/isavailable`, this.IsModuleCodeAvailable);
   }
 
   GetModuleTypes = async (req, res, next) => {
@@ -143,6 +144,8 @@ export default class ModuleHdlr {
     } catch (e) {
       this.logger.error("CreateModule error: ", e);
       if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "MODULE_CODE_ALREADY_EXISTS") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
@@ -804,6 +807,48 @@ export default class ModuleHdlr {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(req, res, "GET_MODULE_PERM_HISTORY_ERR", e.toString(), "Get module perm history failed");
+      }
+    }
+  };
+
+  IsModuleCodeAvailable = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.module.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get module history."
+      );
+    }
+    try {
+      let schema = z.object({
+        modulecode: z
+          .string({ message: "Invalid Module Code format" })
+          .nonempty({ message: "Module Code cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+            message:
+              "Module Code can only contain letters, numbers, spaces, hyphens, and underscores",
+          })
+          .max(128, { message: "Module Code must be at most 128 characters" }),
+      });
+      const { modulecode } = validateAllInputs(schema, {
+        modulecode: req.params.modulecode,
+      });
+
+      let result = await this.moduleHdlrImpl.IsModuleCodeAvailableLogic(modulecode);
+      if (result) {
+        return APIResponseOK(req, res, result, "Module code available");
+      } else {
+        return APIResponseOK(req, res, result, "Module code not available");
+      }
+    }
+    catch (e) {
+      this.logger.error("IsModuleCodeAvailable error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        return APIResponseInternalErr(req, res, "IS_MODULE_CODE_AVAILABLE_ERR", e.toString(), "Check module code availability failed");
       }
     }
   };

@@ -445,11 +445,10 @@ export default class PUserSvcDB {
       if (roleids.length > 0) {
         const placeholders = roleids
           .map((roleid, index) => {
-            const startIndex = index * 4 + 1;
+            const startIndex = index * 6 + 1;
             values.push(userid, accountid, fleetid, roleid, currtime, updatedby);
             return `($${startIndex}, $${startIndex + 1}, $${startIndex + 2}, $${
-              startIndex + 3
-            })`;
+              startIndex + 3}, $${startIndex + 4}, $${startIndex + 5})`;
           })
           .join(",");
 

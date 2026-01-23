@@ -34,7 +34,8 @@ export default class ChargeInsightSvcDB {
         WHERE vin = {vin:String} 
           AND starttime >= {starttime:UInt64} 
           AND starttime < {endtime:UInt64}
-          AND event = 'charge'`;
+          AND event = 'charge'
+          AND endsoc - startsoc >= 1`;
 
         const params = {
           vin: vinno,
@@ -132,7 +133,8 @@ export default class ChargeInsightSvcDB {
         WHERE vin IN (${vinPlaceholders})
           AND starttime >= {starttime:UInt64} 
           AND starttime < {endtime:UInt64}
-          AND event = 'charge'`;
+          AND event = 'charge'
+          AND endsoc - startsoc >= 1`;
 
         const params = {
           starttime: starttime,

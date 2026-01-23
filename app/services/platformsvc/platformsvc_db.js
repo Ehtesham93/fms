@@ -1264,7 +1264,7 @@ export default class PlatformSvcDB {
     }
   }
 
-  async updateVehicleMobile(vinno, vehiclecity, mobileno, userid) {
+  async updateVehicleCity(vinno, vehiclecity, userid) {
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
@@ -1272,14 +1272,14 @@ export default class PlatformSvcDB {
     try {
       let currtime = new Date();
       let alreadyExists = await txclient.query(
-        `SELECT vinno, mobile, vehicle_city FROM vehicle WHERE vinno = $1`,
+        `SELECT vinno, vehicle_city FROM vehicle WHERE vinno = $1`,
         [vinno]
       );
       if (alreadyExists.rowCount === 0) {
         throw new Error("Vehicle not found");
       }
 
-      if (alreadyExists.rows[0].mobile === mobileno && alreadyExists.rows[0].vehicle_city === vehiclecity) {
+      if (alreadyExists.rows[0].vehicle_city === vehiclecity) {
         // No update needed - commit the read transaction before returning
         let commiterr = await this.pgPoolI.TxCommit(txclient);
         if (commiterr) {
@@ -1288,16 +1288,15 @@ export default class PlatformSvcDB {
         return true;
       }
 
-      let query = `UPDATE vehicle SET mobile = $1, vehicle_city = $2, updatedat = $3, updatedby = $4 WHERE vinno = $5`;
+      let query = `UPDATE vehicle SET vehicle_city = $1, updatedat = $2, updatedby = $3 WHERE vinno = $4`;
       let result = await txclient.query(query, [
-        mobileno,
         vehiclecity,
         currtime,
         userid,
         vinno,
       ]);
       if (result.rowCount !== 1) {
-        throw new Error("Failed to update vehicle mobile");
+        throw new Error("Failed to update vehicle city");
       }
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -1307,7 +1306,7 @@ export default class PlatformSvcDB {
       return true;
     } catch (error) {
       await this.pgPoolI.TxRollback(txclient);
-      throw new Error(`Failed to update vehicle mobile: ${error.message}`);
+      throw new Error(`Failed to update vehicle city: ${error.message}`);
     }
   }
 

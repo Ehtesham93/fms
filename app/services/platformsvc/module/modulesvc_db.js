@@ -34,6 +34,22 @@ export default class ModuleSvcDB {
       throw err;
     }
     try {
+      let checkQuery = `
+        SELECT moduleid FROM module WHERE modulecode = $1
+      `;
+      let checkResult = await txclient.query(checkQuery, [module.modulecode]);
+      if (checkResult.rowCount > 0) {
+        const roleback = await this.pgPoolI.TxRollback(txclient);
+        if (roleback) {
+          throw new Error("Module code already exists");
+        }
+        const error = new Error("Module code already exists");
+        error.errcode = "MODULE_CODE_ALREADY_EXISTS";
+        error.errdata = {
+          modulecode: module.modulecode,
+        };
+        throw error;
+      }
       let currtime = new Date();
 
       let maxPriorityQuery = `SELECT COALESCE(MAX(priority), 0) as max_priority FROM module`;
@@ -70,7 +86,7 @@ export default class ModuleSvcDB {
       return module;
     } catch (error) {
       await this.pgPoolI.TxRollback(txclient);
-      throw new Error("Failed to create module");
+      throw error;
     }
   }
 
@@ -119,7 +135,7 @@ export default class ModuleSvcDB {
     }
   }
 
-  async logModulePermHistory(moduleid, permid, action, updatedby, updateFields, txclient = null) {
+  async logModulePermHistory(moduleid, permid, isenabled, action, updatedby, updateFields, txclient = null) {
     try{
       let currtime = new Date();
       
@@ -153,7 +169,7 @@ export default class ModuleSvcDB {
       const queryParams = [
         moduleid,
         permid,
-        updateFields.isenabled,
+        isenabled,
         modperminfo,
         currtime,
         updatedby,
@@ -399,6 +415,7 @@ export default class ModuleSvcDB {
       await this.logModulePermHistory(
         moduleid,
         permid,
+        isenabled,
         'CREATED',
         createdby,
         { modperminfo: moduleperminfo },
@@ -568,6 +585,7 @@ export default class ModuleSvcDB {
       await this.logModulePermHistory(
         moduleid,
         permid,
+        isenabled,
         isenabled ? 'ENABLED' : 'DISABLED',
         updatedby,
         { isenabled: isenabled,
@@ -640,9 +658,10 @@ export default class ModuleSvcDB {
       await this.logModulePermHistory(
         moduleid,
         permid,
+        false,
         'DELETED',
         updatedby,
-        {isenabled: false, modperminfo: {}},
+        {modperminfo: {}},
         txclient
       );
 
@@ -784,6 +803,17 @@ export default class ModuleSvcDB {
     } catch (e) {
       await this.pgPoolI.TxRollback(txclient);
       throw e;
+    }
+  }
+  async isModuleCodeAvailable(modulecode) {
+    try {
+      let query = `
+        SELECT COUNT(*) as count FROM module WHERE LOWER(modulecode) = LOWER($1)
+      `;
+      let result = await this.pgPoolI.Query(query, [modulecode]);
+      return parseInt(result.rows[0].count) === 0;
+    } catch (error) {
+      throw error;
     }
   }
 }

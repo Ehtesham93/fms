@@ -3033,11 +3033,10 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAccountReviewDoneByAccountName(accountid, accountname, status) {
+  async getAccountReviewDoneByAccountName(accountname, status) {
     try {
-      const query = `SELECT * FROM reviewdoneaccount WHERE accountid = $1 AND accountname = $2 AND original_status = $3`;
+      const query = `SELECT * FROM reviewdoneaccount WHERE accountname = $1 AND original_status = $2`;
       const result = await this.pgPoolI.Query(query, [
-        accountid,
         accountname,
         status,
       ]);

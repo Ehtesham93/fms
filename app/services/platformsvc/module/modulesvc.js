@@ -81,4 +81,8 @@ export default class ModuleSvc {
   async DeleteModule(moduleid, deletedby) {
     return await this.moduleSvcDB.deleteModule(moduleid, deletedby);
   }
+
+  async IsModuleCodeAvailable(modulecode) {
+    return await this.moduleSvcDB.isModuleCodeAvailable(modulecode);
+  }
 }

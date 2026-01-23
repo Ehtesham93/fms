@@ -427,8 +427,8 @@ export default class AccountSvc {
     return await this.accountSvcDB.getPendingAccountReviewByAccountName(accountname, vin);
   }
 
-  async GetAccountReviewDoneByAccountName(accountid, accountname, status) {
-    return await this.accountSvcDB.getAccountReviewDoneByAccountName(accountid, accountname, status);
+  async GetAccountReviewDoneByAccountName(accountname, status) {
+    return await this.accountSvcDB.getAccountReviewDoneByAccountName(accountname, status);
   }
 
   async GetPendingAccountReviewById(accountid) {

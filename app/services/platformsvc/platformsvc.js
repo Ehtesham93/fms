@@ -176,11 +176,10 @@ export default class PlatformSvc {
     return await this.platformSvcDB.getAPIKey(platform, environment);
   }
 
-  async UpdateVehicleMobile(vinno, vehiclecity, mobileno, userid) {
-    return await this.platformSvcDB.updateVehicleMobile(
+  async UpdateVehicleCity(vinno, vehiclecity, userid) {
+    return await this.platformSvcDB.updateVehicleCity(
       vinno,
       vehiclecity,
-      mobileno,
       userid
     );
   }

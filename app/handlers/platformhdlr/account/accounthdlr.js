@@ -2818,11 +2818,13 @@ export default class AccountHdlr {
             message:
               "Mobile number must be exactly 10 digits and start with 6 to 9",
           })
-          .optional(),
+          .optional()
+          .nullable(),
         email: z
           .string({ message: "Email must be a string" })
           .email({ message: "Invalid Email format" })
-          .optional(),
+          .optional()
+          .nullable(),
         createdby: z
           .string({ message: "Created by must be a string" })
           .uuid({ message: "Invalid Created by format" })
