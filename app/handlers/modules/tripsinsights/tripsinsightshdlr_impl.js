@@ -142,11 +142,11 @@ export default class TripsinsighthdlrImpl {
             const socconsumed = (trip.startsoc || 0) - (trip.endsoc || 0);
 
             let boostmode = 0;
-            if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
-              boostmode = (trip.boostsocusage / socconsumed) * 100;
-            } else if (distance > 0 && trip.boostdist != null && trip.boostdist > 0) {
+            if (distance > 0 && trip.boostdist != null && trip.boostdist > 0) {
               // Fallback to distance-based calculation
               boostmode = (trip.boostdist / distance) * 100;
+            } else if (socconsumed > 0 && trip.boostsocusage != null && trip.boostsocusage > 0) {
+              boostmode = (trip.boostsocusage / socconsumed) * 100;
             } else if (duration > 0 && trip.boostduration != null && trip.boostduration > 0) {
               boostmode = (trip.boostduration / duration) * 100;
             }
@@ -184,19 +184,19 @@ export default class TripsinsighthdlrImpl {
                     drivingModes[modeIndex].value = '100%';
                   }
                 } else {
-                  let totalDuration = 0;
+                  let totalDistance = 0;
                   vinModes.forEach((mode) => {
                     if(mode.mode && DRIVING_MODE_TYPE[mode.mode]) {
-                      totalDuration += mode.duration || 0;
+                      totalDistance += mode.distancetravelled || 0;
                     }
                   });
                   
-                  if (totalDuration > 0) {
+                  if (totalDistance > 0) {
                     vinModes.forEach((mode) => {
                       const modeName = mode.mode?.toLowerCase();
                       const modeIndex = drivingModes.findIndex(m => m.mode.toLowerCase() === modeName);
                       if (modeIndex !== -1) {
-                        const percentage = (mode.duration / totalDuration) * 100;
+                        const percentage = (mode.distancetravelled / totalDistance) * 100;
                         drivingModes[modeIndex].value = `${Math.round(percentage)}%`;
                       }
                     });

@@ -2433,19 +2433,19 @@ export default class PUserHdlrImpl {
       user = await this.userSvcI.GetUserDetails(existingmobile);
     }
     if (existingemail !== null && existingmobile !== null && existingemail !== existingmobile) {
-      message = "User creation failed. Mobile and email user mismatch.";
+      message = "User creation failed. Mobile user and email user do not match, manual review required.";
       needreview = true;
     } else if (existingemail !== null && existingmobile !== null && user.displayname !== original_input.customername) {
-      message = "User creation failed. User name mismatch, manual review required.";
+      message = "User creation failed. User name does not match, manual review required.";
       needreview = true;
     } else if (existingemail === null && existingmobile !== null && user.displayname !== original_input.customername) {
-      message = "User creation failed. User email and name mismatch, manual review required.";
+      message = "User creation failed. Mobile user exists but email user does not exist and user name does not match, manual review required.";
       needreview = true;
     } else if (existingemail !== null && existingmobile === null && user.displayname === original_input.customername) {
-      message = "User creation failed. User mobile and name mismatch, manual review required.";
+      message = "User creation failed. Email user exists and user name matches, but mobile user does not exist, manual review required.";
       needreview = true;
     } else if (existingemail !== null && existingmobile === null && user.displayname !== original_input.customername) {
-      message = "User creation failed. User email and mobile mismatch, manual review required.";
+      message = "User creation failed. Email user exists but Mobile user does not exist and user name does not match, manual review required.";
       needreview = true;
     }
 
