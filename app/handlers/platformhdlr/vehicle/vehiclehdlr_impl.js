@@ -8,7 +8,14 @@ import config from "../../../config/config.js";
 import { preprocessingText } from "../../../utils/commonutil.js";
 
 export default class VehicleHdlrImpl {
-  constructor(platformSvcI, historyDataSvcI, metaSvcI, fmsAccountSvcI, redisSvc, logger) {
+  constructor(
+    platformSvcI,
+    historyDataSvcI,
+    metaSvcI,
+    fmsAccountSvcI,
+    redisSvc,
+    logger
+  ) {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
     this.metaSvcI = metaSvcI;
@@ -92,14 +99,9 @@ export default class VehicleHdlrImpl {
       action: "ADDED",
       description: "Vehicle added to custom fleet",
       timestamp: new Date().toISOString(),
-    }
+    };
     // set and publish vehicle update
-    await publishVehicleUpdate(
-      accountid,
-      message,
-      this.redisSvc,
-      this.logger
-    );
+    await publishVehicleUpdate(accountid, message, this.redisSvc, this.logger);
 
     return { accountid: accountid, fleetid: fleetid, vinno: vinno };
   };
@@ -344,7 +346,11 @@ export default class VehicleHdlrImpl {
 
   GetVehiclesLogic = async (searchtext, offset, limit) => {
     searchtext = preprocessingText(searchtext);
-    let vehicles = await this.platformSvcI.GetVehicles(searchtext, offset, limit);
+    let vehicles = await this.platformSvcI.GetVehicles(
+      searchtext,
+      offset,
+      limit
+    );
     return vehicles;
   };
 
@@ -526,7 +532,7 @@ export default class VehicleHdlrImpl {
       action: "TAGGED",
       description: "Vehicle tagged from source account to destination account",
       timestamp: new Date().toISOString(),
-    }
+    };
     // set and publish vehicle update
     await publishVehicleUpdate(
       dstaccountid,
@@ -593,9 +599,10 @@ export default class VehicleHdlrImpl {
       srcaccountid: srcaccountid,
       dstaccountid: dstaccountid,
       action: "UNTAGGED",
-      description: "Vehicle untagged from source account to destination account",
+      description:
+        "Vehicle untagged from source account to destination account",
       timestamp: new Date().toISOString(),
-    }
+    };
     // set and publish vehicle update
     await publishVehicleUpdate(
       dstaccountid,
@@ -626,9 +633,7 @@ export default class VehicleHdlrImpl {
     vehicleData.retailsSaleDate = this.convertDateFormat(
       vehicleData.retailsSaleDate
     );
-    const processedVehicleColour = preprocessingText(
-      vehicleData.vehicleColour
-    );
+    const processedVehicleColour = preprocessingText(vehicleData.vehicleColour);
     if (processedVehicleColour !== "") {
       vehicleData.vehicleColour = processedVehicleColour;
     } else {
@@ -1113,24 +1118,52 @@ export default class VehicleHdlrImpl {
     return allFields;
   };
 
-  ListPendingVehiclesLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection, download) => {
+  ListPendingVehiclesLogic = async (
+    searchtext,
+    offset,
+    limit,
+    orderbyfield,
+    orderbydirection,
+    download
+  ) => {
     searchtext = preprocessingText(searchtext);
     orderbyfield = preprocessingText(orderbyfield);
     orderbyfield = orderbyfield.toLowerCase();
     orderbydirection = preprocessingText(orderbydirection);
-    let vehicles = await this.platformSvcI.ListPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download);
+    let vehicles = await this.platformSvcI.ListPendingVehicles(
+      searchtext,
+      offset,
+      limit,
+      orderbyfield,
+      orderbydirection,
+      download
+    );
     if (!vehicles) {
       vehicles = [];
     }
     return vehicles;
   };
 
-  ListDoneVehiclesLogic = async (searchtext, offset, limit, orderbyfield, orderbydirection, download) => {
+  ListDoneVehiclesLogic = async (
+    searchtext,
+    offset,
+    limit,
+    orderbyfield,
+    orderbydirection,
+    download
+  ) => {
     searchtext = preprocessingText(searchtext);
     orderbyfield = preprocessingText(orderbyfield);
     orderbyfield = orderbyfield.toLowerCase();
     orderbydirection = preprocessingText(orderbydirection);
-    let vehicles = await this.platformSvcI.ListDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download);
+    let vehicles = await this.platformSvcI.ListDoneVehicles(
+      searchtext,
+      offset,
+      limit,
+      orderbyfield,
+      orderbydirection,
+      download
+    );
     if (!vehicles) {
       vehicles = [];
     }
@@ -1320,7 +1353,63 @@ export default class VehicleHdlrImpl {
       }
       return response.data;
     } catch (error) {
-      this.logger.error("VehicleServiceOnboardingLogic failed", error);
+      if (error.response) {
+        const { status, data } = error.response;
+  
+        // Custom handling
+        if (status === 400) {
+          const err = new Error(
+            data?.msg || "Vehicle service onboarding failed"
+          );
+          err.errcode = data?.err.errcode|| "VEHICLE_SERVICE_ONBOARDING_FAILED";
+          throw err;
+        }
+  
+        // Other non-2xx errors
+        const err = new Error("Vehicle service onboarding failed");
+        err.errcode = "VEHICLE_SERVICE_ONBOARDING_FAILED";
+        throw err;
+      }
+      throw error;
+    }
+  };
+
+
+  VehicleServiceOnboardingStatusLogic = async (vinno, userid) => {
+    try {
+      const url = `${config.serviceConfig.url}${config.serviceConfig.onboardingStatusPath.replace(":vinno", vinno)}`;
+      const response = await axios.get(url, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      if (response.status !== 200) {
+        const err = new Error("Failed to get vehicle service onboarding status");
+        err.errcode = "VEHICLE_SERVICE_ONBOARDING_STATUS_FAILED";
+        throw err;
+      }
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+
+  VehicleServiceOnboardingHistoryLogic = async (vinno, userid) => {
+    try {
+      const url = `${config.serviceConfig.url}${config.serviceConfig.onboardingHistoryPath.replace(":vinno", vinno)}`;
+      const response = await axios.get(url, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      if (response.status !== 200) {
+        const err = new Error("Failed to get vehicle service onboarding history");
+        err.errcode = "VEHICLE_SERVICE_ONBOARDING_HISTORY_FAILED";
+        throw err;
+      }
+      return response.data;
+    } catch (error) {
       throw error;
     }
   };
@@ -1430,13 +1519,27 @@ export default class VehicleHdlrImpl {
     }
   };
   GetVehicleHistoryLogic = async (starttime, endtime) => {
-    let history = await this.platformSvcI.GetVehicleHistory(
-      starttime,
-      endtime
-    );
+    let history = await this.platformSvcI.GetVehicleHistory(starttime, endtime);
     if (!history) {
       history = [];
     }
     return history;
+  };
+
+  VehicleLastConnectedLogic = async (value, type) => {
+    if (!value || !type) {
+      throw new Error("Value and type are required");
+    }
+
+    try {
+      const result = await this.historyDataSvcI.GetVehicleLastConnectedData(
+        value,
+        type
+      );
+      return result;
+    } catch (error) {
+      this.logger.error("Error in VehicleLastConnectedLogic:", error);
+      throw error;
+    }
   };
 }

@@ -133,7 +133,17 @@ export default class PlatformSvc {
   }
 
   async GetVehicleAccountDetails(vinno) {
-    return await this.platformSvcDB.getVehicleAccountDetails(vinno);
+    const result = await this.platformSvcDB.getVehicleAccountDetails(vinno);
+    if (result.length === 0) {
+      return {accounts: [], isassigned: false};
+    }
+    let isassigned = false;
+    result.forEach(item => {
+      if (item.isowner) {
+        isassigned = true;
+      }
+    });
+    return {accounts: result, isassigned: isassigned};
   }
 
   async AddToPendingReview(vinno, fields, createdBy) {

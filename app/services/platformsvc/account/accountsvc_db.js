@@ -877,7 +877,7 @@ export default class AccountSvcDB {
           existingUser,
           roleid,
           true,
-          'ADD',
+          "ADD",
           currtime,
           invitedby,
         ]);
@@ -1078,7 +1078,16 @@ export default class AccountSvcDB {
             (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           `,
-          [accountid, fleetid, userid, roleid, false, 'REMOVE', currtime, updatedby]
+          [
+            accountid,
+            fleetid,
+            userid,
+            roleid,
+            false,
+            "REMOVE",
+            currtime,
+            updatedby,
+          ]
         );
       }
 
@@ -1397,7 +1406,7 @@ export default class AccountSvcDB {
         userid,
         roleid,
         true,
-        'ADD',
+        "ADD",
         currtime,
         updatedby,
       ]);
@@ -2476,7 +2485,7 @@ export default class AccountSvcDB {
 
       // check if vehicle already belongs to any account/fleet
       query = `
-            SELECT accountid, fleetid FROM fleet_vehicle WHERE vinno = $1
+            SELECT accountid, fleetid FROM fleet_vehicle WHERE vinno = $1 and isowner = true
         `;
       result = await txclient.query(query, [vehicleinfo.vinno]);
       if (result.rowCount > 0) {
@@ -2646,7 +2655,7 @@ export default class AccountSvcDB {
         SELECT v.vinno, COALESCE(v.license_plate, v.vinno) AS regno, v.modelcode FROM vehicle v WHERE NOT EXISTS (
             SELECT 1 
             FROM fleet_vehicle fv 
-            WHERE fv.vinno = v.vinno
+            WHERE fv.vinno = v.vinno and fv.isowner = true
         );
       `;
       let result = await this.pgPoolI.Query(query);
@@ -2731,7 +2740,11 @@ export default class AccountSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+        result = await this.pgPoolI.Query(baseQuery, [
+          searchtext,
+          offset,
+          limit,
+        ]);
         const countcquery = `WITH account_list AS (
           SELECT rpa.accountid
           FROM reviewpendingaccount rpa
@@ -2741,7 +2754,9 @@ export default class AccountSvcDB {
             upper(rpa.status) LIKE '%' || upper($1) || '%'
           )
         ) SELECT COUNT(*) FROM account_list`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          searchtext,
+        ]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
@@ -2795,7 +2810,7 @@ export default class AccountSvcDB {
       orderbyfield = orderbyfield || "updatedat";
       if (orderbyfield === "status") {
         orderbyfield = "original_status";
-      }else if (orderbyfield === "reason") {
+      } else if (orderbyfield === "reason") {
         orderbyfield = "resolution_reason";
       }
 
@@ -2848,7 +2863,11 @@ export default class AccountSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+        result = await this.pgPoolI.Query(baseQuery, [
+          searchtext,
+          offset,
+          limit,
+        ]);
         const countcquery = `WITH account_list AS (
           SELECT rda.accountid
           FROM reviewdoneaccount rda
@@ -2857,7 +2876,9 @@ export default class AccountSvcDB {
             upper(rda.mobile) LIKE '%' || upper($1) || '%'
           )
         ) SELECT COUNT(*) FROM account_list`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          searchtext,
+        ]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
@@ -3036,10 +3057,7 @@ export default class AccountSvcDB {
   async getAccountReviewDoneByAccountName(accountname, status) {
     try {
       const query = `SELECT * FROM reviewdoneaccount WHERE accountname = $1 AND original_status = $2`;
-      const result = await this.pgPoolI.Query(query, [
-        accountname,
-        status,
-      ]);
+      const result = await this.pgPoolI.Query(query, [accountname, status]);
       return result.rowCount > 0;
     } catch (error) {
       this.logger.error("Error in getAccountReviewDoneByAccountName:", error);
@@ -3164,7 +3182,14 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAccountSummary(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
+  async getAccountSummary(
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
     try {
       orderbyfield = orderbyfield || "accountname";
       orderbydirection = orderbydirection || "asc";
@@ -3183,7 +3208,7 @@ export default class AccountSvcDB {
         } else if (orderbyfield === "expiredate") {
           // Order by the actual date value, not the formatted string
           orderbyfield = `(NOW() + ((CAST(c.credits AS INTEGER) / CASE WHEN (s.vehicles * CAST(SUM(m.creditspervehicleday) AS INTEGER)) = 0 THEN 1 ELSE (s.vehicles * CAST(SUM(m.creditspervehicleday) AS INTEGER)) END)::int * INTERVAL '1 day')) AT TIME ZONE 'Asia/Kolkata'`;
-        } else{
+        } else {
           orderbyfield = `s.${orderbyfield}`;
         }
         orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
@@ -3350,9 +3375,11 @@ export default class AccountSvcDB {
         totalcount = result.rowCount;
       } else {
         // Normal pagination flow
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [
+          searchtext,
+        ]);
         result = await this.pgPoolI.Query(query, params);
-        
+
         // Fix: Remove ORDER BY from COUNT query and use DISTINCT COUNT
         const countcquery = `SELECT COUNT(DISTINCT u.userid) 
         FROM users u 
@@ -3374,10 +3401,12 @@ export default class AccountSvcDB {
           UPPER(v.dealer) LIKE '%' || $1 || '%' OR
           UPPER(v.vehicle_city) LIKE '%' || $1 || '%' OR
           UPPER(vm.modeldisplayname) LIKE '%' || $1 || '%')`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          searchtext,
+        ]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
-      
+
       if (result.rowCount === 0) {
         return {
           users: [],
@@ -3389,7 +3418,7 @@ export default class AccountSvcDB {
           totalpages: 0,
         };
       }
-      
+
       if (download) {
         // Return all data for download
         return {
@@ -3402,8 +3431,9 @@ export default class AccountSvcDB {
           totalpages: 1,
         };
       }
-      
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
       return {
         users: result.rows,
@@ -3420,15 +3450,23 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAllLoggedInAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection){
+  async getAllLoggedInAccountUsers(
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
     try {
       // Build WHERE clause conditionally based on searchtext
       let orderbyclause = `ORDER BY a.accountname NULLS LAST, ms.ssoid NULLS LAST, v.dealer NULLS LAST, v.vehicle_city NULLS LAST, vm.modeldisplayname NULLS LAST`;
       if (orderbyfield && orderbydirection) {
         orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
       }
-      const searchCondition = searchtext && searchtext.trim() !== '' 
-        ? `AND (UPPER(COALESCE(a.accountname, '')) LIKE '%' || $1 || '%' OR
+      const searchCondition =
+        searchtext && searchtext.trim() !== ""
+          ? `AND (UPPER(COALESCE(a.accountname, '')) LIKE '%' || $1 || '%' OR
             UPPER(COALESCE(ep.ssoid, '')) LIKE '%' || $1 || '%' OR
             UPPER(COALESCE(ms.ssoid, '')) LIKE '%' || $1 || '%' OR
             UPPER(COALESCE(u.displayname, '')) LIKE '%' || $1 || '%' OR
@@ -3437,8 +3475,8 @@ export default class AccountSvcDB {
             UPPER(COALESCE(v.dealer, '')) LIKE '%' || $1 || '%' OR
             UPPER(COALESCE(v.vehicle_city, '')) LIKE '%' || $1 || '%' OR
             UPPER(COALESCE(vm.modeldisplayname, '')) LIKE '%' || $1 || '%')`
-        : '';
-      
+          : "";
+
       let baseQuery = `
         SELECT DISTINCT 
           a.accountname AS user_accountname, 
@@ -3463,20 +3501,25 @@ export default class AccountSvcDB {
           ${searchCondition}
         ${orderbyclause}
       `;
-      
+
       let result;
       let totalcount;
-      const params = searchtext && searchtext.trim() !== '' ? [searchtext] : [];
-      
+      const params = searchtext && searchtext.trim() !== "" ? [searchtext] : [];
+
       if (download) {
         // When downloading, get all data without pagination
         result = await this.pgPoolI.Query(baseQuery, params);
         totalcount = result.rowCount;
       } else {
         // Normal pagination flow
-        let { query, params: paginationParams } = addPaginationToQuery(baseQuery, offset, limit, params);
+        let { query, params: paginationParams } = addPaginationToQuery(
+          baseQuery,
+          offset,
+          limit,
+          params
+        );
         result = await this.pgPoolI.Query(query, paginationParams);
-        
+
         // Count query - use DISTINCT to match the main query
         const countQuery = `
           SELECT COUNT(*) 
@@ -3495,7 +3538,7 @@ export default class AccountSvcDB {
         const countcresult = await this.pgPoolI.Query(countQuery, params);
         totalcount = parseInt(countcresult.rows[0].count);
       }
-      
+
       if (result.rowCount === 0) {
         return {
           users: [],
@@ -3507,7 +3550,7 @@ export default class AccountSvcDB {
           totalpages: 0,
         };
       }
-      
+
       if (download) {
         // Return all data for download
         return {
@@ -3520,8 +3563,9 @@ export default class AccountSvcDB {
           totalpages: 1,
         };
       }
-      
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
       return {
         users: result.rows,
@@ -3565,6 +3609,100 @@ export default class AccountSvcDB {
       return result.rows;
     } catch (error) {
       this.logger.error("listAllAccounts error:", error);
+      throw error;
+    }
+  }
+  async accountsAvailableForTagging(
+    platformAccountId,
+    vinno,
+    searchtext,
+    offset,
+    limit
+  ) {
+    try {
+      // TODO: ideally we should not return platform account
+      let baseQuery = `
+            SELECT DISTINCT a.accountid, a.accountname, a.updatedat
+            FROM account a
+            WHERE a.accounttype = 'customer'
+              AND a.isdeleted = false
+              AND a.accountid != $3
+              AND UPPER(a.accountname) LIKE '%' || $1 || '%'
+
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tagged_vehicle tv
+                  WHERE tv.vinno = $2
+                    AND (
+                        tv.srcaccountid = a.accountid
+                        OR tv.dstaccountid = a.accountid
+                    )
+              )
+
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM fleet_vehicle fv
+                  WHERE fv.vinno = $2
+                    AND fv.accountid = a.accountid
+              )
+
+            ORDER BY a.updatedat DESC
+            OFFSET $4 LIMIT $5`;
+      let params = [searchtext, vinno, platformAccountId, offset, limit];
+      let result = await this.pgPoolI.Query(baseQuery, params);
+      if (result.rowCount === 0) {
+        return {
+          accounts: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+      const countcquery = `SELECT COUNT(DISTINCT a.accountid)
+                            FROM account a
+                            WHERE a.accounttype = 'customer'
+                              AND a.isdeleted = false
+                              AND a.accountid != $3
+                              AND UPPER(a.accountname) LIKE '%' || $1 || '%'
+
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                  FROM tagged_vehicle tv
+                                  WHERE tv.vinno = $2
+                                    AND (
+                                        tv.srcaccountid = a.accountid
+                                        OR tv.dstaccountid = a.accountid
+                                    )
+                              )
+
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                  FROM fleet_vehicle fv
+                                  WHERE fv.vinno = $2
+                                    AND fv.accountid = a.accountid
+                              )`;
+      const countcresult = await this.pgPoolI.Query(countcquery, [
+        searchtext,
+        vinno,
+        platformAccountId,
+      ]);
+      const totalcount = parseInt(countcresult.rows[0].count);
+      return {
+        accounts: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: limit > result.rowCount ? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
+    } catch (error) {
       throw error;
     }
   }

@@ -96,6 +96,8 @@ export default {
   serviceConfig: {
     url: "http://dev-nemo3-api-service-svc.intellicar-frontend1:10004",
     onboardingPath: "/api/v1/fms/service/vehicle/onboarding",
+    onboardingHistoryPath: "/api/v1/fms/service/vehicle/:vinno/onboarding/history",
+    onboardingStatusPath: "/api/v1/fms/service/vehicle/:vinno/onboarding/status",
   },
   inMemCache: {
     stdTTL: 3600, // in seconds
@@ -142,5 +144,10 @@ export default {
       perMinute: { max: 5 },
       perHour: { max: 20 },
     },
+  },
+  mahindrasso: {
+    baseurl: "https://mserverservices.mahindra.com",
+    tokenrequestpath: "/epauth/client/tokenRequest",
+    secretkey: "M@h1ndra$1234567",  
   },
 };

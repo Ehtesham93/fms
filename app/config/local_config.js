@@ -98,6 +98,8 @@ export default {
   serviceConfig: {
     url: "https://stg-nemo.mahindraelectric.com:2083/api/v1/fms/service/vehicle/onboarding",
     onboardingPath: "/api/v1/fms/service/vehicle/onboarding",
+    onboardingHistoryPath: "/api/v1/fms/service/vehicle/:vinno/onboarding/history",
+    onboardingStatusPath: "/api/v1/fms/service/vehicle/:vinno/onboarding/status",
   },
   inMemCache: {
     stdTTL: 3600, // in seconds
@@ -144,5 +146,10 @@ export default {
       perMinute: { max: 5 },
       perHour: { max: 20 },
     },
+  },
+  mahindrasso: {
+    baseurl: "https://mserverservices.mahindra.com",
+    tokenrequestpath: "/epauth/client/tokenRequest",
+    secretkey: "M@h1ndra$1234567",  
   },
 };

@@ -128,6 +128,7 @@ export default class PUserHdlr {
     router.post("/retryonboard", this.RetryOnboard);
     router.post("/getuseraccountlist", this.GetUserAccountList);
     router.post("/createadminuser", this.CreateAdminUser);
+    router.post("/userdetails", this.UserDetailsByErrorCode);
   }
 
   CreateUser = async (req, res, next) => {
@@ -454,10 +455,9 @@ export default class PUserHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine(
-            (val) => !val || val.length === 0 || val.length >= 3,
-            { message: "Search text must be at least 3 characters long" }
-          ),
+          .refine((val) => !val || val.length === 0 || val.length >= 3, {
+            message: "Search text must be at least 3 characters long",
+          }),
         roletype: z
           .enum(["platform", "account"], { message: "Invalid Role Type" })
           .optional()
@@ -486,7 +486,15 @@ export default class PUserHdlr {
           .default("desc"),
       });
       const parseDownload = req.query.download === "true";
-      const { searchtext, roletype, offset, limit, download, orderbyfield, orderbydirection } = validateAllInputs(schema, {
+      const {
+        searchtext,
+        roletype,
+        offset,
+        limit,
+        download,
+        orderbyfield,
+        orderbydirection,
+      } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         roletype: req.query.roletype,
         offset: parseQueryInt(req.query.offset),
@@ -498,11 +506,32 @@ export default class PUserHdlr {
 
       let result;
       if (roletype === "platform") {
-        result = await this.pUserHdlrImpl.ListPlatformUsersLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+        result = await this.pUserHdlrImpl.ListPlatformUsersLogic(
+          searchtext,
+          offset,
+          limit,
+          download,
+          orderbyfield,
+          orderbydirection
+        );
       } else if (roletype === "account") {
-        result = await this.pUserHdlrImpl.ListAccountUsersLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+        result = await this.pUserHdlrImpl.ListAccountUsersLogic(
+          searchtext,
+          offset,
+          limit,
+          download,
+          orderbyfield,
+          orderbydirection
+        );
       } else {
-        result = await this.pUserHdlrImpl.ListUsersLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+        result = await this.pUserHdlrImpl.ListUsersLogic(
+          searchtext,
+          offset,
+          limit,
+          download,
+          orderbyfield,
+          orderbydirection
+        );
       }
 
       APIResponseOK(req, res, result, "Users fetched successfully");
@@ -1490,10 +1519,9 @@ export default class PUserHdlr {
           .string({ message: "Search text must be a string" })
           .optional()
           .nullable()
-          .refine(
-            (val) => !val || val.length === 0 || val.length >= 3,
-            { message: "Search text must be at least 3 characters long" }
-          ),
+          .refine((val) => !val || val.length === 0 || val.length >= 3, {
+            message: "Search text must be at least 3 characters long",
+          }),
         orderbyfield: z
           .string({ message: "Order by field must be a string" })
           .optional()
@@ -1508,15 +1536,21 @@ export default class PUserHdlr {
           .default(false),
       });
       const parsedownload = req.query.download === "true";
-      let { offset, limit, searchtext, orderbyfield, orderbydirection, download } =
-        validateAllInputs(schema, {
-          offset: parseQueryInt(req.query.offset),
-          limit: parseQueryInt(req.query.limit),
-          searchtext: req.query.searchtext,
-          orderbyfield: req.query.orderbyfield,
-          orderbydirection: req.query.orderbydirection,
-          download: parsedownload,
-        });
+      let {
+        offset,
+        limit,
+        searchtext,
+        orderbyfield,
+        orderbydirection,
+        download,
+      } = validateAllInputs(schema, {
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        searchtext: req.query.searchtext,
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
+        download: parsedownload,
+      });
       let result = await this.pUserHdlrImpl.ListPendingUsersLogic(
         searchtext,
         offset,
@@ -1571,10 +1605,9 @@ export default class PUserHdlr {
           .string({ message: "Search text must be a string" })
           .optional()
           .nullable()
-          .refine(
-            (val) => !val || val.length === 0 || val.length >= 3,
-            { message: "Search text must be at least 3 characters long" }
-          ),
+          .refine((val) => !val || val.length === 0 || val.length >= 3, {
+            message: "Search text must be at least 3 characters long",
+          }),
         orderbyfield: z
           .string({ message: "Order by field must be a string" })
           .optional()
@@ -1589,7 +1622,14 @@ export default class PUserHdlr {
           .default(false),
       });
       const parsedownload = req.query.download === "true";
-      let { offset, limit, searchtext, orderbyfield, orderbydirection, download } = validateAllInputs(schema, {
+      let {
+        offset,
+        limit,
+        searchtext,
+        orderbyfield,
+        orderbydirection,
+        download,
+      } = validateAllInputs(schema, {
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
         searchtext: req.query.searchtext,
@@ -1597,7 +1637,14 @@ export default class PUserHdlr {
         orderbydirection: req.query.orderbydirection,
         download: parsedownload,
       });
-      let result = await this.pUserHdlrImpl.ListDoneUsersLogic(searchtext, offset, limit, orderbyfield, orderbydirection, download);
+      let result = await this.pUserHdlrImpl.ListDoneUsersLogic(
+        searchtext,
+        offset,
+        limit,
+        orderbyfield,
+        orderbydirection,
+        download
+      );
       APIResponseOK(req, res, result, "Done users listed successfully");
     } catch (e) {
       this.logger.error("ListDoneUsers error: ", e);
@@ -1664,6 +1711,7 @@ export default class PUserHdlr {
               dateofbirth: z.string().optional(),
               gender: z.string().optional(),
               vehiclemobile: z.string().optional(),
+              nemo3_account_id: z.string().optional(),
             }),
           ])
           .refine(
@@ -1910,6 +1958,67 @@ export default class PUserHdlr {
           "CREATE_USER_ERR",
           e.toString(),
           "Create user failed"
+        );
+      }
+    }
+  };
+
+  UserDetailsByErrorCode = async (req, res, next) => {
+    if (!CheckUserPerms(req.userperms, ["consolemgmt.user.admin"])) {
+      return APIResponseForbidden(
+        req,
+        res,
+        "INSUFFICIENT_PERMISSIONS",
+        null,
+        "You don't have permission to get user details by error code."
+      );
+    }
+    try {
+      let schema = z.object({
+        mobile: z
+          .string({ message: "Invalid Mobile Number format" })
+          .regex(/^[6-9]\d{9}$/, {
+            message:
+              "Mobile number must be exactly 10 digits and start with 6 to 9",
+          })
+          .optional()
+          .nullable(),
+        email: z
+          .string({ message: "Invalid Email format" })
+          .email({ message: "Invalid email format" })
+          .optional()
+          .nullable(),
+      });
+
+      let { mobile, email } = validateAllInputs(schema, {
+        mobile: req.body.mobile,
+        email: req.body.email,
+      });
+
+      let result = await this.pUserHdlrImpl.UserDetailsByErrorCodeLogic(
+        mobile,
+        email
+      );
+
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "User details by error code listed successfully"
+      );
+    } catch (e) {
+      this.logger.error("UserDetailsByErrorCode error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "USER_NOT_FOUND") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "LIST_USER_DETAILS_BY_ERROR_CODE_ERR",
+          e.toString(),
+          "List user details by error code failed"
         );
       }
     }

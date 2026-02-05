@@ -456,34 +456,6 @@ CREATE TABLE IF NOT EXISTS
         PRIMARY KEY (fleetid, roleid, userid, updatedat)
     );
 
-CREATE TABLE IF NOT EXISTS
-    vehicle_history (
-        vinno text NOT NULL,
-        vehicleinfo jsonb NOT NULL,
-        updatedat timestamp with time zone NOT NULL,
-        updatedby uuid NOT NULL,
-        modelcode text DEFAULT 'treo'::text NOT NULL,
-        action text NOT NULL,
-        mobile text,
-        license_plate text,
-        color text,
-        vehicle_city text,
-        dealer text,
-        delivered boolean DEFAULT false,
-        delivered_date timestamp with time zone,
-        data_freq smallint,
-        tgu_model text,
-        tgu_sw_version text,
-        tgu_phone_no text,
-        tgu_imei_no text,
-        engineno text,
-        fueltype text,
-        retailssaledate timestamp with time zone,
-        previousstate jsonb NOT NULL,
-        currentstate jsonb NOT NULL,
-        PRIMARY KEY (vinno, updatedat),
-        CHECK ((char_length(mobile) >= 7))
-    );
 
 CREATE TABLE IF NOT EXISTS
     account_custom_package_options (

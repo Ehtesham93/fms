@@ -6,6 +6,7 @@ import {
   FLEET_INVITE_STATUS,
   FLEET_INVITE_TYPE,
   NEGATIVE_CREDIT_THRESHOLD,
+  VEHICLE_ACTION,
 } from "../../../utils/constant.js";
 import {
   getInviteEmailTemplate,
@@ -1721,7 +1722,7 @@ export default class FmsAccountSvcDB {
       query = `
         INSERT INTO fleet_vehicle_history (
           accountid, fleetid, vinno, isowner, accvininfo, 
-          assignedat, assignedby, updatedat, updatedby
+          assignedat, assignedby, updatedat, updatedby, action
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `;
       result = await txclient.query(query, [
@@ -1734,6 +1735,29 @@ export default class FmsAccountSvcDB {
         vehicleData.assignedby,
         currtime,
         vehicleData.updatedby,
+        VEHICLE_ACTION.REMOVED
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to create history record");
+      }
+
+      query = `
+        INSERT INTO fleet_vehicle_history (
+          accountid, fleetid, vinno, isowner, accvininfo, 
+          assignedat, assignedby, updatedat, updatedby, action
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `;
+      result = await txclient.query(query, [
+        accountid,
+        tofleetid,
+        vehicleid,
+        vehicleData.isowner,
+        vehicleData.accvininfo,
+        vehicleData.assignedat,
+        vehicleData.assignedby,
+        currtime,
+        vehicleData.updatedby,
+        VEHICLE_ACTION.ADDED
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to create history record");
@@ -1849,7 +1873,7 @@ export default class FmsAccountSvcDB {
       query = `
         INSERT INTO fleet_vehicle_history (
           accountid, fleetid, vinno, isowner, accvininfo, 
-          assignedat, assignedby, updatedat, updatedby
+          assignedat, assignedby, updatedat, updatedby, action
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `;
       result = await txclient.query(query, [
@@ -1862,6 +1886,7 @@ export default class FmsAccountSvcDB {
         vehicleData.assignedby,
         currtime,
         vehicleData.updatedby,
+        VEHICLE_ACTION.REMOVED
       ]);
       if (result.rowCount !== 1) {
         throw new Error("FAILED_TO_CREATE_HISTORY_RECORD");
@@ -4896,12 +4921,36 @@ export default class FmsAccountSvcDB {
           await txclient.query(query, fleetVehicleValues);
 
           // Add fleet_vehicle_history records for retagged vehicles
+          let fleetHistoryValues = [];
+          const fleetHistoryPlaceholders = retagVins
+            .map((vinno, index) => {
+              const startindex = index * 10 + 1;
+              fleetHistoryValues.push(
+                dstaccountid,
+                dstRootFleetId,
+                vinno,
+                true,
+                allow_retag,
+                currtime,
+                taggedby,
+                currtime,
+                taggedby,
+                VEHICLE_ACTION.TAGGED
+              );
+              return `($${startindex}, $${startindex + 1}, $${
+                startindex + 2
+              }, $${startindex + 3}, $${startindex + 4}, $${startindex + 5}, $${
+                startindex + 6
+              }, $${startindex + 7}, $${startindex + 8}, $${startindex + 9})`;
+            })
+            .join(",");
+
           query = `
             INSERT INTO fleet_vehicle_history 
-            (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby) 
-            VALUES ${fleetVehiclePlaceholders}
+            (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby, action) 
+            VALUES ${fleetHistoryPlaceholders}
           `;
-          await txclient.query(query, fleetVehicleValues);
+          await txclient.query(query, fleetHistoryValues);
         }
 
         // Handle new tags
@@ -4950,7 +4999,7 @@ export default class FmsAccountSvcDB {
           let fleetVehicleValues = [];
           const fleetVehiclePlaceholders = newTagVins
             .map((vinno, index) => {
-              const startindex = index * 9 + 1;
+              const startindex = index * 9 + 1; 
               const vehicleData = vehicleDataMap[vinno];
               fleetVehicleValues.push(
                 dstaccountid,
@@ -4961,7 +5010,7 @@ export default class FmsAccountSvcDB {
                 currtime,
                 taggedby,
                 currtime,
-                taggedby
+                taggedby,
               );
               return `($${startindex}, $${startindex + 1}, $${
                 startindex + 2
@@ -4978,12 +5027,37 @@ export default class FmsAccountSvcDB {
           `;
           result = await txclient.query(query, fleetVehicleValues);
 
+          let fleetHistoryValues = [];
+          const fleetHistoryPlaceholders = newTagVins
+            .map((vinno, index) => {
+              const startindex = index * 10 + 1;
+              const vehicleData = vehicleDataMap[vinno];
+              fleetHistoryValues.push(
+                dstaccountid,
+                dstRootFleetId,
+                vinno,
+                false,
+                vehicleData.accvininfo,
+                currtime,
+                taggedby,
+                currtime,
+                taggedby,
+                VEHICLE_ACTION.TAGGED
+              );
+              return `($${startindex}, $${startindex + 1}, $${
+                startindex + 2
+              }, $${startindex + 3}, $${startindex + 4}, $${startindex + 5}, $${
+                startindex + 6
+              }, $${startindex + 7}, $${startindex + 8}, $${startindex + 9})`;
+            })
+            .join(",");
+
           query = `
             INSERT INTO fleet_vehicle_history 
-            (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby) 
-            VALUES ${fleetVehiclePlaceholders}
+            (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby, action) 
+            VALUES ${fleetHistoryPlaceholders}
           `;
-          await txclient.query(query, fleetVehicleValues);
+          await txclient.query(query, fleetHistoryValues);
         }
 
         for (let vinno of validVins) {
@@ -5313,19 +5387,20 @@ export default class FmsAccountSvcDB {
               vehicleData.assignedat,
               vehicleData.assignedby,
               currtime,
-              untaggedby
+              untaggedby,
+              VEHICLE_ACTION.UNTAGGED
             );
             return `($${startindex}, $${startindex + 1}, $${startindex + 2}, $${
               startindex + 3
             }, $${startindex + 4}, $${startindex + 5}, $${startindex + 6}, $${
               startindex + 7
-            }, $${startindex + 8})`;
+            }, $${startindex + 8}, $${startindex + 9})`;
           })
           .join(",");
 
         query = `
           INSERT INTO fleet_vehicle_history 
-          (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby) 
+          (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby, action) 
           VALUES ${fleetHistoryPlaceholders}
         `;
         await txclient.query(query, fleetHistoryValues);

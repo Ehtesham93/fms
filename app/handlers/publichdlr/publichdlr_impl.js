@@ -3,15 +3,17 @@ import crypto from "crypto";
 import { EncryptPassword, ComparePassword } from "../../utils/eccutil.js";
 import { SendSms } from "../../utils/smsutil.js";
 import { UAParser } from "ua-parser-js";
+import axios from "axios";
+import CryptoJS from "crypto-js";
 
 export default class PublicHdlrImpl {
-  constructor(userSvcI, authSvcI, fmsSvcI, platformSvcI, inMemCacheI, logger) {
+  constructor(userSvcI, authSvcI, fmsSvcI, platformSvcI, inMemCacheI, logger, config) {
     this.userSvcI = userSvcI;
     this.authSvcI = authSvcI;
     this.fmsSvcI = fmsSvcI;
     this.platformSvcI = platformSvcI;
     this.logger = logger;
-
+    this.config = config;
     this.inMemCacheI = inMemCacheI;
     this.OTP_CACHE_TTL = 30;
   }
@@ -57,6 +59,8 @@ export default class PublicHdlrImpl {
     try {
       // Determine if contact is email or mobile
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const mahindrassoemailregex = /^[a-zA-Z0-9._%+-]+@mahindra\.com$/;
+      let ismahindrassoemail = false;
       const indianMobileRegex = /^[6-9]\d{9}$/;
 
       let type = "";
@@ -75,7 +79,11 @@ export default class PublicHdlrImpl {
             message: "User not found",
             type: "email",
             ismpinset: ismpinset,
+            ismahindrassoemail: ismahindrassoemail,
           };
+        }
+        if (mahindrassoemailregex.test(contact)) {
+          ismahindrassoemail = true;
         }
       } else if (indianMobileRegex.test(contact)) {
         type = "mobile";
@@ -86,6 +94,7 @@ export default class PublicHdlrImpl {
             message: "User not found",
             type: "mobile",
             ismpinset: ismpinset,
+            ismahindrassoemail: ismahindrassoemail,
           };
         }
         userid = userDetails.userid;
@@ -99,6 +108,7 @@ export default class PublicHdlrImpl {
             "Invalid contact format. Please provide a valid email or mobile number.",
           type: "unknown",
           ismpinset: ismpinset,
+          ismahindrassoemail: ismahindrassoemail,
         };
       }
 
@@ -130,6 +140,7 @@ export default class PublicHdlrImpl {
         message: message,
         type: type,
         ismpinset: ismpinset,
+        ismahindrassoemail: ismahindrassoemail
       };
     } catch (err) {
       throw err;
@@ -1248,5 +1259,118 @@ export default class PublicHdlrImpl {
     };
 
     return JSON.stringify(emailData);
+  };
+
+  UserMahindrassoEmailSignInLogic = async (
+    email,
+    password,
+    expiresin,
+    refreshTokenMaxAge
+  ) => {
+    try {
+      // validate email and password
+      let useridpass = await this.userSvcI.GetUserIdPassByEmail(email);
+      if (!useridpass) {
+        throw new Error("INVALID_CREDENTIALS");
+      }
+
+      const lockStatus = await this.userSvcI.IsUserLocked(useridpass.userid);
+      if (lockStatus.islocked) {
+        const lockTime = new Date(lockStatus.lockeduntil);
+        const remainingTime = Math.ceil((lockTime - new Date()) / (1000 * 60));
+
+        await this.userSvcI.LogLoginAttempt(
+          useridpass.userid,
+          "mahindrasso",
+          "FAILURE",
+          "ACCOUNT_LOCKED"
+        );
+
+        throw new Error(`ACCOUNT_LOCKED:${remainingTime}`);
+      }
+
+      const key = CryptoJS.enc.Utf8.parse(this.config.mahindrasso.secretkey);
+      const iv = CryptoJS.enc.Utf8.parse('0001000100010001');
+      const tokenid = CryptoJS.AES.encrypt(
+        `usr=${email}===pwd=${password}`,
+        key,
+        {
+          iv: iv,
+          mode: CryptoJS.mode.CBC,
+          padding: CryptoJS.pad.Pkcs7
+        }
+      ).toString();
+
+      let tokenresponse = await axios.post(`${this.config.mahindrasso.baseurl}${this.config.mahindrasso.tokenrequestpath}`, {
+        tokenid: tokenid,
+      });
+
+      if (!tokenresponse.data.success) {
+        await this.userSvcI.UpdateLoginFailure(useridpass.userid);
+
+        await this.userSvcI.LogLoginAttempt(
+          useridpass.userid,
+          "mahindrasso",
+          "FAILURE",
+          "INVALID_CREDENTIALS"
+        );
+        throw new Error("INVALID_CREDENTIALS");
+      }
+
+      // get user details
+      let user = await this.userSvcI.GetUserDetails(useridpass.userid);
+      if (!user) {
+        throw {
+          errcode: "USER_NOT_FOUND",
+          errdata: {},
+          message: "User doesn't exist",
+        };
+      }
+
+      // check if user is enabled
+      if (!user.isenabled) {
+        throw new Error("ACCOUNT_DISABLED");
+      }
+
+      // check if user is deleted
+      if (user.isdeleted) {
+        throw new Error("ACCOUNT_DELETED");
+      }
+
+      await this.userSvcI.UpdateLoginSuccess(useridpass.userid);
+
+      await this.userSvcI.LogLoginAttempt(
+        useridpass.userid,
+        "mahindrasso",
+        "SUCCESS"
+      );
+
+      let tokenclaims = {
+        claims: {
+          userid: useridpass.userid,
+        },
+        validity: expiresin,
+      };
+      let refreshtokenclaims = {
+        claims: {
+          userid: useridpass.userid,
+        },
+        validity: refreshTokenMaxAge,
+      };
+
+      let res = await this.authSvcI.GetTokenAndRefreshToken(
+        useridpass.userid,
+        tokenclaims,
+        refreshtokenclaims
+      );
+      return {
+        userid: user.userid,
+        userinfo: user,
+        token: res.token,
+        refreshtoken: res.refreshtoken,
+      };
+    } catch (err) {
+      throw err;
+    }
   };
 }

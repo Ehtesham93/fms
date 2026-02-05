@@ -11,7 +11,14 @@ import VehicleHdlrImpl from "./vehiclehdlr_impl.js";
 import { parseQueryInt } from "../../../utils/commonutil.js";
 
 export default class VehicleHdlr {
-  constructor(platformSvcI, historyDataSvcI, fmsAccountSvcI, metaSvcI, redisSvc, logger) {
+  constructor(
+    platformSvcI,
+    historyDataSvcI,
+    fmsAccountSvcI,
+    metaSvcI,
+    redisSvc,
+    logger
+  ) {
     this.platformSvcI = platformSvcI;
     this.historyDataSvcI = historyDataSvcI;
     this.metaSvcI = metaSvcI;
@@ -45,7 +52,6 @@ export default class VehicleHdlr {
     router.post("/:vinno/getcangpsdata", this.GetVehicleCANGPSData);
     router.get("/history", this.GetVehicleHistory);
 
-
     // tag vehicles
     router.post("/tagvehicle", this.TagVehicle);
     router.put("/untagvehicle", this.UntagVehicle);
@@ -56,9 +62,11 @@ export default class VehicleHdlr {
     router.get("/listpending", this.ListPendingVehicles);
     router.get("/listdone", this.ListDoneVehicles);
     router.post("/vehicleserviceonboarding", this.VehicleServiceOnboarding);
+    router.get("/:vinno/serviceonboarding/history", this.VehicleServiceOnboardingHistory);
+    router.get("/:vinno/serviceonboarding/status", this.VehicleServiceOnboardingStatus);
     router.post("/retryonboard", this.RetryOnboard);
     router.post("/search", this.SearchVehicles);
-
+    router.post("/lastconnected", this.VehicleLastConnected);
   }
 
   ValidateEpochTime = (timeStr, fieldName) => {
@@ -424,10 +432,9 @@ export default class VehicleHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine(
-            (val) => !val || val.length === 0 || val.length >= 3,
-            { message: "Search text must be at least 3 characters long" }
-          ),
+          .refine((val) => !val || val.length === 0 || val.length >= 3, {
+            message: "Search text must be at least 3 characters long",
+          }),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -463,8 +470,6 @@ export default class VehicleHdlr {
       }
     }
   };
-
-
 
   GetVehicleInfo = async (req, res, next) => {
     try {
@@ -1111,10 +1116,9 @@ export default class VehicleHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine(
-            (val) => !val || val.length === 0 || val.length >= 3,
-            { message: "Search text must be at least 3 characters long" }
-          ),
+          .refine((val) => !val || val.length === 0 || val.length >= 3, {
+            message: "Search text must be at least 3 characters long",
+          }),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -1139,7 +1143,14 @@ export default class VehicleHdlr {
           .default(false),
       });
       const parsedownload = req.query.download === "true";
-      let { searchtext, offset, limit, orderbyfield, orderbydirection, download } = validateAllInputs(schema, {
+      let {
+        searchtext,
+        offset,
+        limit,
+        orderbyfield,
+        orderbydirection,
+        download,
+      } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
@@ -1194,10 +1205,9 @@ export default class VehicleHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine(
-            (val) => !val || val.length === 0 || val.length >= 3,
-            { message: "Search text must be at least 3 characters long" }
-          ),
+          .refine((val) => !val || val.length === 0 || val.length >= 3, {
+            message: "Search text must be at least 3 characters long",
+          }),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -1222,15 +1232,21 @@ export default class VehicleHdlr {
           .default(false),
       });
       const parsedownload = req.query.download === "true";
-      let { searchtext, offset, limit, orderbyfield, orderbydirection, download } =
-        validateAllInputs(schema, {
-          searchtext: req.query.searchtext,
-          offset: parseQueryInt(req.query.offset),
-          limit: parseQueryInt(req.query.limit),
-          orderbyfield: req.query.orderbyfield,
-          orderbydirection: req.query.orderbydirection,
-          download: parsedownload,
-        });
+      let {
+        searchtext,
+        offset,
+        limit,
+        orderbyfield,
+        orderbydirection,
+        download,
+      } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        orderbyfield: req.query.orderbyfield,
+        orderbydirection: req.query.orderbydirection,
+        download: parsedownload,
+      });
       let result = await this.vehicleHdlrImpl.ListDoneVehiclesLogic(
         searchtext,
         offset,
@@ -1301,6 +1317,10 @@ export default class VehicleHdlr {
       this.logger.error("VehicleServiceOnboarding error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if(e.errcode === "VEHICLE_ONBOARDING_IN_PROCESS"){
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if(e.errcode === "VEHICLE_ALREADY_ONBOARDED"){
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         APIResponseInternalErr(
           req,
@@ -1310,7 +1330,105 @@ export default class VehicleHdlr {
           "Vehicle service onboarding failed"
         );
       }
-      APIResponseInternalErr(req, res, e.errcode, e.errdata, e.message);
+      return;
+    }
+  };
+
+  VehicleServiceOnboardingHistory = async (req, res, next) => {
+    try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.vehicle.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to onboard vehicle service."
+        );
+      }
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        vinno: z
+          .string({ message: "Invalid VIN No format" })
+          .nonempty({ message: "VIN No cannot be empty" })
+          .length(17, { message: "VIN must be exactly 17 characters" })
+          .regex(/^[A-Z0-9]{17}$/, {
+            message: "VIN No must be exactly 17 characters and contain only uppercase letters and numbers",
+          })
+      });
+      let { userid, vinno } = validateAllInputs(schema, {
+        userid: req.userid,
+        vinno: req.params.vinno,
+      });
+      let result = await this.vehicleHdlrImpl.VehicleServiceOnboardingHistoryLogic(
+        vinno,
+        userid
+      );
+      APIResponseOK(req, res, result, "Vehicle service onboarding history fetched successfully");
+    } catch (e) {
+      this.logger.error("VehicleServiceOnboardingHistory error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "VEHICLE_SERVICE_ONBOARDING_HISTORY_ERR",
+          e.toString(),
+          "Vehicle service onboarding history failed"
+        );
+      }
+      return;
+    }
+  };
+
+  VehicleServiceOnboardingStatus = async (req, res, next) => {
+    try {
+      if (!CheckUserPerms(req.userperms, ["consolemgmt.vehicle.admin"])) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to onboard vehicle service."
+        );
+      }
+      let schema = z.object({
+        userid: z
+          .string({ message: "Invalid User ID format" })
+          .uuid({ message: "Invalid User ID format" }),
+        vinno: z
+          .string({ message: "Invalid VIN No format" })
+          .nonempty({ message: "VIN No cannot be empty" })
+          .length(17, { message: "VIN must be exactly 17 characters" })
+          .regex(/^[A-Z0-9]{17}$/, {
+            message: "VIN No must be exactly 17 characters and contain only uppercase letters and numbers",
+          })
+      });
+      let { userid, vinno } = validateAllInputs(schema, {
+        userid: req.userid,
+        vinno: req.params.vinno,
+      });
+      let result = await this.vehicleHdlrImpl.VehicleServiceOnboardingStatusLogic(
+        vinno,
+        userid
+      );
+      APIResponseOK(req, res, result.data, result.msg);
+    } catch (e) {
+      this.logger.error("VehicleServiceOnboardingStatus error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "VEHICLE_SERVICE_ONBOARDING_STATUS_ERR",
+          e.toString(),
+          "Vehicle service onboarding status failed"
+        );
+      }
+      return;
     }
   };
 
@@ -1458,15 +1576,86 @@ export default class VehicleHdlr {
         return;
       }
 
-      let result = await this.vehicleHdlrImpl.GetVehicleHistoryLogic( starttime, endtime);
+      let result = await this.vehicleHdlrImpl.GetVehicleHistoryLogic(
+        starttime,
+        endtime
+      );
       APIResponseOK(req, res, result, "Vehicle history fetched successfully");
-    }
-    catch (e) {
+    } catch (e) {
       this.logger.error("GetVehicleHistory error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
-        return APIResponseInternalErr(req, res, "GET_VEHICLE_HISTORY_ERR", e.toString(), "Get vehicle history failed");
+        return APIResponseInternalErr(
+          req,
+          res,
+          "GET_VEHICLE_HISTORY_ERR",
+          e.toString(),
+          "Get vehicle history failed"
+        );
+      }
+    }
+  };
+  VehicleLastConnected = async (req, res, next) => {
+    try {
+      if (
+        !CheckUserPerms(req.userperms, [
+          "consolemgmt.vehicle.admin",
+          "consolemgmt.vehicle.view",
+        ])
+      ) {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INSUFFICIENT_PERMISSIONS",
+          null,
+          "You don't have permission to get vehicle CAN+GPS data."
+        );
+      }
+      let schema = z.object({
+        value: z
+          .array(
+            z
+              .string({ message: "Invalid Value format" })
+              .nonempty({ message: "Value cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "Value must be a valid VIN or Registration number",
+              })
+              .max(128, { message: "Value must not exceed 128 characters" })
+          )
+          .min(1, { message: "At least one value is required" }),
+        type: z.enum(["vinno", "regno"], {
+          message: "Type must be either vinno or regno",
+        }),
+      });
+
+      let { value, type } = validateAllInputs(schema, {
+        value: req.body.value,
+        type: req.body.type,
+      });
+
+      let result = await this.vehicleHdlrImpl.VehicleLastConnectedLogic(
+        value,
+        type
+      );
+      APIResponseOK(
+        req,
+        res,
+        result,
+        "Vehicle last connected data fetched successfully"
+      );
+    } catch (e) {
+      this.logger.error("GetVehicleLastConnectedData error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "GET_VEHICLE_LAST_CONNECTED_DATA_ERR",
+          e.toString(),
+          "Get vehicle last connected data failed"
+        );
       }
     }
   };

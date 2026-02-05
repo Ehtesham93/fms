@@ -1460,17 +1460,17 @@ export default class Tripsinsighthdlr {
         );
       }
 
-      // const hash = crypto
-      //   .createHash("sha256")
-      //   .update(JSON.stringify(req.body))
-      //   .digest("hex");
-      // const url = req.protocol + "://" + req.get("host") + req.originalUrl;
-      // const fullUrl = `${url}.${hash}`;
-      // const redisKey = crypto
-      //   .createHash("sha256")
-      //   .update(JSON.stringify(fullUrl))
-      //   .digest("hex");
-      // const redisSvc = this.redisSvc;
+      const hash = crypto
+        .createHash("sha256")
+        .update(JSON.stringify(req.body))
+        .digest("hex");
+      const url = req.protocol + "://" + req.get("host") + req.originalUrl;
+      const fullUrl = `${url}.${hash}`;
+      const redisKey = crypto
+        .createHash("sha256")
+        .update(JSON.stringify(fullUrl))
+        .digest("hex");
+      const redisSvc = this.redisSvc;
 
       let result;
 

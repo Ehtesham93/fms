@@ -446,9 +446,17 @@ export default class PUserSvcDB {
         const placeholders = roleids
           .map((roleid, index) => {
             const startIndex = index * 6 + 1;
-            values.push(userid, accountid, fleetid, roleid, currtime, updatedby);
+            values.push(
+              userid,
+              accountid,
+              fleetid,
+              roleid,
+              currtime,
+              updatedby
+            );
             return `($${startIndex}, $${startIndex + 1}, $${startIndex + 2}, $${
-              startIndex + 3}, $${startIndex + 4}, $${startIndex + 5})`;
+              startIndex + 3
+            }, $${startIndex + 4}, $${startIndex + 5})`;
           })
           .join(",");
 
@@ -466,7 +474,7 @@ export default class PUserSvcDB {
             updatedby: updatedby,
           });
         }
-        for (const roleid of roleids) { 
+        for (const roleid of roleids) {
           query = `
             INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
           `;
@@ -476,7 +484,7 @@ export default class PUserSvcDB {
             userid,
             roleid,
             true,
-            'ADD',
+            "ADD",
             currtime,
             updatedby,
           ]);
@@ -531,7 +539,7 @@ export default class PUserSvcDB {
         userid,
         roleid,
         false,
-        'REMOVE',
+        "REMOVE",
         currtime,
         updatedby,
       ]);
@@ -696,11 +704,18 @@ export default class PUserSvcDB {
     }
   }
 
-  async listPendingUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+  async listPendingUsers(
+    searchtext,
+    offset,
+    limit,
+    orderbyfield,
+    orderbydirection,
+    download
+  ) {
     try {
-      orderbyfield = orderbyfield || 'createdat';
-      orderbydirection = orderbydirection || 'desc';
-      searchtext = searchtext || '';
+      orderbyfield = orderbyfield || "createdat";
+      orderbydirection = orderbydirection || "desc";
+      searchtext = searchtext || "";
       offset = offset || 0;
       limit = limit || 1000;
       let limitquery = "";
@@ -751,11 +766,14 @@ export default class PUserSvcDB {
           rpu.createdat, 
           u1.displayname as createdby, 
           rpu.updatedat, 
-          u2.displayname as updatedby
+          u2.displayname as updatedby,
+          a.accountname as nemo3_account_name,
+          rpu.original_input->>'nemo3_account_id' as nemo3_account_id
         FROM reviewpendinguser rpu
         JOIN user_list ul ON rpu.userid = ul.userid
         JOIN users u1 ON rpu.createdby = u1.userid
         JOIN users u2 ON rpu.updatedby = u2.userid
+        LEFT JOIN account a ON a.accountid = (rpu.original_input->>'nemo3_account_id')::uuid
         ORDER BY rpu.${orderbyfield} ${orderbydirection}
       `;
       let result;
@@ -764,7 +782,11 @@ export default class PUserSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+        result = await this.pgPoolI.Query(baseQuery, [
+          searchtext,
+          offset,
+          limit,
+        ]);
         const countcquery = `WITH user_list AS (
           SELECT rpu.userid
           FROM reviewpendinguser rpu
@@ -777,7 +799,9 @@ export default class PUserSvcDB {
             upper(rpu.vehiclemobile) LIKE '%' || upper($1) || '%'
           )
         ) SELECT COUNT(*) FROM user_list`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          searchtext,
+        ]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
@@ -791,7 +815,8 @@ export default class PUserSvcDB {
           totalpages: Math.ceil(totalcount / limit),
         };
       }
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
       if (download) {
         return {
@@ -809,7 +834,7 @@ export default class PUserSvcDB {
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: (limit > result.rowCount)? false : true,
+        hasmore: limit > result.rowCount ? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };
@@ -818,16 +843,23 @@ export default class PUserSvcDB {
     }
   }
 
-  async listDoneUsers(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+  async listDoneUsers(
+    searchtext,
+    offset,
+    limit,
+    orderbyfield,
+    orderbydirection,
+    download
+  ) {
     try {
-      orderbyfield = orderbyfield || 'updatedat';
+      orderbyfield = orderbyfield || "updatedat";
       if (orderbyfield === "status") {
         orderbyfield = "original_status";
-      }else if (orderbyfield === "reason") {
+      } else if (orderbyfield === "reason") {
         orderbyfield = "resolution_reason";
       }
-      orderbydirection = orderbydirection || 'desc';
-      searchtext = searchtext || '';
+      orderbydirection = orderbydirection || "desc";
+      searchtext = searchtext || "";
       offset = offset || 0;
       limit = limit || 1000;
       let limitquery = "";
@@ -889,7 +921,11 @@ export default class PUserSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
+        result = await this.pgPoolI.Query(baseQuery, [
+          searchtext,
+          offset,
+          limit,
+        ]);
         const countcquery = `WITH user_list AS (
           SELECT rdu.userid
           FROM reviewdoneuser rdu
@@ -901,7 +937,9 @@ export default class PUserSvcDB {
             upper(rdu.vehiclemobile) LIKE '%' || upper($1) || '%'
           )
         ) SELECT COUNT(*) FROM user_list`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          searchtext,
+        ]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
@@ -926,14 +964,15 @@ export default class PUserSvcDB {
           totalpages: 1,
         };
       }
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
       return {
         users: result.rows,
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: (limit > result.rowCount)? false : true,
+        hasmore: limit > result.rowCount ? false : true,
         totalpages: Math.ceil(totalcount / limit),
         totalcount: totalcount,
       };
@@ -1132,21 +1171,44 @@ export default class PUserSvcDB {
         this.pgPoolI.Query("SELECT dealercode, dealername FROM dealer"),
         this.pgPoolI.Query("SELECT colorcode, colorname from color"),
         this.pgPoolI.Query("SELECT fueltypecode, fueltypename FROM fueltype"),
-        this.pgPoolI.Query("SELECT tgu_model_code, tgu_model_name FROM tgu_model"),
-        this.pgPoolI.Query("SELECT tgu_sw_version_code, tgu_sw_version_name FROM tgu_sw_version"),
+        this.pgPoolI.Query(
+          "SELECT tgu_model_code, tgu_model_name FROM tgu_model"
+        ),
+        this.pgPoolI.Query(
+          "SELECT tgu_sw_version_code, tgu_sw_version_name FROM tgu_sw_version"
+        ),
       ]);
 
       return {
-        city: cityResult.rows.map((row) => ({"citycode": row.citycode, "cityname": row.cityname})),
-        dealer: dealerResult.rows.map((row) => ({"dealercode": row.dealercode, "dealername": row.dealername})),
-        colour: colourResult.rows.map((row) => ({"colorcode": row.colorcode, "colorname": row.colorname})),
-        fueltype: fueltypeResult.rows.map((row) => ({"fueltypecode": row.fueltypecode, "fueltypename": row.fueltypename})),
-        tgu_model: tgu_modelResult.rows.map((row) => ({"tgu_model_code":row.tgu_model_code, "tgu_model_name":row.tgu_model_name})),
-        tgu_sw_version: tgu_sw_versionResult.rows.map(
-          (row) => ({"tgu_sw_version_code":row.tgu_sw_version_code
-          , "tgu_sw_version_name":row.tgu_sw_version_name})
-        ),
-        gender: [{"gender_code": "Male", "gender_name": "Male"}, {"gender_code": "Female", "gender_name": "Female"}, {"gender_code": "Other", "gender_name": "Other"}],
+        city: cityResult.rows.map((row) => ({
+          citycode: row.citycode,
+          cityname: row.cityname,
+        })),
+        dealer: dealerResult.rows.map((row) => ({
+          dealercode: row.dealercode,
+          dealername: row.dealername,
+        })),
+        colour: colourResult.rows.map((row) => ({
+          colorcode: row.colorcode,
+          colorname: row.colorname,
+        })),
+        fueltype: fueltypeResult.rows.map((row) => ({
+          fueltypecode: row.fueltypecode,
+          fueltypename: row.fueltypename,
+        })),
+        tgu_model: tgu_modelResult.rows.map((row) => ({
+          tgu_model_code: row.tgu_model_code,
+          tgu_model_name: row.tgu_model_name,
+        })),
+        tgu_sw_version: tgu_sw_versionResult.rows.map((row) => ({
+          tgu_sw_version_code: row.tgu_sw_version_code,
+          tgu_sw_version_name: row.tgu_sw_version_name,
+        })),
+        gender: [
+          { gender_code: "Male", gender_name: "Male" },
+          { gender_code: "Female", gender_name: "Female" },
+          { gender_code: "Other", gender_name: "Other" },
+        ],
       };
     } catch (error) {
       throw new Error("Failed to get vehicle metadata options");
@@ -1587,9 +1649,8 @@ export default class PUserSvcDB {
     }
   }
 
-  async getUserAccountList(contact, usertype){
-    try{
-
+  async getUserAccountList(contact, usertype) {
+    try {
       if (usertype !== "email" && usertype !== "mobile") {
         throw new Error("Invalid usertype. Must be 'email' or 'mobile'");
       }
@@ -1618,7 +1679,7 @@ export default class PUserSvcDB {
         `;
         let result = await this.pgPoolI.Query(query, [contact]);
         if (result.rowCount > 0) {
-          return result.rows
+          return result.rows;
         }
       } else {
         let query = `
@@ -1636,6 +1697,97 @@ export default class PUserSvcDB {
     } catch (error) {
       this.logger.error("getUserAccountList error:", error);
       throw new Error("Failed to get user account list");
+    }
+  }
+
+  async getUserDetailsByMobileOrEmail(mobile, email) {
+    try {
+      const mobileQuery = `SELECT u.userid, ms.ssoid as mobile, us.ssoid as email, u.displayname, ui.addresspincode
+                           FROM users u 
+                           JOIN mobile_sso ms ON u.userid = ms.userid 
+                           JOIN user_sso us ON u.userid = us.userid and us.ssotype = 'EMAIL_PWD'
+                           JOIN user_info ui ON u.userid = ui.userid
+                           WHERE ms.ssoid = $1`;
+      const mobileResult = await this.pgPoolI.Query(mobileQuery, [mobile]);
+      const emailQuery = `SELECT u.userid, eps.ssoid as email, us.ssoid as mobile, u.displayname, ui.addresspincode
+                          FROM users u 
+                          JOIN email_pwd_sso eps ON u.userid = eps.userid 
+                          JOIN user_sso us ON u.userid = us.userid and us.ssotype = 'MOBILE'
+                          JOIN user_info ui ON u.userid = ui.userid
+                          WHERE eps.ssoid = $1`;
+      const emailResult = await this.pgPoolI.Query(emailQuery, [email]);
+      if (mobileResult.rowCount > 0 && emailResult.rowCount > 0) {
+        const mobileUserAssignedToAccount = await this.pgPoolI.Query(
+          `select a.accountname, a.accountid from account a 
+          join user_fleet uf on uf.accountid = a.accountid where uf.userid = $1`,
+          [mobileResult.rows[0].userid]
+        );
+        const emailUserAssignedToAccount = await this.pgPoolI.Query(
+          `select a.accountname, a.accountid from account a 
+          join user_fleet uf on uf.accountid = a.accountid where uf.userid = $1`,
+          [emailResult.rows[0].userid]
+        );
+        return {
+          mobileUser: {
+            userid: mobileResult.rows[0].userid,
+            email: mobileResult.rows[0].email,
+            mobile: mobileResult.rows[0].mobile,
+            displayname: mobileResult.rows[0].displayname,
+            addresspincode: mobileResult.rows[0].addresspincode,
+            mobileUserAssignedToAccount: mobileUserAssignedToAccount.rows,
+          },
+          emailUser: {
+            userid: emailResult.rows[0].userid,
+            email: emailResult.rows[0].email,
+            mobile: emailResult.rows[0].mobile,
+            displayname: emailResult.rows[0].displayname,
+            addresspincode: emailResult.rows[0].addresspincode,
+            emailUserAssignedToAccount: emailUserAssignedToAccount.rows,
+          },
+        };
+      } else if (mobileResult.rowCount > 0 && emailResult.rowCount === 0) {
+        const mobileUserAssignedToAccount = await this.pgPoolI.Query(
+          `select a.accountname, a.accountid from account a 
+          join user_fleet uf on uf.accountid = a.accountid where uf.userid = $1`,
+          [mobileResult.rows[0].userid]
+        );
+        return {
+          mobileUser: {
+            userid: mobileResult.rows[0].userid,
+            email: mobileResult.rows[0].email,
+            mobile: mobileResult.rows[0].mobile,
+            displayname: mobileResult.rows[0].displayname,
+            mobileUserAssignedToAccount: mobileUserAssignedToAccount.rows,
+          },
+        };
+      } else if (mobileResult.rowCount === 0 && emailResult.rowCount > 0) {
+        const emailUserAssignedToAccount = await this.pgPoolI.Query(
+          `select a.accountname, a.accountid from account a 
+          join user_fleet uf on uf.accountid = a.accountid where uf.userid = $1`,
+          [emailResult.rows[0].userid]
+        );
+        return {
+          emailUser: {
+            userid: emailResult.rows[0].userid,
+            email: emailResult.rows[0].email,
+            mobile: emailResult.rows[0].mobile,
+            addresspincode: emailResult.rows[0].addresspincode,
+            displayname: emailResult.rows[0].displayname,
+            emailUserAssignedToAccount: emailUserAssignedToAccount.rows,
+          },
+        };
+      } else if (mobileResult.rowCount === 0 && emailResult.rowCount === 0) {
+        let error = new Error("User not found");
+        error.errcode = "USER_NOT_FOUND";
+        error.errdata = {
+          mobile: mobile,
+          email: email,
+        };
+        throw error;
+      }
+    } catch (error) {
+      this.logger.error("Error in getUserDetailsByMobileOrEmail:", error);
+      throw error;
     }
   }
 }

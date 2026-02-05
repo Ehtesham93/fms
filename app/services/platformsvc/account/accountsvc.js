@@ -13,7 +13,12 @@ export default class AccountSvc {
   }
 
   async GetAllAccounts(platformAccountId, offset, limit, searchtext) {
-    return await this.accountSvcDB.getAllAccounts(platformAccountId, offset, limit, searchtext);
+    return await this.accountSvcDB.getAllAccounts(
+      platformAccountId,
+      offset,
+      limit,
+      searchtext
+    );
   }
 
   async GetAccountOverview(accountid) {
@@ -407,12 +412,40 @@ export default class AccountSvc {
     return await this.accountSvcDB.getVehicleFleetInfo(vinno, accountid);
   }
 
-  async ListPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
-    return await this.accountSvcDB.listPendingAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download);
+  async ListPendingAccounts(
+    searchtext,
+    offset,
+    limit,
+    orderbyfield,
+    orderbydirection,
+    download
+  ) {
+    return await this.accountSvcDB.listPendingAccounts(
+      searchtext,
+      offset,
+      limit,
+      orderbyfield,
+      orderbydirection,
+      download
+    );
   }
 
-  async ListDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
-    return await this.accountSvcDB.listDoneAccounts(searchtext, offset, limit, orderbyfield, orderbydirection, download);
+  async ListDoneAccounts(
+    searchtext,
+    offset,
+    limit,
+    orderbyfield,
+    orderbydirection,
+    download
+  ) {
+    return await this.accountSvcDB.listDoneAccounts(
+      searchtext,
+      offset,
+      limit,
+      orderbyfield,
+      orderbydirection,
+      download
+    );
   }
 
   async AddReviewDoneAccount(accountData) {
@@ -424,11 +457,17 @@ export default class AccountSvc {
   }
 
   async GetPendingAccountReviewByAccountName(accountname, vin) {
-    return await this.accountSvcDB.getPendingAccountReviewByAccountName(accountname, vin);
+    return await this.accountSvcDB.getPendingAccountReviewByAccountName(
+      accountname,
+      vin
+    );
   }
 
   async GetAccountReviewDoneByAccountName(accountname, status) {
-    return await this.accountSvcDB.getAccountReviewDoneByAccountName(accountname, status);
+    return await this.accountSvcDB.getAccountReviewDoneByAccountName(
+      accountname,
+      status
+    );
   }
 
   async GetPendingAccountReviewById(accountid) {
@@ -455,17 +494,66 @@ export default class AccountSvc {
     return await this.accountSvcDB.listPendingAccountReviews();
   }
 
-  async GetAccountSummary(searchtext, offset, limit, download, orderbyfield, orderbydirection){
-    return await this.accountSvcDB.getAccountSummary(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+  async GetAccountSummary(
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
+    return await this.accountSvcDB.getAccountSummary(
+      searchtext,
+      offset,
+      limit,
+      download,
+      orderbyfield,
+      orderbydirection
+    );
   }
-  async GetAllAccountUsers(searchtext, offset, limit, download){
-    return await this.accountSvcDB.getAllAccountUsers(searchtext, offset, limit, download);
+  async GetAllAccountUsers(searchtext, offset, limit, download) {
+    return await this.accountSvcDB.getAllAccountUsers(
+      searchtext,
+      offset,
+      limit,
+      download
+    );
   }
 
-  async GetAllLoggedInAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection){
-    return await this.accountSvcDB.getAllLoggedInAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+  async GetAllLoggedInAccountUsers(
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
+    return await this.accountSvcDB.getAllLoggedInAccountUsers(
+      searchtext,
+      offset,
+      limit,
+      download,
+      orderbyfield,
+      orderbydirection
+    );
   }
   async ListAllAccounts() {
     return await this.accountSvcDB.listAllAccounts();
+  }
+
+  async AccountsAvailableForTagging(
+    platformAccountId,
+    vinno,
+    searchtext,
+    offset,
+    limit
+  ) {
+    return await this.accountSvcDB.accountsAvailableForTagging(
+      platformAccountId,
+      vinno,
+      searchtext,
+      offset,
+      limit
+    );
   }
 }

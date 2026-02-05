@@ -85,6 +85,7 @@ export default class AccountHdlr {
   RegisterRoutes(router) {
     router.post("/", this.CreateAccount);
     router.get("/list", this.ListAccounts);
+    router.get("/availablefortagging", this.AccountsAvailableForTagging);
     router.get("/:accountid/overview", this.GetAccountOverview);
     router.put("/:accountid", this.UpdateAccount);
     router.delete("/:accountid", this.DeleteAccount);
@@ -2878,6 +2879,80 @@ export default class AccountHdlr {
           "CREATE_ACCOUNT_ERR",
           error.toString(),
           "Create account failed"
+        );
+      }
+    }
+  };
+
+  AccountsAvailableForTagging = async (req, res, next) => {
+    try {
+      // if (
+      //   !CheckUserPerms(req.userperms, [
+      //     "consolemgmt.account.view",
+      //     "consolemgmt.account.admin",
+      //   ])
+      // ) {
+      //   return APIResponseForbidden(
+      //     req,
+      //     res,
+      //     "INSUFFICIENT_PERMISSIONS",
+      //     null,
+      //     "You don't have permission to list accounts."
+      //   );
+      // }
+      let schema = z.object({
+        vinno: z
+          .string({ message: "VIN No must be a string" })
+          .min(1, { message: "VIN No cannot be empty" })
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+            message: "VIN No can only contain letters, numbers, and spaces",
+          })
+          .max(128, {
+            message: "VIN No must be at most 128 characters long",
+          }),
+        searchtext: z
+          .string({ message: "Search text is required" })
+          .optional()
+          .nullable()
+          .default("")
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
+        offset: z
+          .number({ message: "Offset must be a number" })
+          .optional()
+          .default(0),
+        limit: z
+          .number({ message: "Limit must be a number" })
+          .optional()
+          .default(1000),
+      });
+      let { vinno, searchtext, offset, limit } = validateAllInputs(schema, {
+        vinno: req.query.vinno,
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+      });
+      let result = await this.accountHdlrImpl.AccountsAvailableForTaggingLogic(vinno, searchtext, offset, limit);
+      APIResponseOK(req, res, result, "Accounts available for tagging fetched successfully");
+    } catch (e) {
+      this.logger.error("AccountsAvailableForTagging error: ", e);
+      if(e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          e.errcode,
+          e.errdata,
+          e.message
+        );
+      } else {
+        APIResponseInternalErr(
+          req,
+          res,
+          "ACCOUNTS_AVAILABLE_FOR_TAGGING_ERR",
+          e.toString(),
+          "Accounts available for tagging failed"
         );
       }
     }

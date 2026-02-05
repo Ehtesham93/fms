@@ -872,4 +872,208 @@ export default class HistoryDataSvcDB {
       throw error;
     }
   }
+
+  async getVinNoFromRegNo(regnos) {
+    try {
+      if (!regnos || !Array.isArray(regnos) || regnos.length === 0) {
+        return [];
+      }
+      const normalizedRegnos = regnos.map((regno) =>
+        regno.trim().toUpperCase()
+      );
+      // Build placeholders for each registration number
+      const query = `
+        SELECT vinno FROM vehicle WHERE UPPER(TRIM(license_plate)) = ANY($1::text[])
+      `;
+      const result = await this.pgPoolI.Query(query, [normalizedRegnos]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      return result.rows.map((row) => row.vinno);
+    } catch (error) {
+      this.logger.error(
+        "Error fetching VIN numbers from registration numbers:",
+        error
+      );
+      throw error;
+    }
+  }
+
+  async getVehicleLastConnectedData(vinnos) {
+    try {
+      // Fetch from Redis cache
+      const cachedCanDataMap = {};
+      const cachedGpsDataMap = {};
+      for (let vin of vinnos) {
+        const redisCanKey = `caninfo.${vin}`;
+        const redisGpsKey = `gpsinfo.${vin}`;
+        const [cachedCanData, redisCanError] = await this.redisSvc.get(
+          redisCanKey
+        );
+        const [cachedGpsData, redisGpsError] = await this.redisSvc.get(
+          redisGpsKey
+        );
+        if (redisCanError) {
+          this.logger.error("Redis error:", redisCanError, {
+            redisCanKey: redisCanKey,
+          });
+        }
+        if (redisGpsError) {
+          this.logger.error("Redis error:", redisGpsError, {
+            redisGpsKey: redisGpsKey,
+          });
+        }
+        if (cachedCanData !== null) {
+          const parsedCanData = JSON.parse(cachedCanData);
+          if (parsedCanData.utctime !== undefined) {
+            parsedCanData.utctime = parseInt(parsedCanData.utctime) || 0;
+          }
+          cachedCanDataMap[vin] = parsedCanData.utctime;
+        }
+        if (cachedGpsData !== null) {
+          const parsedGpsData = JSON.parse(cachedGpsData);
+          if (parsedGpsData.utctime !== undefined) {
+            parsedGpsData.utctime = parseInt(parsedGpsData.utctime) || 0;
+          }
+          cachedGpsDataMap[vin] = {
+            utctime: parsedGpsData.utctime,
+            lat: parsedGpsData.latitude,
+            lng: parsedGpsData.longitude,
+          };
+        }
+      }
+      const vinList = vinnos.map((vin) => `'${vin}'`).join(",");
+      const canQuery = `
+        SELECT vin, utctime FROM lmmdata_latest.candatalatest
+        WHERE vin IN (${vinList})
+      `;
+
+      const canResult = await this.clickHouseClient.query(canQuery);
+
+      if (!canResult.success) {
+        this.logger.error(
+          "Failed to query ClickHouse for CAN data:",
+          canResult.error
+        );
+        throw new Error("Failed to fetch latest CAN data");
+      }
+
+      const gpsQuery = `
+        SELECT vin, utctime, latitude, longitude FROM lmmdata_latest.gpsdatalatest
+        WHERE vin IN (${vinList})
+      `;
+      const gpsResult = await this.clickHouseClient.query(gpsQuery);
+      if (!gpsResult.success) {
+        this.logger.error(
+          "Failed to query ClickHouse for GPS data:",
+          gpsResult.error
+        );
+        throw new Error("Failed to fetch latest GPS data");
+      }
+      const canDataMap = {};
+      for (let row of canResult.data) {
+        canDataMap[row.vin] = parseInt(row.utctime) || 0;
+      }
+      const gpsDataMap = {};
+      for (let row of gpsResult.data) {
+        const parsedutctime = parseInt(row.utctime) || 0;
+        const parsedlatitude = parseFloat(row.latitude) || 0;
+        const parsedlongitude = parseFloat(row.longitude) || 0;
+        gpsDataMap[row.vin] = {
+          utctime: parsedutctime,
+          lat: parsedlatitude,
+          lng: parsedlongitude,
+        };
+      }
+      const latestdata = {};
+      for (let vin of vinnos) {
+        const cachedCanUtcTime = cachedCanDataMap[vin];
+        const cachedGpsData = cachedGpsDataMap[vin];
+        const canUtcTime = canDataMap[vin];
+        const gpsUtcTime = gpsDataMap[vin];
+        let latestgpsdata = {};
+        if (cachedGpsData && gpsUtcTime) {
+          if (cachedGpsData.utctime > gpsUtcTime.utctime) {
+            latestgpsdata = {
+              utctime: cachedGpsData.utctime,
+              lat: cachedGpsData.lat,
+              lng: cachedGpsData.lng,
+            };
+          } else {
+            latestgpsdata = {
+              utctime: gpsUtcTime.utctime,
+              lat: gpsUtcTime.lat,
+              lng: gpsUtcTime.lng,
+            };
+          }
+        }else if (cachedGpsData) {
+          latestgpsdata = {
+            utctime: cachedGpsData.utctime,
+            lat: cachedGpsData.lat,
+            lng: cachedGpsData.lng,
+          };
+        }else if (gpsUtcTime) {
+          latestgpsdata = {
+            utctime: gpsUtcTime.utctime,
+            lat: gpsUtcTime.lat,
+            lng: gpsUtcTime.lng,
+          };
+        }else {
+          latestgpsdata = {
+            utctime: "NA",
+            lat: "NA",
+            lng: "NA",
+          };
+        }
+        let canutctime = "NA";
+        if (cachedCanUtcTime && canUtcTime) {
+          canutctime = Math.max(cachedCanUtcTime, canUtcTime);
+        }else if (cachedCanUtcTime) {
+          canutctime = cachedCanUtcTime;
+        }else if (canUtcTime) {
+          canutctime = canUtcTime;
+        }
+        latestdata[vin] = {
+          can: { utctime: canutctime },
+          gps: latestgpsdata,
+        };
+      }
+      return latestdata;
+    } catch (error) {
+      this.logger.error("Error fetching vehicle last connected data:", error);
+      throw error;
+    }
+  }
+
+  async getVehicleAccountDetails(vinnos) {
+    try {
+      if (!vinnos || !Array.isArray(vinnos) || vinnos.length === 0) {
+        return [];
+      }
+      let query = `
+        SELECT 
+          a.accountid,
+          a.accountname,
+          v.vinno,
+          COALESCE(v.license_plate, v.vinno) as regno
+        FROM vehicle v
+        JOIN fleet_vehicle fv ON v.vinno = fv.vinno
+        JOIN account a ON fv.accountid = a.accountid
+        WHERE v.vinno = ANY($1::text[]);
+      `;
+      let result = await this.pgPoolI.Query(query, [vinnos]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      let accountDetailMap = new Map();
+      for (let row of result.rows) {
+        accountDetailMap.set(row.vinno, row);
+      }
+
+      return accountDetailMap;
+    } catch (error) {
+      this.logger.error("Error fetching vehicle account details:", error);
+      throw error;
+    }
+  }
 }

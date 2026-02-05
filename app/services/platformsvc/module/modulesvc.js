@@ -83,6 +83,19 @@ export default class ModuleSvc {
   }
 
   async IsModuleCodeAvailable(modulecode) {
-    return await this.moduleSvcDB.isModuleCodeAvailable(modulecode);
+    let result = await this.moduleSvcDB.isModuleCodeAvailable(modulecode);
+    if (result) {
+      return {
+        modulecode: modulecode,
+        isavailable: true,
+        message: "Module code is available",
+      };
+    } else {
+      return {
+        modulecode: modulecode,
+        isavailable: false,
+        message: "Module code is not available",
+      };
+    }
   }
 }

@@ -154,4 +154,7 @@ export default class PUserSvc {
   async GetUserAccountList(contact, usertype) {
     return await this.pUserSvcDB.getUserAccountList(contact, usertype);
   }
+  async UserDetailsByErrorCode(mobile, email) {
+    return await this.pUserSvcDB.getUserDetailsByMobileOrEmail(mobile, email);
+  }
 }

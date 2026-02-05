@@ -1,5 +1,6 @@
 import ClickHouseClient from "../../utils/clickhouse.js";
 import { addPaginationToQuery } from "../../utils/commonutil.js";
+import { VEHICLE_ACTION } from "../../utils/constant.js";
 export default class PlatformSvcDB {
   /**
    *
@@ -278,8 +279,8 @@ export default class PlatformSvcDB {
 
       // Add to fleet_vehicle_history
       query = `
-        INSERT INTO fleet_vehicle_history (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO fleet_vehicle_history (accountid, fleetid, vinno, isowner, accvininfo, assignedat, assignedby, updatedat, updatedby, action) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       `;
       result = await txclient.query(query, [
         accountid,
@@ -291,6 +292,7 @@ export default class PlatformSvcDB {
         assignedby,
         currtime,
         assignedby,
+        VEHICLE_ACTION.ADDED,
       ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to add vehicle to fleet history");

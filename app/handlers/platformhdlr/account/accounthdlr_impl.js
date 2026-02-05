@@ -1199,4 +1199,10 @@ export default class AccountHdlrImpl {
       action: "ACCOUNT_CREATED",
     };
   };
+
+  AccountsAvailableForTaggingLogic = async (vinno, searchtext, offset, limit) => {
+    searchtext = preprocessingText(searchtext);
+    let accounts = await this.accountSvcI.AccountsAvailableForTagging(PLATFORM_ACCOUNT_ID, vinno, searchtext, offset, limit);
+    return accounts;
+  };
 }

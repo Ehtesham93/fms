@@ -44,7 +44,8 @@ export default class PublicHdlr {
       fmsSvcI,
       platformSvcI,
       inMemCacheI,
-      logger
+      logger,
+      config
     );
 
     this.auditSvc = new PublicApiAuditSvc(userSvcI.pgPoolI, logger);
@@ -100,6 +101,11 @@ export default class PublicHdlr {
       "/email/signin",
       ...this.rateLimiter.getSigninLimiters(),
       this.UserEmailSignIn
+    );
+    router.post(
+      "/email/mahindrasso/signin",
+      ...this.rateLimiter.getSigninLimiters(),
+      this.UserMahindrassoEmailSignIn
     );
     router.post(
       "/mobile/signin",
@@ -624,6 +630,87 @@ export default class PublicHdlr {
       }
 
       let result = await this.publicHdlrImpl.UserEmailSignInLogic(
+        email,
+        password,
+        expiresin,
+        refreshTokenMaxAge
+      );
+      res.cookie("token", result.token, {
+        httpOnly: true,
+        secure: true,
+        maxAge: COOKIE_MAX_AGE,
+        path: "/",
+        sameSite: "None",
+      });
+      res.cookie("refreshtoken", result.refreshtoken, {
+        httpOnly: true,
+        secure: true,
+        maxAge: COOKIE_MAX_AGE,
+        path: "/",
+        sameSite: "None",
+      });
+
+      APIResponseOK(req, res, result, "Successfully signed in with your email");
+    } catch (error) {
+      return this.handleError(
+        error,
+        req,
+        res,
+        "USER_EMAIL_SIGN_IN_ERR",
+        "We couldn't sign you in. Invalid email or password."
+      );
+    }
+  };
+
+  UserMahindrassoEmailSignIn = async (req, res, next) => {
+    try {
+      const captchaToken = req.body["g-recaptcha-response"];
+      const remoteIp = req.ip;
+
+      if (captchaToken) {
+        const isValidCaptcha = await ValidateCaptcha(
+          captchaToken,
+          remoteIp,
+          this.config
+        );
+
+        if (!isValidCaptcha) {
+          throw {
+            errcode: "CAPTCHA_FAILED",
+            errdata: {},
+            message: "Security verification failed. Please try again.",
+          };
+        }
+      }
+
+      let schema = z.object({
+        email: z
+          .string({ message: "Please provide a valid email address" })
+          .email({ message: "Please provide a valid email format" }),
+        password: z
+          .string({ message: "Password is required" })
+          .nonempty({ message: "Password cannot be empty" })
+          .min(8, { message: "Password must be at least 8 characters long" })
+          .max(128, { message: "Password must not exceed 128 characters" }),
+      });
+
+      let { email, password } = validateAllInputs(schema, {
+        email: req.body.email,
+        password: req.body.password,
+      });
+
+      let validity = req.body.validity;
+      let expiresin = TOKEN_EXPIRY_TIME;
+      let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
+
+      if (validity && Array.isArray(validity) && validity.length >= 2) {
+        expiresin = Math.floor(validity[0] / 1000);
+        refreshTokenMaxAge = validity[1];
+      } else if (validity && !Array.isArray(validity)) {
+        expiresin = Math.floor(validity / 1000);
+      }
+
+      let result = await this.publicHdlrImpl.UserMahindrassoEmailSignInLogic(
         email,
         password,
         expiresin,

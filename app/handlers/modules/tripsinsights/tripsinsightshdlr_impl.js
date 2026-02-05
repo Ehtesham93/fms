@@ -192,27 +192,72 @@ export default class TripsinsighthdlrImpl {
                   });
                   
                   if (totalDistance > 0) {
+                    const percentages = [];
                     vinModes.forEach((mode) => {
                       const modeName = mode.mode?.toLowerCase();
                       const modeIndex = drivingModes.findIndex(m => m.mode.toLowerCase() === modeName);
                       if (modeIndex !== -1) {
                         const percentage = (mode.distancetravelled / totalDistance) * 100;
-                        drivingModes[modeIndex].value = `${Math.round(percentage)}%`;
+                        percentages.push({
+                          index: modeIndex,
+                          value: percentage,
+                          floor: Math.floor(percentage),
+                          remainder: percentage - Math.floor(percentage)
+                        });
                       }
+                    });
+                    const totalFloor = percentages.reduce((sum, p) => sum + p.floor, 0);
+                    const remainder = 100 - totalFloor;
+
+                    percentages.sort((a, b) => b.remainder - a.remainder);
+                    
+                    for (let i = 0; i < remainder && i < percentages.length; i++) {
+                      percentages[i].floor += 1;
+                    }
+
+                    percentages.forEach((p) => {
+                      drivingModes[p.index].value = `${p.floor}%`;
                     });
                   }
                 }
-              } else {
-                for(const mode of drivingModes) {
-                  const modeName = mode.mode?.toLowerCase();
-                  if(modeName && modeName === 'eco' || modeName === 'range') {
-                    mode.value = `${Math.round(ecomode)}%`;
-                  } else if (modeName && modeName === 'boost' || modeName === 'race') {
-                    mode.value = `${Math.round(boostmode)}%`;
+              } 
+            } else {
+                const ecoPercentage = ecomode;
+                const boostPercentage = boostmode;
+                const totalPercentage = ecoPercentage + boostPercentage;
+                
+                if (totalPercentage > 0) {
+                  const normalizedEco = (ecoPercentage / totalPercentage) * 100;
+                  const normalizedBoost = (boostPercentage / totalPercentage) * 100;
+                  
+                  const ecoFloor = Math.floor(normalizedEco);
+                  const boostFloor = Math.floor(normalizedBoost);
+                  const remainder = 100 - ecoFloor - boostFloor;
+                  
+                  const ecoRemainder = normalizedEco - ecoFloor;
+                  const boostRemainder = normalizedBoost - boostFloor;
+                  
+                  let finalEco = ecoFloor;
+                  let finalBoost = boostFloor;
+                  
+                  if (remainder > 0) {
+                    if (ecoRemainder >= boostRemainder) {
+                      finalEco += remainder;
+                    } else {
+                      finalBoost += remainder;
+                    }
+                  }
+                  
+                  for(const mode of drivingModes) {
+                    const modeName = mode.mode?.toLowerCase();
+                    if(modeName && (modeName === 'eco' || modeName === 'range')) {
+                      mode.value = `${finalEco}%`;
+                    } else if (modeName && (modeName === 'boost' || modeName === 'race')) {
+                      mode.value = `${finalBoost}%`;
+                    }
                   }
                 }
               }
-            }
 
 
             batchVehicles[vin].trips.push({

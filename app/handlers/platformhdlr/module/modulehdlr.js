@@ -837,11 +837,7 @@ export default class ModuleHdlr {
       });
 
       let result = await this.moduleHdlrImpl.IsModuleCodeAvailableLogic(modulecode);
-      if (result) {
-        return APIResponseOK(req, res, result, "Module code available");
-      } else {
-        return APIResponseOK(req, res, result, "Module code not available");
-      }
+      APIResponseOK(req, res, result, "Module code availability checked successfully");
     }
     catch (e) {
       this.logger.error("IsModuleCodeAvailable error: ", e);
