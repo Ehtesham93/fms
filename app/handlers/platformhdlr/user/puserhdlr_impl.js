@@ -977,7 +977,7 @@ export default class PUserHdlrImpl {
               error_status: "ACCOUNT_CREATION",
               status: "PENDING_ACCOUNT_CREATION",
               reason:
-                "Account creation failed. Account creation pending manual review.",
+                "Account creation failed.",
               original_input: original_input,
             },
             userid
@@ -989,7 +989,7 @@ export default class PUserHdlrImpl {
             original_input,
             "ACCOUNT_CREATION",
             userid,
-            `Account creation failed. Account creation pending manual review.`,
+            `Account creation failed.`,
             "PENDING_ACCOUNT_CREATION"
           );
         }
@@ -997,7 +997,7 @@ export default class PUserHdlrImpl {
           errcode: "ACCOUNT_CREATION_FAILED",
           status: "PENDING_ACCOUNT_CREATION",
           message:
-            "Account creation failed. Account creation pending manual review.",
+            "Account creation failed.",
         };
       }
       await this.AddAccountToReviewDone(
@@ -1025,7 +1025,7 @@ export default class PUserHdlrImpl {
             error_status: "ACCOUNT_CREATION",
             status: "PENDING_ACCOUNT_CREATION",
             reason:
-              "Account creation failed. Account creation pending manual review.",
+              "Account creation failed.",
             original_input: original_input,
           },
           userid
@@ -1037,7 +1037,7 @@ export default class PUserHdlrImpl {
           original_input,
           "ACCOUNT_CREATION",
           userid,
-          `Account creation failed. Account creation pending manual review.`,
+          `Account creation failed.`,
           "PENDING_ACCOUNT_CREATION"
         );
       }
@@ -1092,7 +1092,7 @@ export default class PUserHdlrImpl {
               review_data: review_data,
               error_status: "USER_CREATION",
               reason:
-                "User creation failed. User onboarding pending manual review.",
+                "User creation failed.",
               original_input: original_input,
             },
             userid
@@ -1110,7 +1110,7 @@ export default class PUserHdlrImpl {
               acceptedterms: {},
             },
             userid,
-            `User creation failed. User onboarding pending manual review.`,
+            `User creation failed.`,
             usertype,
             original_input,
             review_data,
@@ -1122,7 +1122,7 @@ export default class PUserHdlrImpl {
           errcode: "USER_CREATION_FAILED",
           status: "PENDING_USER_CREATION",
           message:
-            "Account created successfully. User creation failed. User onboarding pending manual review.",
+              "Account created successfully. User creation failed.",
         };
       }
       return user;
@@ -1138,7 +1138,7 @@ export default class PUserHdlrImpl {
             review_data: review_data,
             error_status: "USER_CREATION",
             reason:
-              "User creation failed. User onboarding pending manual review.",
+              "User creation failed.",
             original_input: original_input,
           },
           userid
@@ -1156,7 +1156,7 @@ export default class PUserHdlrImpl {
             acceptedterms: {},
           },
           userid,
-          `User creation failed. User onboarding pending manual review.`,
+          `User creation failed.`,
           usertype,
           original_input,
           review_data,
@@ -1292,7 +1292,7 @@ export default class PUserHdlrImpl {
             error_status: "USER_ASSIGNMENT",
             status: "PENDING_USER_ASSIGNMENT",
             reason:
-              "User assignment failed. User already exists in another account pending manual review.",
+              "User assignment failed. User already exists in another account.",
             original_input: original_input,
           },
           userid
@@ -1303,7 +1303,7 @@ export default class PUserHdlrImpl {
           errcode: "USER_ASSIGNMENT_FAILED",
           status: "PENDING_USER_ASSIGNMENT",
           message:
-            "Account and user created successfully. User assignment failed. User already exists in another account pending manual review.",
+            "Account and user created successfully. User assignment failed. User already exists in another account.",
         };
       } else {
         await this.AddAccountToReviewPending(
@@ -1312,7 +1312,7 @@ export default class PUserHdlrImpl {
           original_input,
           "USER_ASSIGNMENT",
           userid,
-          `User assignment failed. User assignment pending manual review.`,
+          `User assignment failed.`,
           "PENDING_USER_ASSIGNMENT"
         );
       }
@@ -1322,7 +1322,7 @@ export default class PUserHdlrImpl {
         errcode: "USER_ASSIGNMENT_FAILED",
         status: "PENDING_USER_ASSIGNMENT",
         message:
-          "Account and user created successfully. User assignment failed. User assignment pending manual review.",
+          "Account and user created successfully. User assignment failed.",
       };
     }
     return null; // Success
@@ -1359,7 +1359,7 @@ export default class PUserHdlrImpl {
               error_status: "SERVICE_ONBOARDING",
               status: "PENDING_SERVICE_ONBOARDING",
               reason:
-                "Service onboarding failed. Service onboarding pending manual review.",
+                "Service onboarding failed.",
               original_input: original_input,
             },
             userid
@@ -1371,7 +1371,7 @@ export default class PUserHdlrImpl {
             original_input,
             "SERVICE_ONBOARDING",
             userid,
-            `Service onboarding failed. Service onboarding pending manual review.`,
+            `Service onboarding failed.`,
             "PENDING_SERVICE_ONBOARDING"
           );
         }
@@ -1380,7 +1380,7 @@ export default class PUserHdlrImpl {
           errcode: "SERVICE_ONBOARDING_FAILED",
           status: "PENDING_SERVICE_ONBOARDING",
           message:
-            "Service onboarding failed. Service onboarding pending manual review.",
+            "Service onboarding failed.",
         };
       }
       return null; // Success
@@ -1389,7 +1389,7 @@ export default class PUserHdlrImpl {
         accountid: accountid,
         errcode: "SERVICE_ONBOARDING_FAILED",
         status: "PENDING_SERVICE_ONBOARDING",
-        message: `Service onboarding failed: ${error.response.data.msg}. Service onboarding pending manual review.`,
+        message: `Service onboarding failed: ${error.response.data.msg}.`,
       };
     }
   }
@@ -1438,7 +1438,7 @@ export default class PUserHdlrImpl {
               error_status: "VEHICLE_ASSIGNMENT",
               status: "PENDING_VEHICLE_ASSIGNMENT",
               reason:
-                "Vehicle assignment failed. Vehicle already exists in another account pending manual review.",
+                "Vehicle assignment failed. Vehicle already exists in another account.",
               original_input: original_input,
             },
             userid
@@ -1450,7 +1450,7 @@ export default class PUserHdlrImpl {
             original_input,
             "VEHICLE_ASSIGNMENT",
             userid,
-            `Vehicle assignment failed. Vehicle already exists in another account pending manual review.`,
+            `Vehicle assignment failed. Vehicle already exists in another account.`,
             "PENDING_VEHICLE_ASSIGNMENT"
           );
         }
@@ -1459,7 +1459,7 @@ export default class PUserHdlrImpl {
           errcode: "VEHICLE_ASSIGNMENT_FAILED",
           status: "PENDING_VEHICLE_ASSIGNMENT",
           message:
-            "Vehicle assignment failed. Vehicle already exists in another account pending manual review.",
+            "Vehicle assignment failed. Vehicle already exists in another account.",
         };
       }
       // Update vehicle mobile
@@ -1501,7 +1501,7 @@ export default class PUserHdlrImpl {
             error_status: "VEHICLE_ASSIGNMENT",
             status: "PENDING_VEHICLE_ASSIGNMENT",
             reason:
-              "Vehicle assignment failed. Vehicle not found pending manual review.",
+              "Vehicle assignment failed.",
             original_input: original_input,
           },
           userid
@@ -1513,7 +1513,7 @@ export default class PUserHdlrImpl {
           original_input,
           "VEHICLE_ASSIGNMENT",
           userid,
-          `Vehicle assignment failed. Vehicle not found pending manual review.`,
+          `Vehicle assignment failed.`,
           "PENDING_VEHICLE_ASSIGNMENT"
         );
       }
@@ -1522,7 +1522,7 @@ export default class PUserHdlrImpl {
         errcode: "VEHICLE_ASSIGNMENT_FAILED",
         status: "PENDING_VEHICLE_ASSIGNMENT",
         message:
-          "Vehicle assignment failed. Vehicle not found pending manual review.",
+          "Vehicle assignment failed.",
       };
     }
   }
@@ -2220,7 +2220,7 @@ export default class PUserHdlrImpl {
             original_input,
             "ACCOUNT_CREATION",
             userid,
-            `Duplicate account creation when User is already present with for the given contact onboarding failed. Account onboarding pending manual review.`,
+            `Duplicate account creation when User is already present with for the given contact onboarding failed.`,
             "DUPLICATE_ACCOUNT_CREATION"
           );
 
@@ -2231,7 +2231,7 @@ export default class PUserHdlrImpl {
             errcode: "DUPLICATE_ACCOUNT_CREATION",
             status: "DUPLICATE_ACCOUNT_CREATION",
             message:
-              "Duplicate account creation. Account creation pending manual review.",
+              "Duplicate account creation.",
           };
         }
       } else if (existingaccount !== null) {
