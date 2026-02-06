@@ -1501,7 +1501,7 @@ export default class PUserHdlrImpl {
             error_status: "VEHICLE_ASSIGNMENT",
             status: "PENDING_VEHICLE_ASSIGNMENT",
             reason:
-              "Vehicle assignment failed.",
+              "Vehicle assignment failed. Vehicle not found.",
             original_input: original_input,
           },
           userid
@@ -1513,7 +1513,7 @@ export default class PUserHdlrImpl {
           original_input,
           "VEHICLE_ASSIGNMENT",
           userid,
-          `Vehicle assignment failed.`,
+          `Vehicle assignment failed. Vehicle not found.`,
           "PENDING_VEHICLE_ASSIGNMENT"
         );
       }
@@ -1522,7 +1522,7 @@ export default class PUserHdlrImpl {
         errcode: "VEHICLE_ASSIGNMENT_FAILED",
         status: "PENDING_VEHICLE_ASSIGNMENT",
         message:
-          "Vehicle assignment failed.",
+          "Vehicle assignment failed. Vehicle not found.",
       };
     }
   }
