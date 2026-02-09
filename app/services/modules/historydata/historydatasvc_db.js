@@ -1055,7 +1055,10 @@ export default class HistoryDataSvcDB {
           a.accountid,
           a.accountname,
           v.vinno,
-          COALESCE(v.license_plate, v.vinno) as regno
+          COALESCE(v.license_plate, v.vinno) as regno,
+          v.vehicle_city,
+          v.delivered_date,
+          v.createdat
         FROM vehicle v
         JOIN fleet_vehicle fv ON v.vinno = fv.vinno
         JOIN account a ON fv.accountid = a.accountid

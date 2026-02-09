@@ -86,19 +86,29 @@ export default class HistoryDataSvc {
       let response = [];
       if (lastConnectedData && Object.keys(lastConnectedData).length > 0) {
         for (let vin of vinnos) {
+          let connectionstatus = false;
           if(accountDetails && accountDetails.size > 0) {
             const accountDetail = accountDetails.get(vin);
             if(accountDetail && accountDetail.accountid) {
+              let lastConnectedTime = Math.max(lastConnectedData[vin].can.utctime, lastConnectedData[vin].gps.utctime);
+              if (Date.now() - lastConnectedTime < 24 * 60 * 60 * 1000) {
+                connectionstatus = true;
+              } else {
+                connectionstatus = false;
+              }
               response.push({
                 vinno: vin,
                 accountid: accountDetail.accountid,
                 accountname: accountDetail.accountname,
                 regno: accountDetail.regno,
-                canutctime: formatEpochToDateTime(lastConnectedData[vin].can.utctime),
-                gpsutctime: formatEpochToDateTime(lastConnectedData[vin].gps.utctime),
+                vehiclecity: accountDetail.vehicle_city,
+                deliverydate: accountDetail.delivered_date,
+                onboardeddate: accountDetail.createdat,
+                lastconnectedtime: formatEpochToDateTime(lastConnectedTime),
                 lat: lastConnectedData[vin].gps.lat,
                 lng: lastConnectedData[vin].gps.lng,
-                status: "PRESENT"
+                status: "PRESENT",
+                connectionstatus: connectionstatus,
               });
             }else{
               response.push({
@@ -106,11 +116,14 @@ export default class HistoryDataSvc {
                 accountid: "NA",
                 accountname: "NA",
                 regno: "NA",
-                canutctime: "NA",
-                gpsutctime: "NA",
+                vehiclecity: "NA",
+                deliverydate: "NA",
+                onboardeddate: "NA",
+                lastconnectedtime: "NA",
                 lat: "NA",
                 lng: "NA",
-                status: "ABSENT"
+                status: "ABSENT",
+                connectionstatus: connectionstatus,
               });
             }
           }else{
@@ -119,11 +132,14 @@ export default class HistoryDataSvc {
               accountid: "NA",
               accountname: "NA",
               regno: "NA",
-              canutctime: "NA",
-              gpsutctime: "NA",
+              vehiclecity: "NA",
+              deliverydate: "NA",
+              onboardeddate: "NA",
+              lastconnectedtime: "NA",
               lat: "NA",
               lng: "NA",
-              status: "ABSENT"
+              status: "ABSENT",
+              connectionstatus: connectionstatus,
             });
           }
         }
