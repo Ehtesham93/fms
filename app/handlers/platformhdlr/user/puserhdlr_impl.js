@@ -2154,6 +2154,9 @@ export default class PUserHdlrImpl {
           }
         }
       }
+    } else {
+      pendingaccount =
+          await this.accountSvcI.GetPendingAccountReviewById(taskid);
     }
 
     const original_input = {

@@ -182,7 +182,7 @@ export default class PlatformSvcDB {
   async getAccountByName(accountname) {
     try {
       let query = `
-            SELECT a.accountid, af.fleetid as rootfleetid, a.accounttype, a.accountinfo, a.isenabled, a.isdeleted, a.createdat
+            SELECT a.accountname, a.accountid, af.fleetid as rootfleetid, a.accounttype, a.accountinfo, a.isenabled, a.isdeleted, a.createdat
             FROM account a
             JOIN account_fleet af ON a.accountid = af.accountid AND af.isroot = true
             WHERE a.accountname = $1 and a.isdeleted = false
