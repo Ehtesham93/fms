@@ -1057,6 +1057,7 @@ export default class HistoryDataSvcDB {
           v.vinno,
           COALESCE(v.license_plate, v.vinno) as regno,
           v.vehicle_city,
+          v.modelcode,
           v.delivered_date,
           v.createdat
         FROM vehicle v
