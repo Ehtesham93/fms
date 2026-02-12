@@ -142,7 +142,11 @@ export default class LivetrackinghdlrImpl {
       lngTrimmed,
       locale
     );
-    let cachedData = await this.redisSvcI.get(cacheKey);
+    let [cachedData, redisError] = await this.redisSvcI.get(cacheKey);
+    if (redisError) {
+      this.logger.error("Redis error:", redisError);
+      return null;
+    }
     if (cachedData) {
       try {
         cachedData = JSON.parse(cachedData);

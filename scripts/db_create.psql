@@ -572,7 +572,7 @@ CREATE TABLE IF NOT EXISTS
         paramfamilycode text NOT NULL,
         paramcode text NOT NULL,
         paramvalue text NOT NULL,
-        odozeroprocessing boolean NOT NULL DEFAULT false,
+        odozeroprocessing boolean NOT NULL DEFAULT true,
         isenabled boolean DEFAULT true,
         createdat timestamp with time zone NOT NULL,
         createdby uuid NOT NULL,

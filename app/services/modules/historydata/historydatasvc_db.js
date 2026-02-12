@@ -883,13 +883,23 @@ export default class HistoryDataSvcDB {
       );
       // Build placeholders for each registration number
       const query = `
-        SELECT vinno FROM vehicle WHERE UPPER(TRIM(license_plate)) = ANY($1::text[])
+        SELECT vinno, UPPER(TRIM(license_plate)) as regno FROM vehicle WHERE UPPER(TRIM(license_plate)) = ANY($1::text[])
       `;
       const result = await this.pgPoolI.Query(query, [normalizedRegnos]);
-      if (result.rowCount === 0) {
-        return [];
+      if(result.rowCount === 0) {
+        return {
+          vinnos: [],
+          missingRegnos: normalizedRegnos,
+        };
       }
-      return result.rows.map((row) => row.vinno);
+      let missingRegnos = [];
+      if(result.rows.length !== normalizedRegnos.length) {
+        missingRegnos = normalizedRegnos.filter((regno) => !result.rows.some((row) => row.regno === regno));
+      }
+      return {
+        vinnos: result.rows.map((row) => row.vinno),
+        missingRegnos: missingRegnos,
+      };
     } catch (error) {
       this.logger.error(
         "Error fetching VIN numbers from registration numbers:",
