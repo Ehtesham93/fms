@@ -142,6 +142,11 @@ export default class PlatformSvc {
       if (item.isowner) {
         isassigned = true;
       }
+      if (item.issubscribed === 1) {
+        item.issubscribed = true;
+      } else {
+        item.issubscribed = false;
+      }
     });
     return {accounts: result, isassigned: isassigned};
   }

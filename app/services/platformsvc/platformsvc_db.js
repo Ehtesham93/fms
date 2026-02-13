@@ -802,11 +802,14 @@ export default class PlatformSvcDB {
         ft.name as fleetname,
         fv.isowner,
         fv.assignedat,
-        u1.displayname as assignedby
+        u1.displayname as assignedby,
+        avs.state as issubscribed
       FROM fleet_vehicle fv
       JOIN account a ON fv.accountid = a.accountid
       JOIN fleet_tree ft ON fv.accountid = ft.accountid AND fv.fleetid = ft.fleetid
       JOIN users u1 ON fv.assignedby = u1.userid
+      LEFT JOIN account_vehicle_subscription avs
+          ON a.accountid = avs.accountid AND fv.vinno = avs.vinno AND avs.state = 1
       WHERE fv.vinno = $1;
     `;
     let result = await this.pgPoolI.Query(query, [vinno]);
