@@ -758,12 +758,15 @@ export default class PUserHdlrImpl {
           accountname,
           status
         );
-      if (existingdonetask) {
-        return;
-      }
       const pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
         taskid
       );
+      if (existingdonetask) {
+        if (pendingaccount) {
+          await this.accountSvcI.DeletePendingAccountReviewById(taskid);
+        }
+        return;
+      }
       if (pendingaccount) {
         review_data = {
           accountname: pendingaccount.accountname,
@@ -798,7 +801,6 @@ export default class PUserHdlrImpl {
         updatedby: userid,
         entrytype: this.onboardingType,
       });
-      const deletependingaccount =
         await this.accountSvcI.DeletePendingAccountReviewById(taskid);
     } catch (error) {
       this.logger.error("Failed to add account to review done table", error);
@@ -2368,6 +2370,7 @@ export default class PUserHdlrImpl {
   }
   // Handle USER_REVIEW error
   async handleUserReviewError(taskid, pendinguser, userid, updatedfields) {
+    let nemo3_account_id = null;
     const original_input = pendinguser.original_input;
     const address =
       updatedfields.address !== original_input.customeraddress
