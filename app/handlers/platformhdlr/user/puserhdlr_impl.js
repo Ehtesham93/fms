@@ -1385,6 +1385,9 @@ export default class PUserHdlrImpl {
       }
       return null; // Success
     } catch (error) {
+      if (error.response.data.err.errcode && (error.response.data.err.errcode === "VEHICLE_ALREADY_ONBOARDED" || error.response.data.err.errcode === "VEHICLE_ONBOARDING_IN_PROCESS")) {
+          return null; // Success
+      }
       return {
         accountid: accountid,
         errcode: "SERVICE_ONBOARDING_FAILED",
