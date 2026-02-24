@@ -62,22 +62,26 @@ async function main() {
   }
 
   const unassignedVehiclesQuery = `SELECT 
+                                          t.taskid,
                                           t.accountid,
                                           t.accountname,
                                           t.vin,
                                           t.licenseplate,
-                                          t.userid
+                                          t.userid,
+                                          t.original_input
                                       FROM (
                                           SELECT 
+                                              rda.accountid as taskid,
                                               a.accountid,
                                               a.accountname,
                                               rda.original_input->>'vin' AS vin,
                                               rda.original_input->>'licenseplate' AS licenseplate,
+                                              rda.original_input as original_input,
                                               rda.createdby AS userid,
                                               rda.original_status
                                           FROM reviewdoneaccount rda JOIN account a on rda.accountname = a.accountname
                                       ) t
-                                      GROUP BY t.accountid, t.accountname, t.vin, t.licenseplate, t.userid
+                                      GROUP BY t.taskid, t.accountid, t.accountname, t.vin, t.licenseplate, t.userid, t.original_input
                                       HAVING 
                                           COUNT(*) FILTER (
                                               WHERE t.original_status = 'USER_ASSIGNMENT_SUCCESS'
@@ -119,6 +123,18 @@ async function main() {
             },
             vehicle.userid
         );
+        if(result){
+            await platformHdlrI.pUserHdlr.pUserHdlrImpl.AddAccountToReviewDone(
+                vehicle.taskid,
+                vehicle.accountname,
+                result,
+                vehicle.original_input,
+                vehicle.userid,
+                "Vehicle added successfully",
+                {},
+                "VEHICLE_ASSIGNMENT_SUCCESS"
+              );
+        }
         file.write(JSON.stringify(result) + '\n');
     }
   
