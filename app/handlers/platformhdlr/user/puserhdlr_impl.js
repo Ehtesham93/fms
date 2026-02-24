@@ -719,6 +719,27 @@ export default class PUserHdlrImpl {
     status = "REVIEWED_PENDING"
   ) => {
     try {
+      const existingpendingaccount = await this.accountSvcI.GetPendingAccountReviewById(taskid);
+      if (existingpendingaccount) {
+        await this.accountSvcI.UpdateReviewPendingAccount(
+          existingpendingaccount.accountid,
+          {
+            accountname: accountname,
+            error_status: error_status,
+            status: status,
+            reason: reason,
+            original_input: original_input,
+          },
+          userid
+        );
+
+        return {
+          errcode: error_status,
+          status: status,
+          message:
+            reason,
+        }
+      }
       await this.accountSvcI.AddReviewPendingAccount({
         accountid: taskid,
         accountname: accountname,
