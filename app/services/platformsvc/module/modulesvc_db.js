@@ -81,36 +81,23 @@ export default class ModuleSvcDB {
       // let createdbyname = await this.getUserName(module.createdby);
       // module.createdby = createdbyname;
       module.priority = newPriority;
-      await this.logModuleHistory(module, module.createdby, currtime, 'CREATE', {}, txclient);
-      await this.pgPoolI.TxCommit(txclient);
-      return module;
-    } catch (error) {
-      await this.pgPoolI.TxRollback(txclient);
-      throw error;
-    }
-  }
-
-  async logModuleHistory(module, updatedby, updatedat, action, previousstate, txclient) {
-    try {
-      const finalUpdatedBy = updatedby ?? module.updatedby;
-      const finalUpdatedAt = updatedat ?? module.updatedat;
-      const currentstate = action === 'DELETE' 
-        ? {} 
-        : {
-            modulename: module.modulename,
-            moduletype: module.moduletype,
-            modulecode: module.modulecode,
-            moduleinfo: module.moduleinfo,
-            creditspervehicleday: module.creditspervehicleday,
-            priority: module.priority,
-            isenabled: module.isenabled,
-          };
-      let query = 
+      const previousstate = {};
+      const currentstate =  
+        {
+          modulename: module.modulename,
+          moduletype: module.moduletype,
+          modulecode: module.modulecode,
+          moduleinfo: module.moduleinfo,
+          creditspervehicleday: module.creditspervehicleday,
+          priority: module.priority,
+          isenabled: module.isenabled,
+        };
+      query = 
       `
-            INSERT INTO module_history (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, priority, isenabled, updatedat, updatedby, action, previousstate, currentstate) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          INSERT INTO module_history (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, priority, isenabled, updatedat, updatedby, action, previousstate, currentstate) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         `;
-      const result = await txclient.query(query, [
+      result = await txclient.query(query, [
         module.moduleid,
         module.modulename,
         module.moduletype,
@@ -119,74 +106,23 @@ export default class ModuleSvcDB {
         module.creditspervehicleday,
         module.priority,
         module.isenabled,
-        finalUpdatedAt,
-        finalUpdatedBy,
-        action,
+        currtime,
+        module.createdby,
+        'CREATE',
         JSON.stringify(previousstate),
         JSON.stringify(currentstate),
       ]); 
       if (result.rowCount !== 1) {
         throw new Error("Failed to log module history");
       }
-      return true;
+      await this.pgPoolI.TxCommit(txclient);
+      return module;
     } catch (error) {
       await this.pgPoolI.TxRollback(txclient);
       throw error;
     }
   }
 
-  async logModulePermHistory(moduleid, permid, isenabled, action, updatedby, updateFields, txclient = null) {
-    try{
-      let currtime = new Date();
-      
-      // Get modperminfo - either from updateFields or query from database
-      let modperminfo = updateFields?.modperminfo || {};
-      
-      if (!modperminfo) {
-        let query = `SELECT modperminfo from module_perm where moduleid = $1 AND permid = $2`;
-        if (txclient) {
-          const {rows} = await txclient.query(query, [moduleid, permid]);
-          modperminfo = rows[0]?.modperminfo || {};
-        } else {
-          const {rows} = await this.pgPoolI.Query(query, [moduleid, permid]);
-          modperminfo = rows[0]?.modperminfo || {};
-        }
-      }
-
-      let query = `
-        INSERT INTO module_perm_history (
-          moduleid,
-          permid,
-          isenabled,
-          modperminfo,
-          updatedat,
-          updatedby,
-          action
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
-      `;
-      
-      const queryParams = [
-        moduleid,
-        permid,
-        isenabled,
-        modperminfo,
-        currtime,
-        updatedby,
-        action,
-      ];
-      
-      if (txclient) {
-        await txclient.query(query, queryParams);
-      } else {
-        await this.pgPoolI.Query(query, queryParams);
-      }
-    }
-    catch(error){
-      this.logger.error("module history insert failed", { moduleid, permid, err: error });
-      throw error;
-    }
-  }
 
   async getModuleHistory(starttime, endtime){
     try{
@@ -260,6 +196,7 @@ export default class ModuleSvcDB {
   }
 
   async updateModule(moduleid, updateFields, updatedby) {
+    let currtime = new Date();
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
@@ -341,7 +278,7 @@ export default class ModuleSvcDB {
         isenabled: previousState.isenabled,
       };
 
-      let module = {
+      let currentStateJson = {
         moduleid: currentState.moduleid,
         modulename: currentState.modulename,
         moduletype: currentState.moduletype,
@@ -350,11 +287,34 @@ export default class ModuleSvcDB {
         creditspervehicleday: currentState.creditspervehicleday,
         priority: currentState.priority,
         isenabled: currentState.isenabled,
-        updatedat: currentState.updatedat,
-        updatedby: currentState.updatedby,
       };
 
-      await this.logModuleHistory(module, updatedby, currtime, 'UPDATE', previousStateJson, txclient);
+      query = 
+        `
+          INSERT INTO module_history (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, priority, isenabled, updatedat, updatedby, action, previousstate, currentstate) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        `;
+      result = await txclient.query(query, [
+        moduleid,
+        currentState.modulename,
+        currentState.moduletype,
+        currentState.modulecode,
+        currentState.moduleinfo,
+        currentState.creditspervehicleday,
+        currentState.priority,
+        currentState.isenabled,
+        currentState.updatedat,
+        currentState.updatedby,
+        'UPDATE',
+        JSON.stringify(previousStateJson),
+        JSON.stringify(currentStateJson),
+      ]); 
+
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log module history");
+      }
+
+      // await this.logModuleHistory(module, updatedby, currtime, 'UPDATE', previousStateJson, txclient);
       await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
@@ -412,15 +372,45 @@ export default class ModuleSvcDB {
         throw new Error("Failed to add module permission");
       }
 
-      await this.logModulePermHistory(
+      let modperminfo = moduleperminfo;
+
+
+      query = `
+        INSERT INTO module_perm_history (
+          moduleid,
+          permid,
+          isenabled,
+          modperminfo,
+          updatedat,
+          updatedby,
+          action
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `;
+      
+      result = await txclient.query(query, [
         moduleid,
         permid,
         isenabled,
-        'CREATED',
+        modperminfo,
+        currtime,
         createdby,
-        { modperminfo: moduleperminfo },
-        txclient
-      );
+        'CREATED',
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log module perm history");
+      }
+
+
+      // await this.logModulePermHistory(
+      //   moduleid,
+      //   permid,
+      //   isenabled,
+      //   'CREATED',
+      //   createdby,
+      //   { modperminfo: moduleperminfo },
+      //   txclient
+      // );
 
       await this.pgPoolI.TxCommit(txclient);
       return true;
@@ -496,13 +486,13 @@ export default class ModuleSvcDB {
         });
       }
 
-      await this.logModulePermHistory(
-        moduleid,
-        permids,
-        'CREATED',
-        createdby,
-        { isenabled: true }
-      );
+      // await this.logModulePermHistory(
+      //   moduleid,
+      //   permids,
+      //   'CREATED',
+      //   createdby,
+      //   { isenabled: true }
+      // );
 
       await this.pgPoolI.TxCommit(txclient);
       return true;
@@ -582,17 +572,31 @@ export default class ModuleSvcDB {
       const currentState = result.rows[0];
       const isenabled = currentState.isenabled;
 
-      await this.logModulePermHistory(
+      query = `INSERT INTO module_perm_history (moduleid, permid, isenabled, modperminfo, updatedat, updatedby, action) VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+      result = await txclient.query(query, [
         moduleid,
         permid,
         isenabled,
-        isenabled ? 'ENABLED' : 'DISABLED',
+        currentState.modperminfo,
+        currtime,
         updatedby,
-        { isenabled: isenabled,
-          modperminfo: currentState.modperminfo 
-        },
-        txclient
-      );
+        'UPDATED',
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log module perm history");
+      }
+
+      // await this.logModulePermHistory(
+      //   moduleid,
+      //   permid,
+      //   isenabled,
+      //   isenabled ? 'ENABLED' : 'DISABLED',
+      //   updatedby,
+      //   { isenabled: isenabled,
+      //     modperminfo: currentState.modperminfo 
+      //   },
+      //   txclient
+      // );
       await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
@@ -605,6 +609,7 @@ export default class ModuleSvcDB {
   }
 
   async deleteModulePerm(moduleid, permid, updatedby) {
+    let currtime = new Date();
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
@@ -655,15 +660,29 @@ export default class ModuleSvcDB {
         error.errcode = "PERMISSION_NOT_FOUND";
         throw error;
       }
-      await this.logModulePermHistory(
+
+      let modperminfoquery = `
+                      SELECT modperminfo FROM module_perm WHERE moduleid = $1 AND permid = $2
+                      `;
+      let modperminforesult = await txclient.query(modperminfoquery, [moduleid, permid]);
+      if (result.rowCount === 0) {
+        throw new Error("Failed to get module permission info");
+      }
+      let modperminfo = modperminforesult.rows[0].modperminfo;
+
+      query = `INSERT INTO module_perm_history (moduleid, permid, isenabled, modperminfo, updatedat, updatedby, action) VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+      result = await txclient.query(query, [
         moduleid,
         permid,
         false,
-        'DELETED',
+        modperminfo,
+        currtime,
         updatedby,
-        {modperminfo: {}},
-        txclient
-      );
+        'DISABLED',
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log module perm history");
+      }
 
       query = `
                 DELETE FROM module_perm WHERE moduleid = $1 AND permid = $2
@@ -770,28 +789,40 @@ export default class ModuleSvcDB {
         throw new Error("Failed to delete module");
       }
       
-      let moduleForHistory = {
-        moduleid: module.moduleid,
-        modulename: module.modulename,
-        moduletype: module.moduletype,
-        modulecode: module.modulecode,
-        moduleinfo: module.moduleinfo,
-        creditspervehicleday: module.creditspervehicleday,
-        priority: module.priority,
-        isenabled: module.isenabled,
-        updatedat: deletedat,
-        updatedby: deletedby,
-      };
+
+      query = 
+      `
+        INSERT INTO module_history (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, priority, isenabled, updatedat, updatedby, action, previousstate, currentstate) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `;
+      result = await txclient.query(query, [
+        moduleid,
+        module.modulename,
+        module.moduletype,
+        module.modulecode,
+        module.moduleinfo,
+        module.creditspervehicleday,
+        module.priority,
+        module.isenabled,
+        deletedat,
+        deletedby,
+        'DELETE',
+        JSON.stringify(previousStateJson),
+        JSON.stringify({}),
+      ]); 
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log module history");
+      }
 
       
-      await this.logModuleHistory(
-        moduleForHistory,
-        deletedby,
-        deletedat,
-        'DELETE',
-        previousStateJson,
-        txclient
-      );
+      // await this.logModuleHistory(
+      //   moduleForHistory,
+      //   deletedby,
+      //   deletedat,
+      //   'DELETE',
+      //   previousStateJson,
+      //   txclient
+      // );
 
       await this.pgPoolI.TxCommit(txclient);
       return {

@@ -233,9 +233,10 @@ export default class ModuleHdlrImpl {
       moduleid
     );
     if (isAssignedToPackage) {
-      throw new Error(
-        "Cannot delete module. It is assigned to one or more packages"
-      );
+      throw {
+        errcode: "MODULE_ASSIGNED_TO_PACKAGES",
+        message: "Cannot delete module. It is assigned to one or more packages",
+      };
     }
     let res = await this.moduleSvcI.DeleteModule(moduleid, deletedby);
     if (!res) {

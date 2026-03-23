@@ -6,6 +6,7 @@ import RedisSvc from "../app/utils/redissvc.js";
 import {
   seedUser,
   seedSuperAdmin,
+  seedAccountCategory,
   seedConsoleAccount,
   seedModule,
   seedVehicleModelFamily,
@@ -112,6 +113,7 @@ async function main() {
   try {
     let userid = await seedUser(tx);
     await seedAllPermId(tx, userid);
+    await seedAccountCategory(tx, userid);
     let commiterr = await pgPoolI.TxCommit(tx);
     if (commiterr) {
       throw commiterr;

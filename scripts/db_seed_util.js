@@ -294,6 +294,29 @@ export async function seedAllPermId(pgPoolTx, createdby) {
   }
 }
 
+export async function seedAccountCategory(pgPoolTx, createdby) {
+  try {
+    let currtime = new Date();
+    let accountcategories = [
+      { categorycode: "individual", categoryname: "Individual", ischargeable: false },
+      { categorycode: "corporate", categoryname: "Corporate", ischargeable: true },
+      { categorycode: "aggregator", categoryname: "Aggregator", ischargeable: true },
+      { categorycode: "financier", categoryname: "Financier", ischargeable: true },
+      { categorycode: "console", categoryname: "Console", ischargeable: false },
+    ];
+    for (const accountcategory of accountcategories) {
+      let stmt = `insert into accountcategory (categorycode, categoryname, ischargeable, updatedat, updatedby) values ($1, $2, $3, $4, $5) ON CONFLICT (categorycode) DO NOTHING`;
+      let res = await pgPoolTx.query(stmt, [accountcategory.categorycode, accountcategory.categoryname, accountcategory.ischargeable, currtime, createdby]);
+      if (res.rowCount === 1) {
+        console.log(`Inserted account category: ${accountcategory.categorycode}`);
+      }
+    }
+  } catch (error) {
+    console.error(`Error creating account category: ${error.message}`);
+    throw new Error(`Failed to seed account category: ${error.message}`);
+  }
+}
+
 export async function seedConsoleAccount(platformHdlrI, createdby) {
   try {
     let existingAccount = null;
@@ -315,7 +338,8 @@ export async function seedConsoleAccount(platformHdlrI, createdby) {
         true,
         createdby,
         "0000000000",
-        "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        "console"
       );
     console.log("Account created:", account);
   } catch (error) {

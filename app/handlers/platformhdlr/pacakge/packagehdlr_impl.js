@@ -1,13 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
 
 export default class PlatformHdlrImpl {
-  constructor(platformSvcI, logger) {
-    this.platformSvcI = platformSvcI;
+  constructor(packageSvcI, logger) {
+    this.packageSvcI = packageSvcI;
     this.logger = logger;
   }
 
   CreatePackageTypeLogic = async (pkgtype, createdby) => {
-    let res = await this.platformSvcI.CreatePackageType(pkgtype, createdby);
+    let res = await this.packageSvcI.CreatePackageType(pkgtype, createdby);
     if (!res) {
       this.logger.error("Failed to create package type");
       throw new Error("Failed to create package type");
@@ -18,7 +18,7 @@ export default class PlatformHdlrImpl {
   };
 
   GetPackageTypesLogic = async () => {
-    let res = await this.platformSvcI.GetAllPackageTypes();
+    let res = await this.packageSvcI.GetAllPackageTypes();
     if (!res) {
       res = [];
     }
@@ -36,7 +36,7 @@ export default class PlatformHdlrImpl {
       pkginfo: pkginfo,
       isenabled: isenabled,
     };
-    let res = await this.platformSvcI.CreatePackage(pkg, createdby);
+    let res = await this.packageSvcI.CreatePackage(pkg, createdby);
     if (!res) {
       this.logger.error("Failed to create package");
       throw new Error("Failed to create package");
@@ -59,7 +59,7 @@ export default class PlatformHdlrImpl {
     if (Object.keys(filteredFields).length === 0) {
       throw new Error("No valid fields provided for update");
     }
-    const res = await this.platformSvcI.UpdatePackage(
+    const res = await this.packageSvcI.UpdatePackage(
       pkgid,
       filteredFields,
       updatedby
@@ -75,7 +75,7 @@ export default class PlatformHdlrImpl {
   };
 
   ListPackagesLogic = async () => {
-    let pkgs = await this.platformSvcI.GetAllPackages();
+    let pkgs = await this.packageSvcI.GetAllPackages();
     if (!pkgs) {
       pkgs = [];
     }
@@ -83,20 +83,20 @@ export default class PlatformHdlrImpl {
   };
 
   GetPkgInfoLogic = async (pkgid) => {
-    let pkg = await this.platformSvcI.GetPkgInfo(pkgid);
+    let pkg = await this.packageSvcI.GetPkgInfo(pkgid);
     if (!pkg) {
       this.logger.error("Package not found");
       throw new Error("Package not found");
     }
 
     // get all modules
-    let allModules = await this.platformSvcI.GetAllModulesInfo();
+    let allModules = await this.packageSvcI.GetAllModulesInfo();
     if (!allModules) {
       allModules = [];
     }
 
     // get modules assigned to this package
-    let modules = await this.platformSvcI.GetPkgModules(pkgid);
+    let modules = await this.packageSvcI.GetPkgModules(pkgid);
     if (!modules) {
       modules = [];
     }
@@ -121,7 +121,7 @@ export default class PlatformHdlrImpl {
     deselectedmodules,
     updatedby
   ) => {
-    const success = await this.platformSvcI.UpdatePkgModules(
+    const success = await this.packageSvcI.UpdatePkgModules(
       pkgid,
       selectedmodules,
       deselectedmodules,
@@ -140,7 +140,7 @@ export default class PlatformHdlrImpl {
   };
 
   DeletePackageLogic = async (pkgid, deletedby) => {
-    let pkg = await this.platformSvcI.GetPkgInfo(pkgid);
+    let pkg = await this.packageSvcI.GetPkgInfo(pkgid);
     if (!pkg) {
       this.logger.error("Package not found");
       throw {
@@ -151,7 +151,7 @@ export default class PlatformHdlrImpl {
     }
 
     let isAssignedToAccount =
-      await this.platformSvcI.IsPackageAssignedToAccount(pkgid);
+      await this.packageSvcI.IsPackageAssignedToAccount(pkgid);
     if (isAssignedToAccount) {
       throw {
         errcode: "PACKAGE_IN_USE",
@@ -161,7 +161,7 @@ export default class PlatformHdlrImpl {
       };
     }
 
-    let hasModules = await this.platformSvcI.DoesPackageHaveModules(pkgid);
+    let hasModules = await this.packageSvcI.DoesPackageHaveModules(pkgid);
     if (hasModules) {
       throw {
         errcode: "PACKAGE_HAS_MODULES",
@@ -170,7 +170,7 @@ export default class PlatformHdlrImpl {
       };
     }
 
-    let hasHistory = await this.platformSvcI.DoesPackageHaveHistory(pkgid);
+    let hasHistory = await this.packageSvcI.DoesPackageHaveHistory(pkgid);
     if (hasHistory) {
       throw {
         errcode: "PACKAGE_HAS_HISTORY",
@@ -180,7 +180,7 @@ export default class PlatformHdlrImpl {
       };
     }
 
-    let res = await this.platformSvcI.DeletePackage(pkgid, deletedby);
+    let res = await this.packageSvcI.DeletePackage(pkgid, deletedby);
     if (!res) {
       this.logger.error("Failed to delete package");
       throw new Error("Failed to delete package");
@@ -196,7 +196,7 @@ export default class PlatformHdlrImpl {
 
 
   GetPackageHistoryLogic = async (starttime, endtime) => {
-    let history = await this.platformSvcI.GetPackageHistory(starttime, endtime);
+    let history = await this.packageSvcI.GetPackageHistory(starttime, endtime);
     if (!history) {
       history = [];
     }
@@ -204,7 +204,7 @@ export default class PlatformHdlrImpl {
   };
 
   GetPackageModHistoryLogic = async (starttime, endtime) => {
-    let history = await this.platformSvcI.GetPackageModHistory(starttime, endtime);
+    let history = await this.packageSvcI.GetPackageModHistory(starttime, endtime);
     if (!history) {
       history = [];
     }

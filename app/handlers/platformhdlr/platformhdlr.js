@@ -18,6 +18,8 @@ import RoleHdlr from "./role/rolehdlr.js";
 import PUserHdlr from "./user/puserhdlr.js";
 import VehicleHdlr from "./vehicle/vehiclehdlr.js";
 import MetaHdlr from "./meta/metahdlr.js";
+import SubscriptionHdlr from "./subscription/subscriptionhdlr.js";
+import AlertHdlr from "./alert/alerthdlr.js";
 import { CheckUserPerms } from "../../utils/permissionutil.js";
 import { CheckUserStatusMiddleware } from "../../utils/permissionutil.js";
 export default class PlatformHdlr {
@@ -29,7 +31,8 @@ export default class PlatformHdlr {
     historyDataSvcI,
     inMemCacheI,
     redisSvc,
-    logger
+    logger,
+    pgPoolI
   ) {
     this.platformSvcI = platformSvcI;
     this.userSvcI = userSvcI;
@@ -39,6 +42,7 @@ export default class PlatformHdlr {
     this.inMemCacheI = inMemCacheI;
     this.redisSvc = redisSvc;
     this.logger = logger;
+    this.pgPoolI = pgPoolI;
     this.platformHdlrImpl = new PlatformHdlrImpl(
       platformSvcI,
       userSvcI,
@@ -83,6 +87,8 @@ export default class PlatformHdlr {
     );
     this.vehicleHdlr = new VehicleHdlr(platformSvcI, historyDataSvcI, fmsAccountSvcI, platformSvcI.getMetaSvc(), redisSvc, logger);
     this.metaHdlr = new MetaHdlr(platformSvcI.getMetaSvc(), logger);
+    this.subscriptionHdlr = new SubscriptionHdlr(platformSvcI.getSubscriptionSvc(), platformSvcI.getPackageSvc(), platformSvcI.getAccountSvc(), historyDataSvcI, pgPoolI, logger, this.accountHdlr);
+    this.alertHdlr = new AlertHdlr(platformSvcI.getAlertSvc(), pgPoolI, logger);
   }
 
   GetUserPermsHelper = async (req, res, next) => {
@@ -135,6 +141,12 @@ export default class PlatformHdlr {
     metaRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.metaHdlr.RegisterRoutes(metaRouter);
     router.use("/meta", metaRouter);
+
+    let subscriptionRouter = promiserouter();
+    subscriptionRouter.use(AuthenticateUserTokenFromCookie);
+    subscriptionRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
+    this.subscriptionHdlr.RegisterRoutes(subscriptionRouter);
+    router.use("/subscription", subscriptionRouter);
 
     const authRouter = promiserouter();
     authRouter.use(AuthenticateUserTokenFromCookie);
@@ -204,6 +216,13 @@ export default class PlatformHdlr {
     vehicleRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
     this.vehicleHdlr.RegisterRoutes(vehicleRouter);
     router.use("/vehicle", vehicleRouter);
+
+    //alerts
+    let alertRouter = promiserouter();
+    alertRouter.use(AuthenticateUserTokenFromCookie);
+    alertRouter.use(CheckUserStatusMiddleware(this.userSvcI, this.logger));
+    this.alertHdlr.RegisterRoutes(alertRouter);
+    router.use("/alert", alertRouter);
   }
 
   ValidateEpochTime = (timeStr, fieldName) => {

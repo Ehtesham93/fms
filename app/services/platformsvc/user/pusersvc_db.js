@@ -12,7 +12,7 @@ import {
   markInviteAsExpired,
   updateInviteExpiryAndSendEmail,
 } from "../../../utils/inviteUtil.js";
-import { addPaginationToQuery } from "../../../utils/commonutil.js";
+import {v4 as uuidv4} from "uuid";
 export default class PUserSvcDB {
   /**
    *
@@ -248,6 +248,278 @@ export default class PUserSvcDB {
         fleetid: fleetid,
         success: true,
         inviteid: inviteid,
+        isUpdated: false,
+      };
+    } catch (e) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
+      throw e;
+    }
+  }
+
+  async triggerMahindrassoInviteToRootFleet(
+    accountid,
+    inviteid,
+    email,
+    invitedby,
+    roleids,
+    headerReferer
+  ) {
+    let currtime = new Date();
+
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
+
+    try {
+
+      let query = `
+                    SELECT fleetid FROM account_fleet WHERE accountid = $1 AND isroot = true
+                `;
+      let result = await txclient.query(query, [accountid]);
+      if (result.rowCount !== 1) {
+        throw new Error("Account root fleet not found");
+      }
+      let fleetid = result.rows[0].fleetid;
+
+      // check if email already exists in user sso table
+      let redundantInvite = await isRedundantInvite(
+        accountid,
+        fleetid,
+        email,
+        roleids,
+        txclient
+      );
+      if (redundantInvite) {
+        this.logger.info(
+          `pusersvc_db.triggerEmailInviteToRootFleet: Redundant invite. accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteid}, email: ${email}, roleids: ${roleids}, invitedby: ${invitedby}, headerReferer: ${headerReferer}`
+        );
+        throw new Error("Email already invited to fleet with same role");
+      }
+
+      // Check if mahindrasso id already exists in user sso table
+      query = `
+        SELECT userid FROM mahindra_sso WHERE ssoid = $1 or secondaryssoid = $1
+      `;
+      result = await txclient.query(query, [email]);
+      let existingUser = null;
+
+      if (result.rowCount > 0) {
+        // User already exists, get user details
+        existingUser = result.rows[0].userid;
+      } else {
+        // Create new user with mobile number
+        const userid = uuidv4();
+
+        // Create user record
+        query = `
+          INSERT INTO users (userid, displayname, usertype, userinfo, isenabled, isdeleted, isemailverified, ismobileverified, createdat, createdby, updatedat, updatedby) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        `;
+        result = await txclient.query(query, [
+          userid,
+          email,
+          null,
+          {},
+          true,
+          false,
+          false,
+          false,
+          currtime,
+          invitedby,
+          currtime,
+          invitedby,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create user");
+        }
+
+        // Create mobile_sso record
+        query = `
+          INSERT INTO mahindra_sso (ssoid, userid, ssoinfo, secondaryssoid, createdat, updatedat) VALUES ($1, $2, $3, $4, $5, $6)
+        `;
+        result = await txclient.query(query, [
+          email,
+          userid,
+          {},
+          email,
+          currtime,
+          currtime,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create mobile sso");
+        }
+
+        // Create user_sso record
+        query = `
+          INSERT INTO user_sso (userid, ssotype, ssoid, updatedat) VALUES ($1, $2, $3, $4)
+        `;
+        result = await txclient.query(query, [
+          userid,
+          "MAHINDRA_SSO",
+          email,
+          currtime,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create user sso");
+        }
+
+        existingUser = userid;
+      }
+
+      // Check for existing pending invites for this email and role combinations
+      query = `
+                    SELECT inviteid, invitestatus, roleid, expiresat FROM fleet_invite_pending 
+                    WHERE accountid = $1 AND fleetid = $2 AND contact = $3 AND invitetype = $4 AND invitestatus = $5 AND roleid = ANY($6)
+                `;
+      result = await txclient.query(query, [
+        accountid,
+        fleetid,
+        email,
+        FLEET_INVITE_TYPE.EMAIL,
+        FLEET_INVITE_STATUS.PENDING,
+        roleids,
+      ]);
+
+      if (result?.rows?.length > 0) {
+        let inviteToUpdate = null;
+
+        for (const row of result.rows) {
+          // mark the invite as expired if it's expired
+          if (new Date(row.expiresat) < currtime) {
+            this.logger.info(
+              `pusersvc_db.triggerEmailInviteToRootFleet: markInviteAsExpired: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${row.inviteid}`
+            );
+            await markInviteAsExpired(
+              accountid,
+              fleetid,
+              row.inviteid,
+              currtime,
+              FLEET_INVITE_STATUS.EXPIRED,
+              txclient
+            );
+          } else {
+            // if we find a matching role, we can update that invite
+            if (roleids.includes(row.roleid) && !inviteToUpdate) {
+              inviteToUpdate = row;
+            }
+          }
+        }
+
+        if (inviteToUpdate) {
+          // update the expiry and trigger email again and exit
+          this.logger.info(
+            `pusersvc_db.triggerEmailInviteToRootFleet: updateInviteExpiry: accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteToUpdate.inviteid}, roleid: ${inviteToUpdate.roleid}, currtime: ${currtime}`
+          );
+          let res = await updateInviteExpiryAndSendEmail(
+            accountid,
+            fleetid,
+            inviteToUpdate.inviteid,
+            { email: email, roleid: inviteToUpdate.roleid },
+            currtime,
+            headerReferer,
+            email,
+            txclient
+          );
+
+          let commiterr = await this.pgPoolI.TxCommit(txclient);
+          if (commiterr) {
+            throw commiterr;
+          }
+          return {
+            accountid: accountid,
+            fleetid: fleetid,
+            inviteid: inviteToUpdate.inviteid,
+            success: true,
+            isUpdated: true,
+          };
+        }
+      }
+
+      this.logger.info(
+        `pusersvc_db.triggerEmailInviteToRootFleet: Sending new invite. accountid: ${accountid}, fleetid: ${fleetid}, inviteid: ${inviteid}, email: ${email}, roleids: ${roleids}, invitedby: ${invitedby}, headerReferer: ${headerReferer}`
+      );
+
+      let expiresat = new Date(currtime.getTime() + FLEET_INVITE_EXPIRY_TIME);
+
+      // Insert invites for each role (since new schema stores one role per row)
+      for (const roleid of roleids) {
+        query = `
+                      INSERT INTO fleet_invite_pending (inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby) 
+                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                  `;
+        result = await txclient.query(query, [
+          inviteid,
+          accountid,
+          fleetid,
+          email,
+          roleid,
+          FLEET_INVITE_TYPE.EMAIL,
+          FLEET_INVITE_STATUS.PENDING,
+          expiresat,
+          currtime,
+          invitedby,
+          currtime,
+          invitedby,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create invite pending record");
+        }
+      }
+
+      query = `
+                    SELECT accountname FROM account WHERE accountid = $1 AND isdeleted = false
+                `;
+      result = await txclient.query(query, [accountid]);
+      if (result.rowCount !== 1) {
+        throw new Error("Account not found");
+      }
+      const accountname = result.rows[0].accountname;
+
+      query = `
+                    SELECT name FROM fleet_tree WHERE accountid = $1 AND fleetid = $2
+                `;
+      result = await txclient.query(query, [accountid, fleetid]);
+      if (result.rowCount !== 1) {
+        throw new Error("Fleet not found");
+      }
+      const fleetname = result.rows[0].name;
+
+      // get email invite template
+      let emailTemplate = await getInviteEmailTemplate(
+        accountid,
+        fleetid,
+        inviteid,
+        accountname,
+        fleetname,
+        headerReferer,
+        email
+      );
+
+      query = `
+                    INSERT INTO pending_email (email, nextattempt, nretriespending) VALUES ($1, $2, $3)
+                `;
+      result = await txclient.query(query, [emailTemplate, currtime, 5]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to create pending email");
+      }
+
+      
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+
+      return {
+        accountid: accountid,
+        fleetid: fleetid,
+        email: email,
+        inviteid: inviteid,
+        success: true,
         isUpdated: false,
       };
     } catch (e) {

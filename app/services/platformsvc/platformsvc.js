@@ -6,6 +6,8 @@ import PUserSvc from "./user/pusersvc.js";
 import AccountSvc from "./account/accountsvc.js";
 import ModelSvc from "./model/modelsvc.js";
 import MetaSvc from "./meta/metasvc.js";
+import SubscriptionSvc from "./subscription/subscriptionsvc.js";
+import AlertSvc from "./alert/alertsvc.js";
 export default class PlatformSvc {
   constructor(pgPoolI, logger, config) {
     this.pgPoolI = pgPoolI;
@@ -19,6 +21,8 @@ export default class PlatformSvc {
     this.accountSvc = new AccountSvc(pgPoolI, logger, config);
     this.modelSvc = new ModelSvc(pgPoolI, logger);
     this.metaSvc = new MetaSvc(pgPoolI, logger);
+    this.subscriptionSvc = new SubscriptionSvc(pgPoolI, logger, config);
+    this.alertSvc = new AlertSvc(pgPoolI, logger, config);
   }
 
   async GetAllPlatformModulesInfo() {
@@ -51,6 +55,13 @@ export default class PlatformSvc {
 
   getMetaSvc() {
     return this.metaSvc;
+  }
+  getSubscriptionSvc() {
+    return this.subscriptionSvc;
+  }
+
+  getAlertSvc() {
+    return this.alertSvc;
   }
 
   async CreateVehicle(vinno, modelcode, vehicleinfo, mobileno, assignedby) {

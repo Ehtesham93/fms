@@ -1214,12 +1214,20 @@ export default class PUserHdlr {
       this.logger.error("ResetUserPassword error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      } else if (e.errcode === "CANNOT_RESET_MAHINDRA_SSO_USER") {
+        APIResponseForbidden(
+          req,
+          res,
+          "CANNOT_RESET_MAHINDRA_SSO_USER",
+          null,
+          e.message
+        );
       } else {
         APIResponseInternalErr(
           req,
           res,
           "RESET_USER_PASSWORD_ERR",
-          e.toString(),
+          null,
           "Reset user password failed"
         );
       }

@@ -1622,6 +1622,14 @@ export default class ModelHdlr {
                   { message: "Invalid ModelManual URL format" }
                 )
                 .optional(),
+              brochurespecs: z
+                .object({
+                  range: z.string().optional(),
+                  battery_capacity: z.string().optional(),
+                  co2_emission_factor: z.string().optional(),
+                  fuel_price_factor: z.string().optional(),
+                })
+                .optional(),
             })
             .strict()
             .optional(),

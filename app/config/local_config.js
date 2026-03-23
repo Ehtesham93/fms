@@ -148,8 +148,6 @@ export default {
     },
   },
   mahindrasso: {
-    baseurl: "https://mserverservices.mahindra.com",
-    tokenrequestpath: "/epauth/client/tokenRequest",
-    secretkey: "M@h1ndra$1234567",  
+    secretkey: "MySecretKey12345",  
   },
 };

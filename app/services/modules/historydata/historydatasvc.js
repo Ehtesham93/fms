@@ -92,33 +92,45 @@ export default class HistoryDataSvc {
             let connectionstatus = false;
             if(accountDetails && accountDetails.size > 0) {
               const accountDetail = accountDetails.get(vin);
-              if(accountDetail && accountDetail.accountid) {
+              const account = accountDetail?.account;
+              if(account && account?.accountid) {
                 let lastConnectedTime = Math.max(lastConnectedData[vin].can.utctime, lastConnectedData[vin].gps.utctime);
                 if (Date.now() - lastConnectedTime < 24 * 60 * 60 * 1000) {
                   connectionstatus = true;
                 } else {
                   connectionstatus = false;
                 }
+                let taggedvehicle = null;
+                if(accountDetail?.taggedvehicle) {
+                  taggedvehicle = accountDetail.taggedvehicle;
+                }
                 response.push({
                   vinno: vin,
-                  accountid: accountDetail.accountid,
-                  accountname: accountDetail.accountname,
-                  regno: accountDetail.regno,
-                  vehiclecity: accountDetail.vehicle_city,
-                  modelcode: accountDetail.modelcode,
-                  deliverydate: accountDetail.delivered_date,
-                  onboardeddate: accountDetail.createdat,
+                  accountid: account.accountid,
+                  accountname: account.accountname,
+                  fleetname: account.fleetname,
+                  fleetid: account.fleetid,
+                  regno: account.regno,
+                  vehiclecity: account.vehicle_city,
+                  modelcode: account.modelcode,
+                  deliverydate: account.delivered_date,
+                  onboardeddate: account.createdat,
                   lastconnectedtime: formatEpochToDateTime(lastConnectedTime),
                   lat: lastConnectedData[vin].gps.lat,
                   lng: lastConnectedData[vin].gps.lng,
-                  status: "FOUND",
+                  status: "AVAILABLE",
                   connectionstatus: connectionstatus,
+                  subscriptionstatus: account.subscription_status,
+                  assignedby: account.assignedby,
+                  taggedvehicle: taggedvehicle,
                 });
               }else{
                 response.push({
                   vinno: vin,
                   accountid: "NA",
                   accountname: "NA",
+                  fleetname: "NA",
+                  fleetid: "NA",
                   regno: "NA",
                   vehiclecity: "NA",
                   modelcode: "NA",
@@ -127,8 +139,11 @@ export default class HistoryDataSvc {
                   lastconnectedtime: "NA",
                   lat: "NA",
                   lng: "NA",
-                  status: "NOT FOUND",
+                  status: "NOT AVAILABLE",
                   connectionstatus: connectionstatus,
+                  subscriptionstatus: "NA",
+                  assignedby: "NA",
+                  taggedvehicle: "NA",
                 });
               }
             }else{
@@ -136,6 +151,8 @@ export default class HistoryDataSvc {
                 vinno: vin,
                 accountid: "NA",
                 accountname: "NA",
+                fleetname: "NA",
+                fleetid: "NA",
                 regno: "NA",
                 vehiclecity: "NA",
                 modelcode: "NA",
@@ -144,8 +161,11 @@ export default class HistoryDataSvc {
                 lastconnectedtime: "NA",
                 lat: "NA",
                 lng: "NA",
-                status: "NOT FOUND",
+                status: "NOT AVAILABLE",
                 connectionstatus: connectionstatus,
+                subscriptionstatus: "NA",
+                assignedby: "NA",
+                taggedvehicle: "NA",
               });
             }
           }
@@ -157,6 +177,8 @@ export default class HistoryDataSvc {
             vinno: "NA",
             accountid: "NA",
             accountname: "NA",
+            fleetname: "NA",
+            fleetid: "NA",
             regno: regno,
             vehiclecity: "NA",
             modelcode: "NA",
@@ -165,8 +187,11 @@ export default class HistoryDataSvc {
             lastconnectedtime: "NA",
             lat: "NA",
             lng: "NA",
-            status: "NOT FOUND",
+            status: "NOT AVAILABLE",
             connectionstatus: false,
+            subscriptionstatus: "NA",
+            assignedby: "NA",
+            taggedvehicle: "NA",
           });
         }
       }
@@ -174,6 +199,15 @@ export default class HistoryDataSvc {
     } catch (error) {
       this.logger.error("Error fetching vehicle last connected data:", error);
       throw new Error("Failed to fetch vehicle last connected data");
+    }
+  }
+
+  async ValidateVins(value, type, accountid) {
+    try {
+      return await this.historyDataSvcDB.validateVins(value, type, accountid);
+    } catch (error) {
+      this.logger.error("Error validating VINs:", error);
+      throw new Error("Failed to validate VINs");
     }
   }
 }

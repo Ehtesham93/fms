@@ -674,6 +674,8 @@ export default class ModuleHdlr {
         return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else if(e.code === '23503' && e.constraint === 'module_perm_permid_fkey'){
         return APIResponseBadRequest(req, res, 'PERMISSION_ASSOCIATED_WITH_MODULES', null, "Cannot delete module. Remove assigned permissions and try again.");
+      } else if(e.errcode === 'MODULE_ASSIGNED_TO_PACKAGES'){
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -826,9 +828,9 @@ export default class ModuleHdlr {
         modulecode: z
           .string({ message: "Invalid Module Code format" })
           .nonempty({ message: "Module Code cannot be empty" })
-          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 _-]*[A-Za-z0-9])?$/, {
+          .regex(/^[A-Za-z0-9](?:[A-Za-z0-9_]*[A-Za-z0-9])?$/, {
             message:
-              "Module Code can only contain letters, numbers, spaces, hyphens, and underscores",
+              "Module Code can only contain letters, numbers, and underscores and cannot start or end with an underscore",
           })
           .max(128, { message: "Module Code must be at most 128 characters" }),
       });

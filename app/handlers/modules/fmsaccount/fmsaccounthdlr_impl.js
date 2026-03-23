@@ -77,8 +77,30 @@ export default class fmsAccountHdlrImpl {
   ) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const indianMobileRegex = /^[6-9]\d{9}$/;
-
-    if (emailRegex.test(contact)) {
+    const mahindrassoemailregex = /^[a-zA-Z0-9._%+-]+@mahindra\.com$/;
+    if (mahindrassoemailregex.test(contact.toLowerCase())) {
+      let inviteid = uuidv4();
+      let res = await this.fmsAccountSvcI.SendMahindrassoInvite(
+        accountid,
+        fleetid,
+        roleids,
+        inviteid,
+        contact,
+        invitedby,
+        headerReferer
+      );
+      if (!res) {
+        throw new Error("Failed to send mahindrasso invite");
+      }
+      return {
+        accountid: accountid,
+        fleetid: res.fleetid,
+        roleids: res.roleids,
+        inviteid: inviteid,
+        contact: res.inviteemail,
+        type: "mahindrasso_invite",
+      };
+    } else if (emailRegex.test(contact)) {
       let inviteid = uuidv4();
       let res = await this.fmsAccountSvcI.SendEmailInvite(
         accountid,
@@ -1358,7 +1380,7 @@ export default class fmsAccountHdlrImpl {
       regno: r.regno,
       vin: r.vinno,
       isowner: r.isowner,
-      status: (statusMap[r.state] ?? String(r.state)).toUpperCase(),
+      status: (statusMap[r.status] ?? String(r.status)).toUpperCase(),
     }));
 
     return history;

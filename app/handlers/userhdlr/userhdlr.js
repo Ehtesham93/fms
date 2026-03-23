@@ -45,7 +45,7 @@ export default class UserHdlr {
     userTokenGroup.get("/invites", this.ListInvitesOfUser);
     userTokenGroup.get("/account/:accountid/token", this.GetAccountToken);
     userTokenGroup.put("/displayname", this.UpdateDisplayName);
-    userTokenGroup.post("/logout", this.Logout);
+    userTokenGroup.post("/signout", this.Logout);
     userTokenGroup.get("/csrftoken", this.GetCSRFToken);
 
     userTokenGroup.put("/setdefaults", this.SetDefaults);
@@ -629,6 +629,8 @@ export default class UserHdlr {
         e.errcode === "SMS_SEND_FAILED" ||
         e.errcode === "INVALID_MOBILE"
       ) {
+        return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
+      } else if (e.errcode === "MAHINDRA_SSO_USER") {
         return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
       } else {
         return APIResponseInternalErr(

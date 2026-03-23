@@ -886,15 +886,17 @@ export default class HistoryDataSvcDB {
         SELECT vinno, UPPER(TRIM(license_plate)) as regno FROM vehicle WHERE UPPER(TRIM(license_plate)) = ANY($1::text[])
       `;
       const result = await this.pgPoolI.Query(query, [normalizedRegnos]);
-      if(result.rowCount === 0) {
+      if (result.rowCount === 0) {
         return {
           vinnos: [],
           missingRegnos: normalizedRegnos,
         };
       }
       let missingRegnos = [];
-      if(result.rows.length !== normalizedRegnos.length) {
-        missingRegnos = normalizedRegnos.filter((regno) => !result.rows.some((row) => row.regno === regno));
+      if (result.rows.length !== normalizedRegnos.length) {
+        missingRegnos = normalizedRegnos.filter(
+          (regno) => !result.rows.some((row) => row.regno === regno)
+        );
       }
       return {
         vinnos: result.rows.map((row) => row.vinno),
@@ -1016,19 +1018,19 @@ export default class HistoryDataSvcDB {
               lng: gpsUtcTime.lng,
             };
           }
-        }else if (cachedGpsData) {
+        } else if (cachedGpsData) {
           latestgpsdata = {
             utctime: cachedGpsData.utctime,
             lat: cachedGpsData.lat,
             lng: cachedGpsData.lng,
           };
-        }else if (gpsUtcTime) {
+        } else if (gpsUtcTime) {
           latestgpsdata = {
             utctime: gpsUtcTime.utctime,
             lat: gpsUtcTime.lat,
             lng: gpsUtcTime.lng,
           };
-        }else {
+        } else {
           latestgpsdata = {
             utctime: "NA",
             lat: "NA",
@@ -1038,9 +1040,9 @@ export default class HistoryDataSvcDB {
         let canutctime = "NA";
         if (cachedCanUtcTime && canUtcTime) {
           canutctime = Math.max(cachedCanUtcTime, canUtcTime);
-        }else if (cachedCanUtcTime) {
+        } else if (cachedCanUtcTime) {
           canutctime = cachedCanUtcTime;
-        }else if (canUtcTime) {
+        } else if (canUtcTime) {
           canutctime = canUtcTime;
         }
         latestdata[vin] = {
@@ -1061,32 +1063,243 @@ export default class HistoryDataSvcDB {
         return [];
       }
       let query = `
-        SELECT 
+        SELECT
+          ft.name as fleetname,
+          ft.fleetid as fleetid,
           a.accountid,
           a.accountname,
           v.vinno,
-          COALESCE(v.license_plate, v.vinno) as regno,
+          COALESCE(v.license_plate, v.vinno) AS regno,
           v.vehicle_city,
           v.modelcode,
           v.delivered_date,
-          v.createdat
+          v.createdat,
+          u.displayname as assignedby,
+          CASE 
+            WHEN avs.status = 1 AND ass.isactive = true THEN 'SUBSCRIBED'
+            ELSE 'NOT_SUBSCRIBED'
+          END AS subscription_status
         FROM vehicle v
-        JOIN fleet_vehicle fv ON v.vinno = fv.vinno
+        JOIN fleet_vehicle fv 
+          ON v.vinno = fv.vinno 
+        AND fv.isowner = true
+        JOIN fleet_tree ft ON fv.accountid = ft.accountid AND fv.fleetid = ft.fleetid
+        JOIN users u ON fv.assignedby = u.userid
         JOIN account a ON fv.accountid = a.accountid
-        WHERE v.vinno = ANY($1::text[]);
+        LEFT JOIN account_vehicle_subscription avs 
+          ON fv.accountid = avs.accountid 
+        AND v.vinno = avs.vinno
+        LEFT JOIN account_subscription_status ass ON fv.accountid = ass.accountid AND avs.subscriptionid = ass.subscriptionid
+        WHERE v.vinno = ANY($1::text[])
       `;
       let result = await this.pgPoolI.Query(query, [vinnos]);
       if (result.rowCount === 0) {
         return [];
       }
+      const taggedvehiclesQuery = `SELECT 
+                                    tv.vinno,  
+                                    a.accountid, 
+                                    a.accountname,
+                                    CASE 
+                                      WHEN avs.status = 1 AND ass.isactive = true THEN a.accountname || ' - SUBSCRIBED'
+                                      ELSE a.accountname || ' - NOT_SUBSCRIBED'
+                                    END AS subscription_status
+                                  FROM tagged_vehicle tv 
+                                  JOIN account a 
+                                    ON tv.dstaccountid = a.accountid 
+                                  LEFT JOIN account_vehicle_subscription avs 
+                                    ON tv.dstaccountid = avs.accountid 
+                                  AND tv.vinno = avs.vinno
+                                  LEFT JOIN account_subscription_status ass ON tv.dstaccountid = ass.accountid AND avs.subscriptionid = ass.subscriptionid
+                                  WHERE tv.vinno = ANY($1::text[]) AND tv.isactive = true
+                                `;
+      let taggedvehicles = await this.pgPoolI.Query(taggedvehiclesQuery, [
+        vinnos,
+      ]);
+      let taggedvehiclesMap = new Map();
+      for (let row of taggedvehicles.rows) {
+        if (!taggedvehiclesMap.has(row.vinno)) {
+          taggedvehiclesMap.set(row.vinno, []);
+        }
+        taggedvehiclesMap.get(row.vinno).push(row);
+      }
+
       let accountDetailMap = new Map();
       for (let row of result.rows) {
-        accountDetailMap.set(row.vinno, row);
+        accountDetailMap.set(row.vinno, {
+          account: row,
+          taggedvehicle: taggedvehiclesMap.get(row.vinno) || "NA",
+        });
       }
 
       return accountDetailMap;
     } catch (error) {
       this.logger.error("Error fetching vehicle account details:", error);
+      throw error;
+    }
+  }
+
+  async getLastestGpsDataForVehicles(vinnos) {
+    if (!vinnos || vinnos.length === 0) {
+      return {};
+    }
+
+    try {
+      const vinList = vinnos.map((vin) => `'${vin}'`).join(",");
+      const query = `
+        SELECT vin, utctime
+        FROM lmmdata_latest.gpsdatalatest
+        WHERE vin IN (${vinList})
+      `;
+
+      const result = await this.clickHouseClient.query(query);
+
+      if (!result.success) {
+        this.logger.error(
+          "Failed to query ClickHouse for GPS data:",
+          result.error
+        );
+        return {};
+      }
+
+      const gpsDataMap = {};
+      for (let row of result.data) {
+        gpsDataMap[row.vin] = row.utctime;
+      }
+
+      return gpsDataMap;
+    } catch (error) {
+      this.logger.error("Error fetching latest GPS data:", error);
+      return {};
+    }
+  }
+
+  async validateVins(value, type, accountid) {
+    try {
+      if (!value || !type) {
+        return [];
+      }
+      let query = ``;
+      if (type === "vinno") {
+        query = `
+          SELECT v.vinno, UPPER(TRIM(v.license_plate)) as regno, fv.accountid as srcaccountid, a.accountname as srcaccountname,
+          CASE 
+            WHEN tv.dstaccountid IS NOT NULL THEN false
+            ELSE true
+          END AS canbetagged
+          FROM vehicle v
+          LEFT JOIN fleet_vehicle fv ON v.vinno = fv.vinno and fv.isowner = true
+          LEFT JOIN account a ON fv.accountid = a.accountid
+          LEFT JOIN tagged_vehicle tv ON v.vinno = tv.vinno and tv.isactive = true and tv.dstaccountid = $2
+          WHERE v.vinno = ANY($1::text[])
+        `;
+      } else if (type === "regno") {
+        query = `
+          SELECT v.vinno, UPPER(TRIM(v.license_plate)) as regno, fv.accountid as srcaccountid, a.accountname as srcaccountname,
+          CASE 
+            WHEN tv.dstaccountid IS NOT NULL THEN false
+            ELSE true
+          END AS canbetagged
+          FROM vehicle v
+          LEFT JOIN fleet_vehicle fv ON v.vinno = fv.vinno and fv.isowner = true
+          LEFT JOIN account a ON fv.accountid = a.accountid
+          LEFT JOIN tagged_vehicle tv ON v.vinno = tv.vinno and tv.isactive = true and tv.dstaccountid = $2
+          WHERE UPPER(TRIM(v.license_plate)) = ANY($1::text[])
+        `;
+      } else {
+        return [];
+      }
+      const result = await this.pgPoolI.Query(query, [value, accountid]);
+      if (result.rowCount === 0) {
+        return [];
+      }
+      let vintype =false;
+      let missingValues= [];
+      if(type === "regno") {
+        if (result.rows.length !== value.length) {
+          missingValues = value.filter(
+            (value) => !result.rows.some((row) => row.regno === value)
+          );
+        }
+        vintype = false;
+      }else if(type === "vinno") {
+        if (result.rows.length !== value.length) {
+          missingValues = value.filter(
+            (value) => !result.rows.some((row) => row.vinno === value)
+          );
+        }
+        vintype = true;
+      }
+      let validValues = [];
+      let invalidValues = [];
+      let accountvins = [];
+      for (let row of result.rows) {
+        if(!row.canbetagged) {
+          validValues.push({
+            vinno: row.vinno,
+            regno: row.regno,
+            srcaccountid: row.srcaccountid,
+            srcaccountname: row.srcaccountname,
+            canbetagged: row.canbetagged,
+            reason: "Vehicle found in the System",
+          });
+          accountvins.push(row.vinno);
+        }else{
+          invalidValues.push({
+            vinno: row.vinno,
+            regno: row.regno,
+            srcaccountid: row.srcaccountid,
+            srcaccountname: row.srcaccountname,
+            canbetagged: row.canbetagged,
+            reason: "Vehicle not found in the selected account",
+          });
+        }
+      }
+
+      for (let value of missingValues) {
+        invalidValues.push({
+          vinno: vintype ? value : "NA",
+          regno: vintype ? "NA" : value,
+          srcaccountid: "NA",
+          srcaccountname: "NA",
+          canbetagged: false,
+          reason: "Vehicle not found in the System",
+        });
+      }
+      let connectedvalues = [];
+      let disconnectedvalues = [];
+      const lastconnectedatdata = await this.getLastestGpsDataForVehicles(accountvins);
+
+      for (let value of validValues) {
+        const last = lastconnectedatdata[value.vinno] ? Number(lastconnectedatdata[value.vinno]) : null;
+
+        if (last && last > Date.now() - 24 * 60 * 60 * 1000) {
+          connectedvalues.push(value);
+        } else {
+          disconnectedvalues.push(value);
+        }
+      }
+
+      // move disconnected from valid -> invalid with reason
+      for (const v of disconnectedvalues) {
+        invalidValues.push({
+          ...v,
+          reason: "Vehicle last connected more 24 hrs",
+        });
+      }
+
+      // keep only connected as valid
+      validValues = connectedvalues;
+
+      return {
+        validValues: validValues,
+        invalidValues: invalidValues,
+      };
+    } catch (error) {
+      this.logger.error(
+        "Error validating VINs:",
+        error
+      );
       throw error;
     }
   }

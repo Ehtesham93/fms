@@ -20,6 +20,7 @@ export const ROOT_FLEET_NAME = "Home";
 
 // sso types
 export const EMAIL_PWD_SSO = "EMAIL_PWD";
+export const MAHINDRA_SSO = "MAHINDRA_SSO";
 export const MOBILE_SSO = "MOBILE";
 
 // fleet invite types

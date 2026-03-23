@@ -64,11 +64,7 @@ export default class PackageSvcDB {
     }
   }
 
-  async createPackage(pkg, createdby) {
-    let [txclient, err] = await this.pgPoolI.StartTransaction();
-    if (err) {
-      throw err;
-    }
+  async createPackageWithTxn(pkg, createdby, txclient) {
     try {
       let currtime = new Date();
       let pkginfo = { ...DEFAULT_PACKAGE_INFO };
@@ -112,59 +108,103 @@ export default class PackageSvcDB {
         createdby,
       ]);
       if (result.rowCount !== 1) {
-        await this.pgPoolI.TxRollback(txclient);
         throw new Error("Failed to create package");
       }
-      await this.logPackageHistory(pkg, createdby, currtime, 'CREATED', {}, txclient);
-      await this.pgPoolI.TxCommit(txclient);
-      return true;
-    } catch (error) {
-      await this.pgPoolI.TxRollback(txclient);
-      throw error;
-    }
-  }
 
-  async logPackageHistory(pkg, updatedby, updatedat, action, previousstate, txclient = null){
-    try{
-      const finalUpdatedBy = updatedby ?? pkg.updatedby;
-      const finalUpdatedAt = updatedat ?? pkg.updatedat;
-      const currentstate = action === 'DELETE' 
-        ? {} 
-        : {
-            pkgname: pkg.pkgname,
-            pkgtype: pkg.pkgtype,
-            pkginfo: pkg.pkginfo,
-            isenabled: pkg.isenabled,
-          };
-      let query = `
-              INSERT INTO package_history (pkgid, pkgname, pkgtype, pkginfo, isenabled, updatedat, updatedby, action, previousstate, currentstate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-          `;
-      let result = await txclient.query(query, [
-          pkg.pkgid,
-          pkg.pkgname,
-          pkg.pkgtype,
-          pkg.pkginfo,
-          pkg.isenabled,
-          finalUpdatedAt,
-          finalUpdatedBy,
-          action,
-          JSON.stringify(previousstate),
-          JSON.stringify(currentstate),
-        ]);
+      query = `INSERT INTO package_history (pkgid, pkgname, pkgtype, pkginfo, isenabled, updatedat, updatedby, action, previousstate, currentstate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`;
+      result = await txclient.query(query, [
+        pkg.pkgid,
+        pkg.pkgname,
+        pkg.pkgtype,
+        pkg.pkginfo,
+        pkg.isenabled,
+        currtime,
+        createdby,
+        "CREATED",
+        JSON.stringify({}),
+        JSON.stringify({
+          pkgname: pkg.pkgname,
+          pkgtype: pkg.pkgtype,
+          pkginfo: pkg.pkginfo,
+          isenabled: pkg.isenabled,
+        }),
+      ]);
       if (result.rowCount !== 1) {
         throw new Error("Failed to log package history");
       }
+      // await this.logPackageHistory(pkg, createdby, currtime, 'CREATED', {}, txclient);
       return true;
-    }
-    catch(error){
-      this.logger.error("package history insert failed", { package: pkg.pkgid, err });
-      await this.pgPoolI.TxRollback(txclient);
+    } catch (error) {
       throw error;
     }
   }
 
-  async getPackageHistory(starttime, endtime){
-    try{
+  async createPackage(pkg, createdby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
+    try {
+      let result = await this.createPackageWithTxn(pkg, createdby, txclient);
+      if (!result) {
+        throw new Error("Failed to create package");
+      }
+      let commitResult = await this.pgPoolI.TxCommit(txclient);
+      if (commitResult) {
+        throw commitResult;
+      }
+      return true;
+    } catch (error) {
+      this.logger.error("Failed to create package", error);
+      let rollbackResult = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackResult) {
+        throw rollbackResult;
+      }
+      throw error;
+    }
+  }
+
+  // async logPackageHistory(pkg, updatedby, updatedat, action, previousstate, txclient = null){
+  //   try{
+  //     const finalUpdatedBy = updatedby ?? pkg.updatedby;
+  //     const finalUpdatedAt = updatedat ?? pkg.updatedat;
+  //     const currentstate = action === 'DELETE'
+  //       ? {}
+  //       : {
+  //           pkgname: pkg.pkgname,
+  //           pkgtype: pkg.pkgtype,
+  //           pkginfo: pkg.pkginfo,
+  //           isenabled: pkg.isenabled,
+  //         };
+  //     let query = `
+  //             INSERT INTO package_history (pkgid, pkgname, pkgtype, pkginfo, isenabled, updatedat, updatedby, action, previousstate, currentstate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+  //         `;
+  //     let result = await txclient.query(query, [
+  //         pkg.pkgid,
+  //         pkg.pkgname,
+  //         pkg.pkgtype,
+  //         pkg.pkginfo,
+  //         pkg.isenabled,
+  //         finalUpdatedAt,
+  //         finalUpdatedBy,
+  //         action,
+  //         JSON.stringify(previousstate),
+  //         JSON.stringify(currentstate),
+  //       ]);
+  //     if (result.rowCount !== 1) {
+  //       throw new Error("Failed to log package history");
+  //     }
+  //     return true;
+  //   }
+  //   catch(error){
+  //     this.logger.error("package history insert failed", { package: pkg.pkgid, err });
+  //     await this.pgPoolI.TxRollback(txclient);
+  //     throw error;
+  //   }
+  // }
+
+  async getPackageHistory(starttime, endtime) {
+    try {
       let query = `
         SELECT ph.pkgid, ph.pkgname, ph.pkgtype, ph.pkginfo, ph.isenabled, ph.updatedat, ph.action, u.displayname as updatedby, ph.previousstate, ph.currentstate 
         FROM package_history as ph 
@@ -172,42 +212,44 @@ export default class PackageSvcDB {
         WHERE ph.updatedat >= $1 AND ph.updatedat <= $2 
         ORDER BY ph.updatedat DESC
       `;
-      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      let result = await this.pgPoolI.Query(query, [
+        new Date(starttime),
+        new Date(endtime),
+      ]);
       return result.rows;
-    }
-    catch(error){
+    } catch (error) {
       throw new Error("Failed to retrieve package history");
     }
   }
 
-  async logPackageModHistory(pkgid, moduleid, action, updatedby, updatedat, txclient = null){
-    try{
-      let query = `
-              INSERT INTO package_module_history (pkgid, moduleid, updatedat, updatedby, action) VALUES ($1, $2, $3, $4, $5)
-          `;
-      let queryParams = [
-        pkgid,
-        moduleid,
-        updatedat,
-        updatedby,
-        action,
-      ];
-      
-      let result = await txclient.query(query, queryParams);
-      if (result.rowCount !== 1) {
-        throw new Error("Failed to log package module history");
-      }
-      return true;
-    }
-    catch(error){
-      this.logger.error("package module history insert failed", { pkgid, moduleid, err:error });
-      await this.pgPoolI.TxRollback(txclient);
-      throw error;
-    }
-  }
+  // async logPackageModHistory(pkgid, moduleid, action, updatedby, updatedat, txclient = null){
+  //   try{
+  //     let query = `
+  //             INSERT INTO package_module_history (pkgid, moduleid, updatedat, updatedby, action) VALUES ($1, $2, $3, $4, $5)
+  //         `;
+  //     let queryParams = [
+  //       pkgid,
+  //       moduleid,
+  //       updatedat,
+  //       updatedby,
+  //       action,
+  //     ];
 
-  async getPackageModHistory(starttime, endtime){
-    try{
+  //     let result = await txclient.query(query, queryParams);
+  //     if (result.rowCount !== 1) {
+  //       throw new Error("Failed to log package module history");
+  //     }
+  //     return true;
+  //   }
+  //   catch(error){
+  //     this.logger.error("package module history insert failed", { pkgid, moduleid, err:error });
+  //     await this.pgPoolI.TxRollback(txclient);
+  //     throw error;
+  //   }
+  // }
+
+  async getPackageModHistory(starttime, endtime) {
+    try {
       let query = `
         SELECT ph.pkgid, p.pkgname, m.modulename, ph.updatedat, u.displayname as updatedby, ph.action 
         FROM package_module_history as ph 
@@ -216,10 +258,12 @@ export default class PackageSvcDB {
         JOIN package as p ON ph.pkgid = p.pkgid
         WHERE ph.updatedat >= $1 AND ph.updatedat <= $2 ORDER BY ph.updatedat DESC
       `;
-      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
+      let result = await this.pgPoolI.Query(query, [
+        new Date(starttime),
+        new Date(endtime),
+      ]);
       return result.rows;
-    }
-    catch(error){
+    } catch (error) {
       throw new Error("Failed to retrieve package module history");
     }
   }
@@ -236,7 +280,9 @@ export default class PackageSvcDB {
         FROM package
         WHERE pkgid = $1
       `;
-      let previousStateResult = await txclient.query(previousStateQuery, [pkgid]);
+      let previousStateResult = await txclient.query(previousStateQuery, [
+        pkgid,
+      ]);
       if (previousStateResult.rowCount === 0) {
         throw new Error("Package not found");
       }
@@ -298,6 +344,13 @@ export default class PackageSvcDB {
         isenabled: previousState.isenabled,
       };
 
+      let currentStateJson = {
+        pkgname: currentState.pkgname,
+        pkgtype: currentState.pkgtype,
+        pkginfo: currentState.pkginfo,
+        isenabled: currentState.isenabled,
+      };
+
       let pkg = {
         pkgid: currentState.pkgid,
         pkgname: currentState.pkgname,
@@ -308,7 +361,26 @@ export default class PackageSvcDB {
         updatedby: currentState.updatedby,
       };
 
-      await this.logPackageHistory(pkg, updatedby, currtime, 'UPDATE', previousStateJson, txclient);
+      query = `
+        INSERT INTO package_history (pkgid, pkgname, pkgtype, pkginfo, isenabled, updatedat, updatedby, action, previousstate, currentstate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `;
+      result = await txclient.query(query, [
+        pkg.pkgid,
+        pkg.pkgname,
+        pkg.pkgtype,
+        pkg.pkginfo,
+        pkg.isenabled,
+        currentState.updatedat,
+        currentState.updatedby,
+        "UPDATE",
+        JSON.stringify(previousStateJson),
+        JSON.stringify(currentStateJson),
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log package history");
+      }
+
+      // await this.logPackageHistory(pkg, updatedby, currtime, 'UPDATE', previousStateJson, txclient);
       await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
@@ -333,6 +405,44 @@ export default class PackageSvcDB {
       return result.rows;
     } catch (error) {
       throw new Error(`Failed to retrieve all packages`);
+    }
+  }
+
+  async getDefaultPackagesWithModules() {
+    try {
+      let query = `
+        SELECT p.pkgid, p.pkgname, p.pkgtype, p.pkginfo, p.isenabled, p.createdat, p.createdby, p.updatedat, p.updatedby, m.moduleid, m.modulename, m.creditspervehicleday 
+        FROM package p
+        JOIN package_module pm ON p.pkgid = pm.pkgid
+        JOIN module m ON pm.moduleid = m.moduleid
+        WHERE p.pkgtype = 'standard' AND m.isenabled = true AND p.isenabled = true
+      `;
+      let result = await this.pgPoolI.Query(query);
+      if (result.rowCount === 0) {
+        return null;
+      }
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to retrieve all packages with modules`);
+    }
+  }
+
+  async getCustomPackagesWithModules() {
+    try {
+      let query = `
+        SELECT p.pkgid, p.pkgname, p.pkgtype, p.pkginfo, p.isenabled, p.createdat, p.createdby, p.updatedat, p.updatedby, m.moduleid, m.modulename, m.creditspervehicleday 
+        FROM package p
+        JOIN package_module pm ON p.pkgid = pm.pkgid
+        JOIN module m ON pm.moduleid = m.moduleid
+        WHERE p.pkgtype = 'custom' AND m.isenabled = true AND p.isenabled = true
+      `;
+      let result = await this.pgPoolI.Query(query);
+      if (result.rowCount === 0) {
+        return null;
+      }
+      return result.rows;
+    } catch (error) {
+      throw new Error(`Failed to retrieve custom packages with modules`);
     }
   }
 
@@ -389,12 +499,8 @@ export default class PackageSvcDB {
     }
   }
 
-  async updatePkgModules(pkgid, selectedmodules, deselectedmodules, updatedby) {
+  async updatePkgModulesWithTxn(pkgid, selectedmodules, deselectedmodules, updatedby, txclient) {
     let currtime = new Date();
-    let [txclient, err] = await this.pgPoolI.StartTransaction();
-    if (err) {
-      throw err;
-    }
     const pkgExists = await txclient.query(
       `SELECT 1 FROM package WHERE pkgid = $1`,
       [pkgid]
@@ -406,10 +512,10 @@ export default class PackageSvcDB {
       SELECT * FROM package_module WHERE pkgid = $1
     `;
     let stateResult = await txclient.query(stateQuery, [pkgid]);
-    
+
     // If no rows, just start with empty previous state
-    let previousState = stateResult.rows;          // [] when none
-    let previousModuleIds = previousState.map(r => r.moduleid);
+    let previousState = stateResult.rows; // [] when none
+    let previousModuleIds = previousState.map((r) => r.moduleid);
 
     try {
       if (selectedmodules.length > 0) {
@@ -424,7 +530,7 @@ export default class PackageSvcDB {
           })
           .join(",");
 
-      let query = `
+        let query = `
         INSERT INTO package_module (pkgid, moduleid, createdat, createdby) VALUES ${placeholders}
         ON CONFLICT (pkgid, moduleid) DO NOTHING
       `;
@@ -440,8 +546,7 @@ export default class PackageSvcDB {
       }
 
       if (deselectedmodules.length > 0) {
-        
-      let query = `
+        let query = `
         DELETE FROM package_module WHERE pkgid = $1 AND moduleid = ANY($2)
       `;
         let result = await txclient.query(query, [pkgid, deselectedmodules]);
@@ -479,31 +584,66 @@ export default class PackageSvcDB {
         await txclient.query(updateQuery, values);
       }
 
-      
       let stateResult = await txclient.query(stateQuery, [pkgid]);
       let currentState = stateResult.rows;
-      let currentModuleIds = currentState.map(row => row.moduleid);
-      let removedModules = previousModuleIds.filter(id => !currentModuleIds.includes(id));
-      let addedModules = currentModuleIds.filter(id => !previousModuleIds.includes(id));
+      let currentModuleIds = currentState.map((row) => row.moduleid);
+      let removedModules = previousModuleIds.filter(
+        (id) => !currentModuleIds.includes(id)
+      );
+      let addedModules = currentModuleIds.filter(
+        (id) => !previousModuleIds.includes(id)
+      );
       // Log only changed modules
+
       for (const moduleid of removedModules) {
-        await this.logPackageModHistory(pkgid, moduleid, 'REMOVE', updatedby, currtime, txclient);
+        let query = `INSERT INTO package_module_history (pkgid, moduleid, updatedat, updatedby, action) VALUES ($1, $2, $3, $4, $5)`;
+        let result = await txclient.query(query, [
+          pkgid,
+          moduleid,
+          currtime,
+          updatedby,
+          "REMOVE",
+        ]);
       }
       for (const moduleid of addedModules) {
-        await this.logPackageModHistory(pkgid, moduleid, 'ADD', updatedby, currtime, txclient);
+        let query = `INSERT INTO package_module_history (pkgid, moduleid, updatedat, updatedby, action) VALUES ($1, $2, $3, $4, $5)`;
+        let result = await txclient.query(query, [
+          pkgid,
+          moduleid,
+          currtime,
+          updatedby,
+          "ADD",
+        ]);
       }
 
-      let commiterr = await this.pgPoolI.TxCommit(txclient);
-      if (commiterr) {
-        throw commiterr;
+      return true;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updatePkgModules(pkgid, selectedmodules, deselectedmodules, updatedby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
+    try {
+      let result = await this.updatePkgModulesWithTxn(pkgid, selectedmodules, deselectedmodules, updatedby, txclient);
+      if (!result) {
+        throw new Error("Failed to update package modules");
+      }
+      let commitResult = await this.pgPoolI.TxCommit(txclient);
+      if (commitResult) {
+        throw commitResult;
       }
       return true;
-    } catch (e) {
-      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
-      if (rollbackerr) {
-        throw rollbackerr;
+    } catch (error) {
+      this.logger.error("Failed to update package modules", error);
+      let rollbackResult = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackResult) {
+        throw rollbackResult;
       }
-      throw e;
+      throw error;
     }
   }
 
@@ -599,6 +739,8 @@ export default class PackageSvcDB {
         updatedby: deletedby,
       };
 
+      let currentStateJson = {};
+
       query = `
         DELETE FROM account_custom_package_options WHERE pkgid = $1
       `;
@@ -612,14 +754,31 @@ export default class PackageSvcDB {
         throw new Error("Failed to delete package");
       }
 
-      await this.logPackageHistory(
-        pkgForHistory,
-        deletedby,
-        deletedat,
-        'DELETE',
-        previousStateJson,
-        txclient
-      );
+      query = `INSERT INTO package_history (pkgid, pkgname, pkgtype, pkginfo, isenabled, updatedat, updatedby, action, previousstate, currentstate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`;
+      result = await txclient.query(query, [
+        pkgForHistory.pkgid,
+        pkgForHistory.pkgname,
+        pkgForHistory.pkgtype,
+        pkgForHistory.pkginfo,
+        pkgForHistory.isenabled,
+        pkgForHistory.updatedat,
+        pkgForHistory.updatedby,
+        "DELETE",
+        JSON.stringify(previousStateJson),
+        JSON.stringify(currentStateJson),
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to log package history");
+      }
+
+      // await this.logPackageHistory(
+      //   pkgForHistory,
+      //   deletedby,
+      //   deletedat,
+      //   'DELETE',
+      //   previousStateJson,
+      //   txclient
+      // );
 
       await this.pgPoolI.TxCommit(txclient);
       return {
@@ -631,6 +790,34 @@ export default class PackageSvcDB {
     } catch (e) {
       await this.pgPoolI.TxRollback(txclient);
       throw e;
+    }
+  }
+
+  async getPkgByName(pkgname) {
+    try {
+      let query = `
+        SELECT * FROM package WHERE pkgname = $1
+      `;
+      let result = await this.pgPoolI.Query(query, [pkgname]);
+      if (result.rowCount === 0) {
+        return null;
+      }
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Failed to retrieve package by name", error);
+      throw new Error("Failed to retrieve package by name");
+    }
+  }
+
+  async checkAccountHasCustomPackage(accountid, pkgid) {
+    try {
+      let query = `
+        SELECT COUNT(*) as count FROM account_custom_package_options WHERE accountid = $1 AND pkgid = $2
+      `;
+      let result = await this.pgPoolI.Query(query, [accountid, pkgid]);
+      return result.rows[0].count > 0;
+    } catch (error) {
+      throw new Error("Failed to check account has custom package");
     }
   }
 }

@@ -8,6 +8,7 @@ import {
   MOBILE_SSO,
   PASSWORD_EXPIRE_TIME,
   VIEW_ROLE_ID,
+  MAHINDRA_SSO,
 } from "../../utils/constant.js";
 import { markInviteAsExpired } from "../../utils/inviteUtil.js";
 const { EncryptPassword } = await import("../../utils/eccutil.js");
@@ -162,7 +163,7 @@ export default class UserSvcDB {
         userid,
         superadminroleid,
         true,
-        'ADD',
+        "ADD",
         currtime,
         createdby,
       ]);
@@ -251,6 +252,8 @@ export default class UserSvcDB {
           user.email = row.ssoid;
         } else if (row.ssotype === MOBILE_SSO) {
           user.mobile = row.ssoid;
+        } else if (row.ssotype === MAHINDRA_SSO) {
+          user.email = row.ssoid;
         }
       }
       return user;
@@ -556,117 +559,122 @@ export default class UserSvcDB {
     return true;
   }
 
-    async createFmsUser(user, userssoinfo, createdby, accountid = null) {
-      let currtime = new Date();
-      let [txclient, txnerr] = await this.pgPoolI.StartTransaction();
-      if (txnerr) {
-        throw txnerr;
-      }
-  
-      try {
-        let query = `
+  async createFmsUser(user, userssoinfo, createdby, accountid = null) {
+    let currtime = new Date();
+    let [txclient, txnerr] = await this.pgPoolI.StartTransaction();
+    if (txnerr) {
+      throw txnerr;
+    }
+
+    try {
+      let query = `
                   INSERT INTO users (userid, displayname, usertype, userinfo, isenabled, isdeleted, isemailverified, ismobileverified, createdat, createdby, updatedat, updatedby) 
                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
               `;
-        let result = await txclient.query(query, [
+      let result = await txclient.query(query, [
+        user.userid,
+        user.displayname,
+        user.usertype,
+        user.userinfo,
+        user.isenabled,
+        user.isdeleted,
+        user.isemailverified,
+        user.ismobileverified,
+        currtime,
+        createdby,
+        currtime,
+        createdby,
+      ]);
+      if (result.rowCount !== 1) {
+        throw new Error("Failed to create user");
+      }
+
+      if (userssoinfo.email) {
+        query = `
+                      INSERT INTO user_sso (userid, ssotype, ssoid, updatedat) VALUES ($1, $2, $3, $4)
+                  `;
+
+        result = await txclient.query(query, [
           user.userid,
-          user.displayname,
-          user.usertype,
-          user.userinfo,
-          user.isenabled,
-          user.isdeleted,
-          user.isemailverified,
-          user.ismobileverified,
+          EMAIL_PWD_SSO,
+          userssoinfo.email,
           currtime,
-          createdby,
-          currtime,
-          createdby,
         ]);
         if (result.rowCount !== 1) {
-          throw new Error("Failed to create user");
+          throw new Error("Failed to create sso info for user");
         }
-  
-        if (userssoinfo.email) {
-          query = `
-                      INSERT INTO user_sso (userid, ssotype, ssoid, updatedat) VALUES ($1, $2, $3, $4)
-                  `;
-  
-          result = await txclient.query(query, [
-            user.userid,
-            EMAIL_PWD_SSO,
-            userssoinfo.email,
-            currtime,
-          ]);
-          if (result.rowCount !== 1) {
-            throw new Error("Failed to create sso info for user");
-          }
-  
-          let passwordExpireTime = new Date(
-            currtime.getTime() + PASSWORD_EXPIRE_TIME * 24 * 60 * 60 * 1000
-          );
-  
-          query = `
+
+        let passwordExpireTime = new Date(
+          currtime.getTime() + PASSWORD_EXPIRE_TIME * 24 * 60 * 60 * 1000
+        );
+
+        query = `
                       INSERT INTO email_pwd_sso (ssoid, password, userid, ssoinfo, passwordexpireat, createdat, updatedat) VALUES ($1, $2, $3, $4, $5, $6, $7)
                   `;
-          result = await txclient.query(query, [
-            userssoinfo.email,
-            userssoinfo.password,
-            user.userid,
-            {},
-            passwordExpireTime,
-            currtime,
-            currtime,
-          ]);
-          if (result.rowCount !== 1) {
-            throw new Error("Failed to create email password sso info for user");
-          }
+        result = await txclient.query(query, [
+          userssoinfo.email,
+          userssoinfo.password,
+          user.userid,
+          {},
+          passwordExpireTime,
+          currtime,
+          currtime,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create email password sso info for user");
         }
-  
-        if (userssoinfo.mobile) {
-          query = `
+      }
+
+      if (userssoinfo.mobile) {
+        query = `
                       INSERT INTO user_sso (userid, ssotype, ssoid, updatedat) VALUES ($1, $2, $3, $4)
                   `;
-          result = await txclient.query(query, [
-            user.userid,
-            MOBILE_SSO,
-            userssoinfo.mobile,
-            currtime,
-          ]);
-          if (result.rowCount !== 1) {
-            throw new Error("Failed to create sso info for user");
-          }
-  
-          query = `
+        result = await txclient.query(query, [
+          user.userid,
+          MOBILE_SSO,
+          userssoinfo.mobile,
+          currtime,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create sso info for user");
+        }
+
+        query = `
                       INSERT INTO mobile_sso (ssoid, userid, ssoinfo, createdat, updatedat) VALUES ($1, $2, $3, $4, $5)
                   `;
-          result = await txclient.query(query, [
-            userssoinfo.mobile,
-            user.userid,
-            {},
-            currtime,
-            currtime,
-          ]);
-          if (result.rowCount !== 1) {
-            throw new Error("Failed to create mobile sso info for user");
-          }
+        result = await txclient.query(query, [
+          userssoinfo.mobile,
+          user.userid,
+          {},
+          currtime,
+          currtime,
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to create mobile sso info for user");
         }
-        if (accountid) {
-          await this.addUserToAccountWithRole(user.userid, accountid, "admin", createdby);
-        }
-  
-        let commiterr = await this.pgPoolI.TxCommit(txclient);
-        if (commiterr) {
-          throw commiterr;
-        }
-      } catch (err) {
-        let rollbackerr = await this.pgPoolI.TxRollback(txclient);
-        if (rollbackerr) {
-          throw rollbackerr;
-        }
-        throw err;
       }
-      return true;
+      if (accountid) {
+        await this.addUserToAccountWithRole(
+          user.userid,
+          accountid,
+          "admin",
+          createdby
+        );
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+    } catch (err) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
+      }
+      throw err;
     }
+    return true;
+  }
 
   async addUserToAccountWithRole(userid, accountid, role, createdbyuserid) {
     let currtime = new Date();
@@ -684,7 +692,7 @@ export default class UserSvcDB {
         }
         return true;
       }
-      
+
       let rootfleetquery = `
         SELECT fleetid FROM account_fleet 
         WHERE accountid = $1 AND isroot = true
@@ -694,7 +702,6 @@ export default class UserSvcDB {
         throw new Error("Root fleet not found for account");
       }
 
-      
       let rootfleetid = rootfleetresult.rows[0].fleetid;
       query = `
                 INSERT INTO user_fleet (userid, accountid, fleetid) VALUES ($1, $2, $3)
@@ -750,7 +757,7 @@ export default class UserSvcDB {
         userid,
         roleid,
         true,
-        'ADD',
+        "ADD",
         currtime,
         createdbyuserid,
       ]);
@@ -764,8 +771,7 @@ export default class UserSvcDB {
       }
 
       return true;
-    }
-    catch (error) {
+    } catch (error) {
       if (txclient) {
         let rollbackerr = await this.pgPoolI.TxRollback(txclient);
         if (rollbackerr) {
@@ -776,7 +782,14 @@ export default class UserSvcDB {
     }
   }
 
-  async getAllUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
+  async getAllUsers(
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
     try {
       let orderbyclause = `ORDER BY uli.createdat DESC NULLS LAST`;
       if (orderbyfield && orderbydirection) {
@@ -785,21 +798,22 @@ export default class UserSvcDB {
         } else if (orderbyfield === "loginvia") {
           orderbyfield = "uli.ssotype";
         } else if (orderbyfield === "email") {
-          orderbyfield = "eps.ssoid";
+          orderbyfield = "COALESCE(mss.ssoid, eps.ssoid)";
         } else if (orderbyfield === "mobile") {
           orderbyfield = "mps.ssoid";
-        }  else {
+        } else {
           orderbyfield = `u.${orderbyfield}`;
         }
         orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
       }
       let baseQuery = `
-        SELECT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, u.ismobileverified, u.createdat, u.createdby, u.updatedat, u.updatedby, eps.ssoid as email, mps.ssoid as mobile, 
+        SELECT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, u.ismobileverified, u.createdat, u.createdby, u.updatedat, u.updatedby, COALESCE(mss.ssoid, eps.ssoid) AS email, mps.ssoid as mobile, 
         CASE 
           WHEN uli.ssotype = 'mobile' THEN 'MOBILE_OTP'
           WHEN uli.ssotype = 'mpin' THEN 'MOBILE_MPIN'
           WHEN uli.ssotype = 'email' THEN 'WEB_EMAIL'
           WHEN uli.ssotype = 'superadmin' THEN 'API_TOKEN'
+          WHEN uli.ssotype = 'mahindrasso' THEN 'MAHINDRA_SSO'
           ELSE ''
         END as loginvia, 
         COALESCE(uli.createdat::text, '') as lastloginat,
@@ -813,37 +827,45 @@ export default class UserSvcDB {
         ) uli ON true
         LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
         LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        LEFT JOIN mahindra_sso mss ON u.userid = mss.userid
         WHERE u.isdeleted = false AND (
           UPPER(u.displayname) LIKE '%' || UPPER($1) || '%' OR
           UPPER(eps.ssoid) LIKE '%' || UPPER($1) || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || UPPER($1) || '%'
+          UPPER(mps.ssoid) LIKE '%' || UPPER($1) || '%' OR
+          UPPER(mss.ssoid) LIKE '%' || UPPER($1) || '%'
         )
         ${orderbyclause}
       `;
       let result;
       let totalcount;
-      
+
       if (download) {
         // When downloading, get all data without pagination
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
         // Normal pagination flow
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [searchtext]);
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [
+          searchtext,
+        ]);
         result = await this.pgPoolI.Query(query, params);
-        
+
         const countcquery = `SELECT COUNT(*) FROM users u
         LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
         LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        LEFT JOIN mahindra_sso mss ON u.userid = mss.userid
         WHERE u.isdeleted = false AND (
           UPPER(u.displayname) LIKE '%' || UPPER($1) || '%' OR
           UPPER(eps.ssoid) LIKE '%' || UPPER($1) || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || UPPER($1) || '%'
+          UPPER(mps.ssoid) LIKE '%' || UPPER($1) || '%' OR
+          UPPER(mss.ssoid) LIKE '%' || UPPER($1) || '%'
         )`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          searchtext,
+        ]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
-      
+
       if (result.rowCount === 0) {
         return {
           users: [],
@@ -855,7 +877,7 @@ export default class UserSvcDB {
           totalpages: 0,
         };
       }
-      
+
       if (download) {
         // Return all data for download
         return {
@@ -868,7 +890,8 @@ export default class UserSvcDB {
           totalpages: 1,
         };
       }
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
       return {
         users: result.rows,
@@ -908,14 +931,22 @@ export default class UserSvcDB {
     }
   }
 
-  async getAccountFleetUsers(accountid, searchtext, offset, limit, download, orderbyfield, orderbydirection) {
+  async getAccountFleetUsers(
+    accountid,
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
     try {
       let orderbyclause = `ORDER BY u.updatedat DESC NULLS LAST`;
       if (orderbyfield && orderbydirection) {
         if (orderbyfield === "lastloginat") {
           orderbyfield = "u.updatedat";
         } else if (orderbyfield === "email") {
-          orderbyfield = "eps.ssoid";
+          orderbyfield = "COALESCE(mss.ssoid, eps.ssoid)";
         } else if (orderbyfield === "mobile") {
           orderbyfield = "mps.ssoid";
         } else {
@@ -926,155 +957,50 @@ export default class UserSvcDB {
       let baseQuery = `
         SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, 
         u.isemailverified, u.ismobileverified, u.createdat, u1.displayname as createdby, u.updatedat, u2.displayname as updatedby,
-        eps.ssoid as email, mps.ssoid as mobile FROM users u
+        COALESCE(mss.ssoid, eps.ssoid) AS email, mps.ssoid as mobile FROM users u
         JOIN fleet_user_role fur ON u.userid = fur.userid
         LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
         LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        LEFT JOIN mahindra_sso mss ON u.userid = mss.userid
         LEFT JOIN users u1 ON u.createdby = u1.userid
         LEFT JOIN users u2 ON u.updatedby = u2.userid
         WHERE fur.accountid = $1 AND u.isdeleted = false AND (
           UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
           UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%'
+          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(mss.ssoid) LIKE '%' || UPPER($2) || '%'
         )
         ${orderbyclause}
     `;
-    let result;
-    let totalcount;
-    if (download) {
-      // When downloading, get all data without pagination
-      result = await this.pgPoolI.Query(baseQuery, [accountid, searchtext]);
-      totalcount = result.rowCount;
-    } else {
-      // Normal pagination flow
-      let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [accountid, searchtext]);
-      result = await this.pgPoolI.Query(query, params);
-      
-      const countcquery = `SELECT COUNT(*) FROM users u
-      JOIN fleet_user_role fur ON u.userid = fur.userid
-      LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
-      LEFT JOIN mobile_sso mps ON u.userid = mps.userid
-      WHERE fur.accountid = $1 AND u.isdeleted = false AND (
-        UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
-        UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
-        UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%'
-      )`;
-      const countcresult = await this.pgPoolI.Query(countcquery, [accountid, searchtext]);
-      totalcount = parseInt(countcresult.rows[0].count);
-    }
-
-    if (result.rowCount === 0) {
-      return {
-        users: [],
-        previousoffset: 0,
-        nextoffset: 0,
-        limit: download ? totalcount : limit,
-        hasmore: false,
-        totalcount: 0,
-        totalpages: 0,
-      };
-    }
-    
-    if (download) {
-      // Return all data for download
-      return {
-        users: result.rows,
-        previousoffset: 0,
-        nextoffset: 0,
-        limit: totalcount,
-        hasmore: false,
-        totalcount: totalcount,
-        totalpages: 1,
-      };
-    }
-    const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
-    const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-
-    return {
-      users: result.rows,
-      previousoffset: previousOffset,
-      nextoffset: nextOffset,
-      limit: limit,
-      hasmore: limit > result.rowCount ? false : true,
-      totalcount: totalcount,
-      totalpages: Math.ceil(totalcount / limit),
-    };
-    } catch (error) {
-      throw new Error("Failed to fetch account fleet users");
-    }
-  }
-
-  async getNonPlatformUsers(platformaccountid, searchtext, offset, limit, download, orderbyfield, orderbydirection) {
-    try {
-      let orderbyclause = `ORDER BY uli.createdat DESC NULLS LAST`;
-      if (orderbyfield && orderbydirection) {
-        if (orderbyfield === "lastloginat") {
-          orderbyfield = "uli.createdat";
-        } else if (orderbyfield === "loginvia") {
-          orderbyfield = "uli.ssotype";
-        } else if (orderbyfield === "email") {
-          orderbyfield = "eps.ssoid";
-        } else if (orderbyfield === "mobile") {
-          orderbyfield = "mps.ssoid";
-        }  else {
-          orderbyfield = `u.${orderbyfield}`;
-        }
-        orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
-      }
-      let baseQuery = `
-        SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, 
-        u.ismobileverified, u.createdat, u2.displayname as createdby, u.updatedat, u3.displayname as updatedby, 
-        CASE 
-          WHEN uli.ssotype = 'mobile' THEN 'MOBILE_OTP'
-          WHEN uli.ssotype = 'mpin' THEN 'MOBILE_MPIN'
-          WHEN uli.ssotype = 'email' THEN 'WEB_EMAIL'
-          WHEN uli.ssotype = 'superadmin' THEN 'API_TOKEN'
-          ELSE ''
-        END as loginvia, 
-        COALESCE(uli.createdat::text, '') as lastloginat,
-        uli.createdat as lastloginat_raw,
-        uli.ssotype as loginvia_raw,
-        eps.ssoid as email, mps.ssoid as mobile 
-        FROM users u
-        LEFT JOIN LATERAL (
-          SELECT DISTINCT ON (userid) userid, createdat, ssotype
-          FROM user_login_audit
-          WHERE userid = u.userid
-          ORDER BY userid, createdat DESC
-        ) uli ON true
-        LEFT JOIN fleet_user_role fur ON u.userid = fur.userid
-        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
-        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
-        LEFT JOIN users u2 ON u.createdby = u2.userid
-        LEFT JOIN users u3 ON u.updatedby = u3.userid
-        WHERE fur.accountid != $1 AND u.isdeleted = false AND (
-          UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
-          UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%'
-        )
-        ${orderbyclause}
-      `;
       let result;
       let totalcount;
       if (download) {
         // When downloading, get all data without pagination
-        result = await this.pgPoolI.Query(baseQuery, [platformaccountid, searchtext]);
+        result = await this.pgPoolI.Query(baseQuery, [accountid, searchtext]);
         totalcount = result.rowCount;
       } else {
         // Normal pagination flow
-        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [platformaccountid, searchtext]);
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [
+          accountid,
+          searchtext,
+        ]);
         result = await this.pgPoolI.Query(query, params);
-        
+
         const countcquery = `SELECT COUNT(*) FROM users u
-        LEFT JOIN fleet_user_role fur ON u.userid = fur.userid
-        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
-        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
-        WHERE fur.accountid != $1 AND u.isdeleted = false AND (
-          UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
-          UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
-          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%'
-        )`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [platformaccountid, searchtext]);
+      JOIN fleet_user_role fur ON u.userid = fur.userid
+      LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+      LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+      LEFT JOIN mahindra_sso mss ON u.userid = mss.userid
+      WHERE fur.accountid = $1 AND u.isdeleted = false AND (
+        UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
+        UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+        UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+        UPPER(mss.ssoid) LIKE '%' || UPPER($2) || '%'
+      )`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          accountid,
+          searchtext,
+        ]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
 
@@ -1089,7 +1015,7 @@ export default class UserSvcDB {
           totalpages: 0,
         };
       }
-      
+
       if (download) {
         // Return all data for download
         return {
@@ -1101,11 +1027,150 @@ export default class UserSvcDB {
           totalcount: totalcount,
           totalpages: 1,
         };
-      }      
-      
-      const nextOffset = result.rows.length < limit ? 0 : offset + result.rows.length;
+      }
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
       const previousOffset = offset - limit < 0 ? 0 : offset - limit;
-     
+
+      return {
+        users: result.rows,
+        previousoffset: previousOffset,
+        nextoffset: nextOffset,
+        limit: limit,
+        hasmore: limit > result.rowCount ? false : true,
+        totalcount: totalcount,
+        totalpages: Math.ceil(totalcount / limit),
+      };
+    } catch (error) {
+      throw new Error("Failed to fetch account fleet users");
+    }
+  }
+
+  async getNonPlatformUsers(
+    platformaccountid,
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
+    try {
+      let orderbyclause = `ORDER BY uli.createdat DESC NULLS LAST`;
+      if (orderbyfield && orderbydirection) {
+        if (orderbyfield === "lastloginat") {
+          orderbyfield = "uli.createdat";
+        } else if (orderbyfield === "loginvia") {
+          orderbyfield = "uli.ssotype";
+        } else if (orderbyfield === "email") {
+          orderbyfield = "COALESCE(mss.ssoid, eps.ssoid)";
+        } else if (orderbyfield === "mobile") {
+          orderbyfield = "mps.ssoid";
+        } else {
+          orderbyfield = `u.${orderbyfield}`;
+        }
+        orderbyclause = `ORDER BY ${orderbyfield} ${orderbydirection} NULLS LAST`;
+      }
+      let baseQuery = `
+        SELECT DISTINCT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, 
+        u.ismobileverified, u.createdat, u2.displayname as createdby, u.updatedat, u3.displayname as updatedby, 
+        CASE 
+          WHEN uli.ssotype = 'mobile' THEN 'MOBILE_OTP'
+          WHEN uli.ssotype = 'mpin' THEN 'MOBILE_MPIN'
+          WHEN uli.ssotype = 'email' THEN 'WEB_EMAIL'
+          WHEN uli.ssotype = 'superadmin' THEN 'API_TOKEN'
+          WHEN uli.ssotype = 'mahindrasso' THEN 'MAHINDRA_SSO'
+          ELSE ''
+        END as loginvia, 
+        COALESCE(uli.createdat::text, '') as lastloginat,
+        uli.createdat as lastloginat_raw,
+        uli.ssotype as loginvia_raw,
+        COALESCE(mss.ssoid, eps.ssoid) AS email, mps.ssoid as mobile
+        FROM users u
+        LEFT JOIN LATERAL (
+          SELECT DISTINCT ON (userid) userid, createdat, ssotype
+          FROM user_login_audit
+          WHERE userid = u.userid
+          ORDER BY userid, createdat DESC
+        ) uli ON true
+        LEFT JOIN fleet_user_role fur ON u.userid = fur.userid
+        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        LEFT JOIN mahindra_sso mss ON u.userid = mss.userid
+        LEFT JOIN users u2 ON u.createdby = u2.userid
+        LEFT JOIN users u3 ON u.updatedby = u3.userid
+        WHERE fur.accountid != $1 AND u.isdeleted = false AND (
+          UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(mss.ssoid) LIKE '%' || UPPER($2) || '%'
+        )
+        ${orderbyclause}
+      `;
+      let result;
+      let totalcount;
+      if (download) {
+        // When downloading, get all data without pagination
+        result = await this.pgPoolI.Query(baseQuery, [
+          platformaccountid,
+          searchtext,
+        ]);
+        totalcount = result.rowCount;
+      } else {
+        // Normal pagination flow
+        let { query, params } = addPaginationToQuery(baseQuery, offset, limit, [
+          platformaccountid,
+          searchtext,
+        ]);
+        result = await this.pgPoolI.Query(query, params);
+
+        const countcquery = `SELECT COUNT(*) FROM users u
+        LEFT JOIN fleet_user_role fur ON u.userid = fur.userid
+        LEFT JOIN email_pwd_sso eps ON u.userid = eps.userid
+        LEFT JOIN mobile_sso mps ON u.userid = mps.userid
+        LEFT JOIN mahindra_sso mss ON u.userid = mss.userid
+        WHERE fur.accountid != $1 AND u.isdeleted = false AND (
+          UPPER(u.displayname) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(eps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(mps.ssoid) LIKE '%' || UPPER($2) || '%' OR
+          UPPER(mss.ssoid) LIKE '%' || UPPER($2) || '%'
+        )`;
+        const countcresult = await this.pgPoolI.Query(countcquery, [
+          platformaccountid,
+          searchtext,
+        ]);
+        totalcount = parseInt(countcresult.rows[0].count);
+      }
+
+      if (result.rowCount === 0) {
+        return {
+          users: [],
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: download ? totalcount : limit,
+          hasmore: false,
+          totalcount: 0,
+          totalpages: 0,
+        };
+      }
+
+      if (download) {
+        // Return all data for download
+        return {
+          users: result.rows,
+          previousoffset: 0,
+          nextoffset: 0,
+          limit: totalcount,
+          hasmore: false,
+          totalcount: totalcount,
+          totalpages: 1,
+        };
+      }
+
+      const nextOffset =
+        result.rows.length < limit ? 0 : offset + result.rows.length;
+      const previousOffset = offset - limit < 0 ? 0 : offset - limit;
+
       return {
         users: result.rows,
         previousoffset: previousOffset,
@@ -1158,7 +1223,7 @@ export default class UserSvcDB {
     let currtime = new Date();
 
     let [txclient, err] = await this.pgPoolI.StartTransaction();
-    if (err) {  
+    if (err) {
       throw err;
     }
 
@@ -1353,7 +1418,7 @@ export default class UserSvcDB {
         userid,
         role,
         true,
-        'ADD',
+        "ADD",
         currtime,
         invite.createdby,
       ]);
@@ -1445,7 +1510,7 @@ export default class UserSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to get roleid");
       }
-      const roleids = result.rows.map(row => row.roleid); // array of roleids
+      const roleids = result.rows.map((row) => row.roleid); // array of roleids
 
       query = `
         DELETE FROM fleet_user_role 
@@ -1465,14 +1530,14 @@ export default class UserSvcDB {
           userid,
           roleid,
           false,
-          'REMOVE',
+          "REMOVE",
           currtime,
           ADMIN_USER_ID,
-          ]);
-          if (result.rowCount !== 1) {
-            throw new Error("Failed to log user to fleet role in history");
-          }
+        ]);
+        if (result.rowCount !== 1) {
+          throw new Error("Failed to log user to fleet role in history");
         }
+      }
 
       // 4. Delete from user_fleet (depends on users)
       query = `
@@ -1586,14 +1651,28 @@ export default class UserSvcDB {
         throw error;
       }
 
-      query = `
-                SELECT userid FROM email_pwd_sso WHERE ssoid = $1
-            `;
-      result = await txclient.query(query, [inviteemail]);
-      if (result.rowCount !== 1) {
-        let error = new Error("User not found");
-        error.errcode = "USER_NOT_FOUND";
-        throw error;
+      const mahindraemail = inviteemail.includes("@mahindra.com");
+
+      if (mahindraemail) {
+        query = `
+          SELECT userid FROM mahindra_sso WHERE ssoid = $1 or secondaryssoid = $1
+        `;
+        result = await txclient.query(query, [inviteemail]);
+        if (result.rowCount !== 1) {
+          let error = new Error("User not found");
+          error.errcode = "USER_NOT_FOUND";
+          throw error;
+        }
+      } else {
+        query = `
+                  SELECT userid FROM email_pwd_sso WHERE ssoid = $1
+              `;
+        result = await txclient.query(query, [inviteemail]);
+        if (result.rowCount !== 1) {
+          let error = new Error("User not found");
+          error.errcode = "USER_NOT_FOUND";
+          throw error;
+        }
       }
       const inviteuserid = result.rows[0].userid;
 
@@ -1678,7 +1757,7 @@ export default class UserSvcDB {
         userid,
         role,
         true,
-        'ADD',
+        "ADD",
         currtime,
         invite.createdby,
       ]);
@@ -1941,7 +2020,7 @@ export default class UserSvcDB {
         userid,
         roleid,
         true,
-        'ADD',
+        "ADD",
         currtime,
         addedby,
       ]);
@@ -1991,9 +2070,9 @@ export default class UserSvcDB {
         `,
         [accountid]
       );
-      
+
       const userCount = countResult.rows[0]?.user_count || 0;
-      
+
       //Update the 'users' column in account_summary
       await txclient.query(
         `
@@ -2147,7 +2226,7 @@ export default class UserSvcDB {
         `,
         [accountid, rootfleetid, userid]
       );
-      const roleids = assignmentsRes.rows.map(row => row.roleid); // array of roleids
+      const roleids = assignmentsRes.rows.map((row) => row.roleid); // array of roleids
 
       // Remove user from fleet_user_role table
       query = `
@@ -2169,10 +2248,10 @@ export default class UserSvcDB {
           userid,
           roleid,
           false,
-          'REMOVE',
+          "REMOVE",
           currtime,
           removedby,
-          ]);
+        ]);
         if (result.rowCount !== 1) {
           throw new Error("Failed to log user to fleet role in history");
         }
@@ -2440,7 +2519,7 @@ export default class UserSvcDB {
           userid,
           roleid,
           false,
-          'REMOVE',
+          "REMOVE",
           currtime,
           deletedby,
         ]);
@@ -2887,23 +2966,33 @@ export default class UserSvcDB {
       query = `
         SELECT us.ssotype, us.ssoid, us.updatedat,
                eps.password, eps.ssoinfo as email_ssoinfo, eps.passwordexpireat, eps.createdat as email_createdat, eps.updatedat as email_updatedat,
-               ms.ssoinfo as mobile_ssoinfo, ms.createdat as mobile_createdat, ms.updatedat as mobile_updatedat
+               ms.ssoinfo as mobile_ssoinfo, ms.createdat as mobile_createdat, ms.updatedat as mobile_updatedat,
+               mms.ssoinfo as mahindra_ssoinfo, mms.createdat as mahindra_createdat, mms.updatedat as mahindra_updatedat
         FROM user_sso us
         LEFT JOIN email_pwd_sso eps ON us.ssoid = eps.ssoid AND us.ssotype = $2
         LEFT JOIN mobile_sso ms ON us.ssoid = ms.ssoid AND us.ssotype = $3
+        LEFT JOIN mahindra_sso mms ON us.ssoid = mms.ssoid AND us.ssotype = $4
         WHERE us.userid = $1
       `;
-      result = await txclient.query(query, [userid, EMAIL_PWD_SSO, MOBILE_SSO]);
+      result = await txclient.query(query, [
+        userid,
+        EMAIL_PWD_SSO,
+        MOBILE_SSO,
+        MAHINDRA_SSO,
+      ]);
       const originalSsoData = result.rows;
 
       // Extract email and mobile for fleet invite updates
       let userEmail = null;
       let userMobile = null;
+      let userMahindra = null;
       for (const ssoRecord of originalSsoData) {
         if (ssoRecord.ssotype === EMAIL_PWD_SSO) {
           userEmail = ssoRecord.ssoid;
         } else if (ssoRecord.ssotype === MOBILE_SSO) {
           userMobile = ssoRecord.ssoid;
+        } else if (ssoRecord.ssotype === MAHINDRA_SSO) {
+          userMahindra = ssoRecord.ssoid;
         }
       }
 
@@ -2978,6 +3067,13 @@ export default class UserSvcDB {
             WHERE userid = $3
           `;
           await txclient.query(query, [newSsoId, currtime, userid]);
+        } else if (ssoRecord.ssotype === MAHINDRA_SSO) {
+          query = `
+            UPDATE mahindra_sso 
+            SET ssoid = $1, secondaryssoid = $1, updatedat = $2 
+            WHERE userid = $3
+          `;
+          await txclient.query(query, [newSsoId, currtime, userid]);
         }
       }
 
@@ -3015,6 +3111,20 @@ export default class UserSvcDB {
         fleetInviteUpdates += result.rowCount;
       }
 
+      if (userMahindra) {
+        query = `
+          UPDATE fleet_invite_pending 
+          SET contact = $1, updatedat = $2, updatedby = $3 
+          WHERE contact = $4
+        `;
+        result = await txclient.query(query, [
+          deletedUserId,
+          currtime,
+          deletedby,
+          userMahindra,
+        ]);
+        fleetInviteUpdates += result.rowCount;
+      }
       // Update fleet_invite_done table
       if (userEmail) {
         query = `
@@ -3027,6 +3137,21 @@ export default class UserSvcDB {
           currtime,
           deletedby,
           userEmail,
+        ]);
+        fleetInviteUpdates += result.rowCount;
+      }
+
+      if (userMahindra) {
+        query = `
+          UPDATE fleet_invite_done 
+          SET contact = $1, updatedat = $2, updatedby = $3 
+          WHERE contact = $4
+        `;
+        result = await txclient.query(query, [
+          deletedUserId,
+          currtime,
+          deletedby,
+          userMahindra,
         ]);
         fleetInviteUpdates += result.rowCount;
       }
@@ -3241,7 +3366,7 @@ export default class UserSvcDB {
 
   async checkMobileExists(mobile) {
     try {
-      let query = `SELECT userid FROM mobile_sso WHERE ssoid = $1`;
+      let query = `SELECT u.userid FROM mobile_sso ms JOIN users u ON ms.userid = u.userid WHERE u.isdeleted = false AND u.isenabled = true AND ms.ssoid = $1`;
       let result = await this.pgPoolI.Query(query, [mobile]);
       return result.rowCount > 0 ? result.rows[0].userid : null;
     } catch (error) {
@@ -3322,7 +3447,7 @@ export default class UserSvcDB {
 
   async checkEmailExists(email) {
     try {
-      let query = `SELECT userid FROM email_pwd_sso WHERE ssoid = $1`;
+      let query = `SELECT u.userid FROM email_pwd_sso ep JOIN users u ON ep.userid = u.userid WHERE u.isdeleted = false AND u.isenabled = true AND ep.ssoid = $1`;
       let result = await this.pgPoolI.Query(query, [email]);
       return result.rowCount > 0 ? result.rows[0].userid : null;
     } catch (error) {
@@ -4010,7 +4135,7 @@ export default class UserSvcDB {
       const currtime = new Date();
 
       // Build dynamic query based on fields to update
-      const allowedFields = ["displayname", "isenabled"];
+      const allowedFields = ["displayname", "isenabled", "isemailverified"];
       const fieldsToUpdate = {};
 
       for (const [key, value] of Object.entries(updateFields)) {
@@ -4053,6 +4178,184 @@ export default class UserSvcDB {
       return result.rows[0];
     } catch (error) {
       this.logger.error("Error in updateUser:", error);
+      throw error;
+    }
+  }
+
+  async getUserIdPassByMahindrassoEmail(email) {
+    try {
+      let query = `
+            SELECT ms.userid, ms.ssoid, ms.secondaryssoid, u.usertype, u.displayname, u.isemailverified FROM mahindra_sso ms JOIN users u ON ms.userid = u.userid WHERE LOWER(ms.ssoid) = LOWER($1) or LOWER(ms.secondaryssoid) = LOWER($1)
+        `;
+      let result = await this.pgPoolI.Query(query, [email]);
+      if (result.rowCount === 0) {
+        return null;
+      }
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in getUserIdPassByMahindrassoEmail:", error);
+      throw error;
+    }
+  }
+
+  async getUserIdByMahindrassoEmail(email) {
+    try {
+      const query = `
+        SELECT u.userid, u.isemailverified FROM users u JOIN mahindra_sso ms ON u.userid = ms.userid WHERE u.isdeleted = false AND u.isenabled = true AND (LOWER(ms.ssoid) = LOWER($1) or LOWER(ms.secondaryssoid) = LOWER($1))
+      `;
+      const result = await this.pgPoolI.Query(query, [email]);
+      return result.rowCount > 0 ? result.rows[0] : null;
+    } catch (error) {
+      this.logger.error("Error in getUserIdByMahindrassoEmail:", error);
+      throw error;
+    }
+  }
+
+  async updateMahindrassoEmail(userid, email, column) {
+    try {
+      const query = `
+        UPDATE mahindra_sso 
+        SET ${column} = $1 
+        WHERE userid = $2
+      `;
+      const result = await this.pgPoolI.Query(query, [email, userid]);
+      return result.rows[0];
+    } catch (error) {
+      this.logger.error("Error in updateMahindrassoEmail:", error);
+      throw error;
+    }
+  }
+
+  async checkForMahindraSsoUser(userid) {
+    try {
+      const query = `
+        SELECT ms.userid FROM mahindra_sso ms JOIN users u ON ms.userid = u.userid WHERE u.isdeleted = false AND u.isenabled = true AND u.userid = $1
+      `;
+      const result = await this.pgPoolI.Query(query, [userid]);
+      return result.rowCount > 0;
+    } catch (error) {
+      this.logger.error("Error in checkForMahindraSsoUser:", error);
+      throw error;
+    }
+  }
+
+  async checkForPendingInvite(email, inviteid) {
+    try {
+      const query = `
+        SELECT * FROM fleet_invite_pending WHERE contact = $1 AND inviteid = $2
+      `;
+      const result = await this.pgPoolI.Query(query, [email, inviteid]);
+      return result.rowCount > 0 ? result.rows[0] : null;
+    } catch (error) {
+      this.logger.error("Error in checkForPendingInvite:", error);
+      throw error;
+    }
+  }
+
+  async acceptInviteForMahindraSsoFirstLogin(userid, inviteid) {
+    let currtime = new Date();
+
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      this.logger.error("Failed to start transaction", err);
+      throw err;
+    }
+    try {
+
+      // check if inviteid is valid
+      let query = `
+                SELECT inviteid, accountid, fleetid, contact, roleid, invitetype, invitestatus, expiresat, createdat, createdby, updatedat, updatedby FROM fleet_invite_pending WHERE inviteid = $1
+            `;
+      let result = await txclient.query(query, [inviteid]);
+      if (result.rowCount !== 1) {
+        let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+        if (rollbackerr) {
+          this.logger.error("Failed to rollback transaction", rollbackerr);
+          throw rollbackerr;
+        }
+        let error = new Error("Invalid invite id");
+        error.errcode = "INVALID_INVITE_ID";
+        throw error;
+      }
+
+      let invite = result.rows[0];
+      
+      query = `
+        INSERT INTO user_fleet (userid, accountid, fleetid) VALUES ($1, $2, $3)
+        ON CONFLICT (userid, accountid, fleetid) DO NOTHING
+      `;
+      result = await txclient.query(query, [userid, invite.accountid, invite.fleetid]);
+
+      query = `
+          INSERT INTO fleet_user_role (accountid, fleetid, userid, roleid, assignedat, assignedby) VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (accountid, fleetid, userid, roleid) DO NOTHING
+        `;
+      result = await txclient.query(query, [
+          invite.accountid,
+          invite.fleetid,
+          userid,
+          invite.roleid,
+          currtime,
+          invite.createdby,
+        ]);
+      query = `
+          INSERT INTO fleet_user_role_history (accountid, fleetid, userid, roleid, isenabled, action, updatedat, updatedby) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+      result = await txclient.query(query, [
+        invite.accountid,
+        invite.fleetid,
+        userid,
+        invite.roleid,
+        true,
+        "ADD",
+        currtime,
+        invite.createdby,
+      ]);
+      query = `
+          INSERT INTO fleet_invite_done (
+              inviteid, accountid, fleetid, contact, roleid, invitetype, 
+              invitestatus, createdat, createdby, updatedat, updatedby, inviteduserid
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `;
+      result = await txclient.query(query, [
+        inviteid,
+        invite.accountid,
+        invite.fleetid,
+        invite.contact,
+        invite.roleid,
+        invite.invitetype,
+        FLEET_INVITE_STATUS.ACCEPTED,
+        invite.createdat,
+        invite.createdby,
+        currtime,
+        userid,
+        userid,
+      ]);
+      if (result.rowCount !== 1) {
+        let error = new Error("Failed to move invite to done table");
+        error.errcode = "FAILED_TO_MOVE_INVITE_TO_DONE";
+        throw error;
+      }
+
+      query = `
+            DELETE FROM fleet_invite_pending 
+            WHERE inviteid = $1
+        `;
+      result = await txclient.query(query, [inviteid]);
+      if (result.rowCount !== 1) {
+        let error = new Error("Failed to delete from pending table");
+        error.errcode = "FAILED_TO_DELETE_FROM_PENDING";
+        throw error;
+      }
+
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error("Error in acceptInviteForMahindraSsoFirstLogin:", error);
       throw error;
     }
   }

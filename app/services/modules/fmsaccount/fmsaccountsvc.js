@@ -47,6 +47,26 @@ export default class FmsAccountSvc {
     );
   }
 
+  async SendMahindrassoInvite(
+    accountid,
+    fleetid,
+    roleids,
+    inviteid,
+    contact,
+    invitedby,
+    headerReferer
+  ) {
+    return await this.fmsAccountSvcDB.triggerMahindrassoInvite(
+      accountid,
+      fleetid,
+      roleids,
+      inviteid,
+      contact,
+      invitedby,
+      headerReferer
+    );
+  }
+
   async ValidateInvite(inviteid, userid) {
     return await this.fmsAccountSvcDB.validateInvite(inviteid, userid);
   }

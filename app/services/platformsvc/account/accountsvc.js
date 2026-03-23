@@ -12,12 +12,13 @@ export default class AccountSvc {
     return await this.accountSvcDB.createAccount(account);
   }
 
-  async GetAllAccounts(platformAccountId, offset, limit, searchtext) {
+  async GetAllAccounts(platformAccountId, offset, limit, searchtext, type) {
     return await this.accountSvcDB.getAllAccounts(
       platformAccountId,
       offset,
       limit,
-      searchtext
+      searchtext,
+      type
     );
   }
 
@@ -171,6 +172,15 @@ export default class AccountSvc {
     );
   }
 
+  async AddCustomPkgToAccountWithTxn(accountid, pkgids, updatedby, txclient) {
+    return await this.accountSvcDB.addCustomPkgToAccountWithTxn(
+      accountid,
+      pkgids,
+      updatedby,
+      txclient
+    );
+  }
+
   async RemoveCustomPkgFromAccount(accountid, pkgid, updatedby) {
     return await this.accountSvcDB.removeCustomPkgFromAccount(
       accountid,
@@ -188,6 +198,24 @@ export default class AccountSvc {
     headerReferer
   ) {
     return await this.accountSvcDB.triggerEmailInviteToRootFleet(
+      accountid,
+      inviteid,
+      email,
+      invitedby,
+      roleids,
+      headerReferer
+    );
+  }
+
+  async MahindrassoInviteToRootFleet(
+    accountid,
+    inviteid,
+    email,
+    invitedby,
+    roleids,
+    headerReferer
+  ) {
+    return await this.accountSvcDB.triggerMahindrassoInviteToRootFleet(
       accountid,
       inviteid,
       email,
@@ -555,5 +583,13 @@ export default class AccountSvc {
       offset,
       limit
     );
+  }
+
+  async GetAccountCategory() {
+    return await this.accountSvcDB.getAccountCategory();
+  }
+
+  async GetSubscriptionStatus(accountid) {
+    return await this.accountSvcDB.getSubscriptionStatus(accountid);
   }
 }

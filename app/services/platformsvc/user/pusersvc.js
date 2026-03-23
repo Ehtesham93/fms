@@ -26,6 +26,24 @@ export default class PUserSvc {
     );
   }
 
+  async MahindrassoInviteToRootFleet(
+    accountid,
+    inviteid,
+    email,
+    invitedby,
+    roleids,
+    headerReferer
+  ) {
+    return await this.pUserSvcDB.triggerMahindrassoInviteToRootFleet(
+      accountid,
+      inviteid,
+      email,
+      invitedby,
+      roleids,
+      headerReferer
+    );
+  }
+  
   async ResendInvite(accountid, inviteid, invitedby, headerReferer) {
     return await this.pUserSvcDB.resendInvite(
       accountid,

@@ -37,7 +37,8 @@ export default class AccountHdlrImpl {
     isenabled = true,
     createdby,
     mobile,
-    accountid = null
+    accountid = null,
+    accountcategory = "individual"
   ) => {
     let rootfleetid = null;
     let rootfleetparentid = null;
@@ -66,6 +67,7 @@ export default class AccountHdlrImpl {
       accountinfo: accountinfo,
       isenabled: isenabled,
       createdby: createdby,
+      accountcategory: accountcategory,
     };
 
     let accountinfovalidation = EmailMobileValidation(accountinfo);
@@ -89,9 +91,12 @@ export default class AccountHdlrImpl {
     };
   };
 
-  ListAccountsLogic = async (searchtext, offset, limit) => {
-    searchtext = preprocessingText(searchtext);
-    let accounts = await this.accountSvcI.GetAllAccounts(PLATFORM_ACCOUNT_ID, offset, limit, searchtext);
+  ListAccountsLogic = async (searchtext, offset, limit, type) => {
+    const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailregex.test(searchtext)) {
+      searchtext = preprocessingText(searchtext);
+    }
+    let accounts = await this.accountSvcI.GetAllAccounts(PLATFORM_ACCOUNT_ID, offset, limit, searchtext.toUpperCase(), type);
     return accounts;
   };
 
@@ -131,7 +136,7 @@ export default class AccountHdlrImpl {
   };
 
   UpdateAccountLogic = async (accountid, updateFields, updatedby) => {
-    const allowedFields = ["accountname", "accountinfo", "isenabled", "mobile"];
+    const allowedFields = ["accountname", "accountinfo", "isenabled", "mobile", "accountcategory"];
 
     const fieldsToUpdate = {};
     for (const [key, value] of Object.entries(updateFields)) {
@@ -380,6 +385,35 @@ export default class AccountHdlrImpl {
     }
 
     return this.GetAccountPkgsLogic(accountid);
+  };
+
+  MahindrassoInviteToRootFleetLogic = async (
+    accountid,
+    email,
+    invitedby,
+    roles,
+    headerReferer
+  ) => {
+    let inviteid = uuidv4();
+    let res = await this.accountSvcI.MahindrassoInviteToRootFleet(
+      accountid,
+      inviteid,
+      email,
+      invitedby,
+      roles,
+      headerReferer
+    );
+    if (!res) {
+      this.logger.error("Failed to create invite email");
+      throw new Error("Failed to create invite email");
+    }
+    return {
+      accountid: accountid,
+      fleetid: res.fleetid,
+      roles: roles,
+      inviteid: res.inviteid,
+      contact: email,
+    };
   };
 
   EmailInviteToRootFleetLogic = async (
@@ -1136,6 +1170,7 @@ export default class AccountHdlrImpl {
     mobile,
     isenabled = true,
     createdby,
+    accountcategory = "individual"
   ) => {
     const accountid = uuidv4();
     const rootfleetid = uuidv4();
@@ -1156,6 +1191,7 @@ export default class AccountHdlrImpl {
       accountinfo: accountinfo,
       isenabled: isenabled,
       createdby: createdby,
+      accountcategory: accountcategory,
     };
 
     try {
@@ -1204,5 +1240,15 @@ export default class AccountHdlrImpl {
     searchtext = preprocessingText(searchtext);
     let accounts = await this.accountSvcI.AccountsAvailableForTagging(PLATFORM_ACCOUNT_ID, vinno, searchtext, offset, limit);
     return accounts;
+  };
+
+  GetAccountCategoryLogic = async () => {
+    let accountcategories = await this.accountSvcI.GetAccountCategory();
+    return accountcategories;
+  };
+
+  GetSubscriptionStatusLogic = async (accountid) => {
+    let subscriptionstatus = await this.accountSvcI.GetSubscriptionStatus(accountid);
+    return subscriptionstatus;
   };
 }

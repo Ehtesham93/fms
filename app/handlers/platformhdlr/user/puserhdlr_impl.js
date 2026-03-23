@@ -147,14 +147,24 @@ export default class PUserHdlrImpl {
   ) => {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
     let inviteid = uuidv4();
-    let res = await this.pUserSvcI.EmailInviteToRootFleet(
-      accountid,
-      inviteid,
-      email,
-      invitedby,
-      roleids,
-      headerReferer
-    );
+    const mahindrasso = email.includes("@mahindra.com");
+    let res = mahindrasso
+      ? await this.pUserSvcI.MahindrassoInviteToRootFleet(
+          accountid,
+          inviteid,
+          email,
+          invitedby,
+          roleids,
+          headerReferer
+        )
+      : await this.pUserSvcI.EmailInviteToRootFleet(
+          accountid,
+          inviteid,
+          email,
+          invitedby,
+          roleids,
+          headerReferer
+        );
     if (!res) {
       this.logger.error("Failed to invite platform user");
       throw new Error("Failed to invite platform user");
@@ -583,6 +593,14 @@ export default class PUserHdlrImpl {
       this.logger.error("Target user not found");
       throw new Error("Target user not found");
     }
+    
+    const mahindraEmailRegex = /^[^\s@]+@mahindra.com$/;
+
+    if(mahindraEmailRegex.test(targetUser.email)) {
+      let error = new Error("Cannot reset password for Mahindra SSO users");
+      error.errcode = "CANNOT_RESET_MAHINDRA_SSO_USER";
+      throw error;
+    }
 
     let result = await this.pUserSvcI.ResetUserPassword(userid, resetby);
     if (!result) {
@@ -822,6 +840,7 @@ export default class PUserHdlrImpl {
         updatedby: userid,
         entrytype: this.onboardingType,
       });
+      const deletependingaccount =
         await this.accountSvcI.DeletePendingAccountReviewById(taskid);
     } catch (error) {
       this.logger.error("Failed to add account to review done table", error);
@@ -978,14 +997,21 @@ export default class PUserHdlrImpl {
     }
   };
 
-  TaskCreateAccount = async (taskid, accountname, userid, original_input) => {
+  TaskCreateAccount = async (
+    taskid,
+    accountname,
+    userid,
+    original_input,
+    accountcategory = "individual"
+  ) => {
     try {
       const accountRes =
         await this.accountHdlr.accountHdlrImpl.CreateAccountLogic(
           accountname,
           {},
           true,
-          userid
+          userid,
+          accountcategory
         );
       if (!accountRes) {
         // Add account to review pending table
@@ -999,8 +1025,7 @@ export default class PUserHdlrImpl {
               review_data: { accountname: accountname },
               error_status: "ACCOUNT_CREATION",
               status: "PENDING_ACCOUNT_CREATION",
-              reason:
-                "Account creation failed.",
+              reason: "Account creation failed.",
               original_input: original_input,
             },
             userid
@@ -1019,8 +1044,7 @@ export default class PUserHdlrImpl {
         return {
           errcode: "ACCOUNT_CREATION_FAILED",
           status: "PENDING_ACCOUNT_CREATION",
-          message:
-            "Account creation failed.",
+          message: "Account creation failed.",
         };
       }
       await this.AddAccountToReviewDone(
@@ -1047,8 +1071,7 @@ export default class PUserHdlrImpl {
             review_data: { accountname: accountname },
             error_status: "ACCOUNT_CREATION",
             status: "PENDING_ACCOUNT_CREATION",
-            reason:
-              "Account creation failed.",
+            reason: "Account creation failed.",
             original_input: original_input,
           },
           userid
@@ -1114,8 +1137,7 @@ export default class PUserHdlrImpl {
               userinfo: { mobile: usermobile, email: useremail },
               review_data: review_data,
               error_status: "USER_CREATION",
-              reason:
-                "User creation failed.",
+              reason: "User creation failed.",
               original_input: original_input,
             },
             userid
@@ -1144,8 +1166,7 @@ export default class PUserHdlrImpl {
           accountid: accountid,
           errcode: "USER_CREATION_FAILED",
           status: "PENDING_USER_CREATION",
-          message:
-              "Account created successfully. User creation failed.",
+          message: "Account created successfully. User creation failed.",
         };
       }
       return user;
@@ -1160,8 +1181,7 @@ export default class PUserHdlrImpl {
             userinfo: { mobile: usermobile, email: useremail },
             review_data: review_data,
             error_status: "USER_CREATION",
-            reason:
-              "User creation failed.",
+            reason: "User creation failed.",
             original_input: original_input,
           },
           userid
@@ -1381,8 +1401,7 @@ export default class PUserHdlrImpl {
               accountname: accountname,
               error_status: "SERVICE_ONBOARDING",
               status: "PENDING_SERVICE_ONBOARDING",
-              reason:
-                "Service onboarding failed.",
+              reason: "Service onboarding failed.",
               original_input: original_input,
             },
             userid
@@ -1402,14 +1421,17 @@ export default class PUserHdlrImpl {
           accountid: accountid,
           errcode: "SERVICE_ONBOARDING_FAILED",
           status: "PENDING_SERVICE_ONBOARDING",
-          message:
-            "Service onboarding failed.",
+          message: "Service onboarding failed.",
         };
       }
       return null; // Success
     } catch (error) {
-      if (error.response.data.err.errcode && (error.response.data.err.errcode === "VEHICLE_ALREADY_ONBOARDED" || error.response.data.err.errcode === "VEHICLE_ONBOARDING_IN_PROCESS")) {
-          return null; // Success
+      if (
+        error.response.data.err.errcode &&
+        (error.response.data.err.errcode === "VEHICLE_ALREADY_ONBOARDED" ||
+          error.response.data.err.errcode === "VEHICLE_ONBOARDING_IN_PROCESS")
+      ) {
+        return null; // Success
       }
       return {
         accountid: accountid,
@@ -1526,8 +1548,7 @@ export default class PUserHdlrImpl {
             accountname: accountname,
             error_status: "VEHICLE_ASSIGNMENT",
             status: "PENDING_VEHICLE_ASSIGNMENT",
-            reason:
-              "Vehicle assignment failed. Vehicle not found.",
+            reason: "Vehicle assignment failed. Vehicle not found.",
             original_input: original_input,
           },
           userid
@@ -1547,8 +1568,7 @@ export default class PUserHdlrImpl {
         accountid: accountid,
         errcode: "VEHICLE_ASSIGNMENT_FAILED",
         status: "PENDING_VEHICLE_ASSIGNMENT",
-        message:
-          "Vehicle assignment failed. Vehicle not found.",
+        message: "Vehicle assignment failed. Vehicle not found.",
       };
     }
   }
@@ -1570,13 +1590,15 @@ export default class PUserHdlrImpl {
     customergender,
     vehiclemobile,
     vin,
-    licenseplate
+    licenseplate,
+    accountcategory = "individual"
   ) {
     const accountRes = await this.TaskCreateAccount(
       taskid,
       accountname,
       userid,
-      original_input
+      original_input,
+      accountcategory
     );
     const accountid = accountRes.accountid;
     const account = accountRes.account;
@@ -1876,7 +1898,8 @@ export default class PUserHdlrImpl {
     vin,
     licenseplate,
     accountid,
-    userrole
+    userrole,
+    accountcategory = "corporate"
   ) {
     let account = null;
     let action = null;
@@ -1910,7 +1933,8 @@ export default class PUserHdlrImpl {
           taskid,
           accountname,
           userid,
-          original_input
+          original_input,
+          accountcategory
         );
         accountid = accountRes.accountid;
         account = accountRes.account;
@@ -2131,6 +2155,7 @@ export default class PUserHdlrImpl {
     nemo3_account_id = null,
     userrole = "viewer"
   ) => {
+    let accountcategory = "individual";
     this.onboardingType = type;
     const processedcustomername = this.preprocessingname(customername);
     const vehiclemobile = this.preprocessingmobile(customercontactmobile);
@@ -2181,8 +2206,9 @@ export default class PUserHdlrImpl {
         }
       }
     } else {
-      pendingaccount =
-          await this.accountSvcI.GetPendingAccountReviewById(taskid);
+      pendingaccount = await this.accountSvcI.GetPendingAccountReviewById(
+        taskid
+      );
     }
 
     const original_input = {
@@ -2207,6 +2233,7 @@ export default class PUserHdlrImpl {
     };
 
     if (customertype.toLowerCase() === CUSTOMER_TYPE_INDIVIDUAL) {
+      accountcategory = "individual";
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
       if (existingaccount === null) {
         existingaccount = await this.platformSvcI.GetAccountByName(accountname);
@@ -2240,7 +2267,8 @@ export default class PUserHdlrImpl {
             customergender,
             vehiclemobile,
             vin,
-            licenseplate
+            licenseplate,
+            accountcategory
           );
         } else {
           await this.AddAccountToReviewPending(
@@ -2259,8 +2287,7 @@ export default class PUserHdlrImpl {
             userid: user.userid,
             errcode: "DUPLICATE_ACCOUNT_CREATION",
             status: "DUPLICATE_ACCOUNT_CREATION",
-            message:
-              "Duplicate account creation.",
+            message: "Duplicate account creation.",
           };
         }
       } else if (existingaccount !== null) {
@@ -2286,6 +2313,7 @@ export default class PUserHdlrImpl {
         );
       }
     } else if (customertype.toLowerCase() === CUSTOMER_TYPE_CORPORATE) {
+      accountcategory = "corporate";
       const existingmobile = await this.userSvcI.CheckMobileExists(usermobile);
       const existingemail = await this.userSvcI.CheckEmailExists(
         customercontactemail
@@ -2310,7 +2338,8 @@ export default class PUserHdlrImpl {
         vin,
         licenseplate,
         nemo3_account_id,
-        userrole
+        userrole,
+        accountcategory
       );
     }
   };

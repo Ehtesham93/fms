@@ -7713,11 +7713,11 @@ paths:
                   msg:
                     type: string
                     example: "Failed to validate email verification"
-  /api/v1/fms/user/logout:
+  /api/v1/fms/user/signout:
     post:
       tags:
         - FMS JS > FMS > User Profile
-      summary: User Logout
+      summary: User Signout
       security:
         - cookieAuth: []
       responses:

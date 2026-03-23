@@ -344,6 +344,20 @@ export default class PublicHdlr {
     try {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
+      const referer = req.headers.referer;
+      let inviteid = null;
+      if (referer) {
+        inviteid = referer.split("?inviteid=").pop();
+        if (inviteid) {
+          const uuidRegex =
+            /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+          if (uuidRegex.test(inviteid)) {
+            inviteid = inviteid;
+          } else {
+            inviteid = null;
+          }
+        }
+      }
 
       if (captchaToken) {
         const isValidCaptcha = await ValidateCaptcha(
@@ -376,7 +390,10 @@ export default class PublicHdlr {
         contact: req.body.contact,
       });
 
-      let result = await this.publicHdlrImpl.CheckContactLogic(contact);
+      let result = await this.publicHdlrImpl.CheckContactLogic(
+        contact,
+        inviteid
+      );
       APIResponseOK(req, res, result, "Contact verified successfully");
     } catch (error) {
       return this.handleError(
@@ -464,10 +481,10 @@ export default class PublicHdlr {
       let expiresin = TOKEN_EXPIRY_TIME;
       let refreshTokenMaxAge = REFRESH_TOKEN_EXPIRY_TIME;
 
-      // TODO: Add mobile number for which we want different expiry time
-      if (mobile == "8814010926" || mobile == "7795772862") {
-        expiresin = 30;
-      }
+      // // TODO: Add mobile number for which we want different expiry time
+      // if (mobile == "9742702873" || mobile == "7795772862") {
+      //   expiresin = 30;
+      // }
 
       if (validityMs) {
         expiresin = Math.floor(validityMs / 1000);
@@ -666,6 +683,20 @@ export default class PublicHdlr {
     try {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
+      const referer = req.headers.referer;
+      let inviteid = null;
+      if (referer) {
+        inviteid = referer.split("?inviteid=").pop();
+        if (inviteid) {
+          const uuidRegex =
+            /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+          if (uuidRegex.test(inviteid)) {
+            inviteid = inviteid;
+          } else {
+            inviteid = null;
+          }
+        }
+      }
 
       if (captchaToken) {
         const isValidCaptcha = await ValidateCaptcha(
@@ -687,16 +718,14 @@ export default class PublicHdlr {
         email: z
           .string({ message: "Please provide a valid email address" })
           .email({ message: "Please provide a valid email format" }),
-        password: z
-          .string({ message: "Password is required" })
-          .nonempty({ message: "Password cannot be empty" })
-          .min(8, { message: "Password must be at least 8 characters long" })
-          .max(128, { message: "Password must not exceed 128 characters" }),
+        authtoken: z
+          .string({ message: "Please provide a valid authentication token" })
+          .nonempty({ message: "Authentication token cannot be empty" }),
       });
 
-      let { email, password } = validateAllInputs(schema, {
+      let { email, authtoken } = validateAllInputs(schema, {
         email: req.body.email,
-        password: req.body.password,
+        authtoken: req.body.authtoken,
       });
 
       let validity = req.body.validity;
@@ -712,9 +741,10 @@ export default class PublicHdlr {
 
       let result = await this.publicHdlrImpl.UserMahindrassoEmailSignInLogic(
         email,
-        password,
+        authtoken,
         expiresin,
-        refreshTokenMaxAge
+        refreshTokenMaxAge,
+        inviteid
       );
       res.cookie("token", result.token, {
         httpOnly: true,
@@ -733,13 +763,71 @@ export default class PublicHdlr {
 
       APIResponseOK(req, res, result, "Successfully signed in with your email");
     } catch (error) {
-      return this.handleError(
-        error,
-        req,
-        res,
-        "USER_EMAIL_SIGN_IN_ERR",
-        "We couldn't sign you in. Invalid email or password."
-      );
+      if (error.errcode === "INVALID_CREDENTIALS") {
+        return APIResponseForbidden(
+          req,
+          res,
+          "INVALID_CREDENTIALS",
+          {},
+          "Invalid credentials"
+        );
+      } else if (error.errcode === "USER_NOT_REGISTERED") {
+        return APIResponseForbidden(
+          req,
+          res,
+          "USER_NOT_REGISTERED",
+          {},
+          "User is not registered"
+        );
+      } else if (error.errcode === "USER_NOT_FOUND") {
+        return APIResponseForbidden(
+          req,
+          res,
+          "USER_NOT_FOUND",
+          {},
+          "User not found"
+        );
+      } else if (error.errcode === "ACCOUNT_LOCKED") {
+        return APIResponseForbidden(
+          req,
+          res,
+          "ACCOUNT_LOCKED",
+          {},
+          "Account locked"
+        );
+      } else if (error.errcode === "ACCOUNT_DISABLED") {
+        return APIResponseForbidden(
+          req,
+          res,
+          "ACCOUNT_DISABLED",
+          {},
+          "Account is disabled"
+        );
+      } else if (error.errcode === "ACCOUNT_DELETED") {
+        return APIResponseForbidden(
+          req,
+          res,
+          "ACCOUNT_DELETED",
+          {},
+          "Account is deleted"
+        );
+      } else if (error.errcode === "TOKEN_EXPIRED") {
+        return APIResponseForbidden(
+          req,
+          res,
+          "TOKEN_EXPIRED",
+          {},
+          "Token expired"
+        );
+      } else {
+        return this.handleError(
+          error,
+          req,
+          res,
+          "USER_EMAIL_SIGN_IN_ERR",
+          "We couldn't sign you in. Invalid email or password."
+        );
+      }
     }
   };
 
@@ -910,7 +998,12 @@ export default class PublicHdlr {
         inviteid,
         userid
       );
-      APIResponseOK(req, res, result, "Invite link is valid and ready to use");
+      let message =
+        "This invite link is invalid or has expired. Please request a new invitation.";
+      if (result.isvalid) {
+        message = "Invite link is valid and ready to use";
+      }
+      return APIResponseOK(req, res, result, message);
     } catch (error) {
       return this.handleError(
         error,

@@ -224,6 +224,12 @@ export default class UserHdlrImpl {
 
   AddUserMobileLogic = async (userid, mobile) => {
     try {
+      let mahindraSsoUser = await this.userSvcI.CheckForMahindraSsoUser(userid);
+      if (mahindraSsoUser) {
+        const error = new Error("You are not allowed to add a mobile number");
+        error.errcode = "MAHINDRA_SSO_USER";
+        throw error;
+      }
       let existingUserId = await this.userSvcI.CheckMobileExists(mobile);
       if (existingUserId) {
         const error = new Error("Mobile number is already in use");

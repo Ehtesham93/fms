@@ -2,7 +2,8 @@ import {
   EMAIL_PWD_SSO,
   FLEET_INVITE_STATUS,
   FLEET_INVITE_TYPE,
-  PLATFORM_ACCOUNT_ID
+  PLATFORM_ACCOUNT_ID,
+  MAHINDRA_SSO
 } from "../../utils/constant.js";
 import { markInviteAsExpired } from "../../utils/inviteUtil.js";
 
@@ -69,6 +70,7 @@ export default class FmsSvcDB {
     try {
       let email = null;
       let mobile = null;
+      let mahindrasso = null;
 
       let query = `
             SELECT ssoid FROM user_sso WHERE userid = $1 AND ssotype = $2
@@ -87,6 +89,22 @@ export default class FmsSvcDB {
       }
 
       query = `
+            SELECT ssoid FROM user_sso WHERE userid = $1 AND ssotype = $2
+        `;
+      result = await this.pgPoolI.Query(query, [userid, MAHINDRA_SSO]);
+      if (result.rowCount === 1) {
+        mahindrasso = result.rows[0].ssoid;
+      } else {
+        query = `
+            SELECT ssoid FROM mahindra_sso WHERE userid = $1
+        `;
+        result = await this.pgPoolI.Query(query, [userid]);
+        if (result.rowCount === 1) {
+          mahindrasso = result.rows[0].ssoid;
+        }
+      }
+
+      query = `
             SELECT ssoid FROM mobile_sso WHERE userid = $1
         `;
       result = await this.pgPoolI.Query(query, [userid]);
@@ -94,7 +112,7 @@ export default class FmsSvcDB {
         mobile = result.rows[0].ssoid;
       }
 
-      if (!email && !mobile) {
+      if (!email && !mobile && !mahindrasso) {
         return null;
       }
 
@@ -112,7 +130,7 @@ export default class FmsSvcDB {
             JOIN roles r ON fip.accountid = r.accountid AND fip.roleid = r.roleid
             LEFT JOIN users u1 ON fip.createdby = u1.userid
             LEFT JOIN users u2 ON fip.updatedby = u2.userid
-            WHERE fip.contact = $1 OR fip.contact = $2
+            WHERE fip.contact = $1 OR fip.contact = $2 OR fip.contact = $3
             
             UNION ALL
             
@@ -129,12 +147,12 @@ export default class FmsSvcDB {
             JOIN roles r ON fid.accountid = r.accountid AND fid.roleid = r.roleid
             LEFT JOIN users u1 ON fid.createdby = u1.userid
             LEFT JOIN users u2 ON fid.updatedby = u2.userid
-            WHERE fid.contact = $1 OR fid.contact = $2
+            WHERE fid.contact = $1 OR fid.contact = $2 OR fid.contact = $3
             
             ORDER BY invitedat DESC
         `;
 
-      result = await this.pgPoolI.Query(invitesQuery, [email, mobile]);
+      result = await this.pgPoolI.Query(invitesQuery, [email, mobile, mahindrasso]);
 
       // Convert the flat result to the expected format with info object
       for (let invite of result.rows) {
@@ -191,6 +209,7 @@ export default class FmsSvcDB {
         }
         return {
           isvalid: false,
+          firstsignin: false,
           email: emailForInvalidReason,
           invalidreason: "Invalid invite id",
           isdifferentuser: isdifferentuser,
@@ -201,20 +220,42 @@ export default class FmsSvcDB {
       emailForInvalidReason = invite.contact || emailForInvalidReason;
       const inviteemail = invite.contact;
 
-      // check if email already exists
-      query = `
-                SELECT userid FROM email_pwd_sso WHERE ssoid = $1
-            `;
-      result = await txclient.query(query, [inviteemail]);
+      const mahindrassoemailregex = /^[a-zA-Z0-9._%+-]+@mahindra\.com$/;
       let isuseralreadyexists = false;
       let inviteuserid = null;
-      if (result.rowCount !== 0) {
-        isuseralreadyexists = true;
-        inviteuserid = result.rows[0].userid;
-      }
-      if (userid) {
-        if (inviteuserid !== userid) {
-          isdifferentuser = true;
+      let firstsignin = false;
+      if (mahindrassoemailregex.test(inviteemail.toLowerCase())) {
+        query = `
+          SELECT u.userid, u.isemailverified FROM mahindra_sso ms JOIN users u ON ms.userid = u.userid WHERE ms.ssoid = $1 or ms.secondaryssoid = $1
+        `;
+        result = await txclient.query(query, [inviteemail]);
+        if (result.rowCount !== 0) {
+          isuseralreadyexists = true;
+          inviteuserid = result.rows[0].userid;
+          if (userid !== inviteuserid) {
+            isdifferentuser = true;
+          }
+          if (!result.rows[0].isemailverified) {
+            firstsignin = true;
+          }
+        }
+      } else {
+        // check if email already exists
+        query = `
+                SELECT u.userid, u.isemailverified FROM email_pwd_sso ep JOIN users u ON ep.userid = u.userid WHERE ep.ssoid = $1
+            `;
+        result = await txclient.query(query, [inviteemail]);
+        if (result.rowCount !== 0) {
+          isuseralreadyexists = true;
+          inviteuserid = result.rows[0].userid;
+          if (!result.rows[0].isemailverified) {
+            firstsignin = true;
+          }
+        }
+        if (userid) {
+          if (inviteuserid !== userid) {
+            isdifferentuser = true;
+          }
         }
       }
 
@@ -229,6 +270,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Invite is no longer valid state",
           isdifferentuser: isdifferentuser,
+          firstsignin: firstsignin,
         };
       }
 
@@ -245,6 +287,7 @@ export default class FmsSvcDB {
           invalidreason:
             "Invite is not an email invite. currently only email invites are supported",
           isdifferentuser: isdifferentuser,
+          firstsignin: firstsignin,
         };
       }
 
@@ -272,6 +315,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Invite has expired",
           isdifferentuser: isdifferentuser,
+          firstsignin: firstsignin,
         };
       }
 
@@ -291,6 +335,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Invited account not found",
           isdifferentuser: isdifferentuser,
+          firstsignin: firstsignin,
         };
       }
       const accountname = result.rows[0].accountname;
@@ -310,8 +355,10 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Invited fleet not found",
           isdifferentuser: isdifferentuser,
+          firstsignin: firstsignin,
         };
       }
+
       const fleetname = result.rows[0].name;
 
       let commiterr = await this.pgPoolI.TxCommit(txclient);
@@ -322,6 +369,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Something went wrong",
           isdifferentuser: isdifferentuser,
+          firstsignin: firstsignin,
         };
       }
 
@@ -337,6 +385,7 @@ export default class FmsSvcDB {
         isuseralreadyexists: isuseralreadyexists,
         isvalid: true,
         isdifferentuser: isdifferentuser,
+        firstsignin: firstsignin,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -349,6 +398,7 @@ export default class FmsSvcDB {
         email: emailForInvalidReason,
         invalidreason: "Unknown error",
         isdifferentuser: isdifferentuser,
+        firstsignin: false,
       };
     }
   }

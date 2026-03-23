@@ -447,4 +447,28 @@ export default class UserSvc {
   async UpdateUser(userid, updateFields, updatedby) {
     return await this.userSvcDB.updateUser(userid, updateFields, updatedby);
   }
+
+  async GetUserIdPassByMahindrassoEmail(email) {
+    return await this.userSvcDB.getUserIdPassByMahindrassoEmail(email);
+  }
+
+  async GetUserIdByMahindrassoEmail(email) {
+    return await this.userSvcDB.getUserIdByMahindrassoEmail(email);
+  }
+
+  async UpdateMahindrassoEmail(userid, email, column) {
+    return await this.userSvcDB.updateMahindrassoEmail(userid, email, column);
+  }
+  
+  async CheckForMahindraSsoUser(userid) {
+    return await this.userSvcDB.checkForMahindraSsoUser(userid);
+  }
+
+  async CheckForPendingInvite(email, inviteid) {
+    return await this.userSvcDB.checkForPendingInvite(email, inviteid);
+  }
+
+  async AcceptInviteForMahindraSsoFirstLogin(userid, inviteid) {
+    return await this.userSvcDB.acceptInviteForMahindraSsoFirstLogin(userid, inviteid);
+  }
 }

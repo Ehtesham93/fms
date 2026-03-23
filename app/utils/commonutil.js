@@ -195,7 +195,7 @@ export function preprocessingText(name) {
   }
   return name
     .toUpperCase() // Convert to uppercase
-    .replace(/[^A-Z0-9\s]/g, " ") // Replace anything other than alphabets, numbers, and spaces with space
+    .replace(/[^A-Z0-9_\s]/g, " ") // Replace anything other than alphabets, numbers, and spaces with space
     .replace(/\s+/g, " ") // Replace multiple whitespaces with single space
     .trim(); // Trim leading and trailing whitespaces
 }
