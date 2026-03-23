@@ -332,10 +332,8 @@ export default class PlatformSvcDB {
         FROM vehicle 
         WHERE vinno = $1
       `;
-      let previousStateResult = await txclient.query(getPreviousStateQuery, [
-        vinno,
-      ]);
-
+      let previousStateResult = await txclient.query(getPreviousStateQuery, [vinno]);
+      
       if (previousStateResult.rowCount !== 1) {
         throw new Error("Vehicle not found");
       }
@@ -381,7 +379,7 @@ export default class PlatformSvcDB {
       const params = [vinno, ...Object.values(fieldsToUpdate)];
 
       let result = await txclient.query(query, params);
-
+      
       if (result.rowCount === 0) {
         throw new Error("Vehicle not found");
       }
@@ -398,10 +396,8 @@ export default class PlatformSvcDB {
         FROM vehicle 
         WHERE vinno = $1
       `;
-      let currentStateResult = await txclient.query(getCurrentStateQuery, [
-        vinno,
-      ]);
-
+      let currentStateResult = await txclient.query(getCurrentStateQuery, [vinno]);
+      
       if (currentStateResult.rowCount !== 1) {
         throw new Error("Failed to retrieve updated vehicle data");
       }
@@ -481,7 +477,8 @@ export default class PlatformSvcDB {
     }
   }
 
-  async getVehicleHistory(starttime, endtime) {
+  async getVehicleHistory( starttime, endtime) {
+
     try {
       let query = `
       SELECT vh.vinno, vh.modelcode, vh.mobile, vh.vehicleinfo, vh.license_plate, vh.color, vh.vehicle_city, vh.dealer, vh.delivered, vh.delivered_date, vh.data_freq, vh.tgu_model, vh.tgu_sw_version, vh.tgu_phone_no, vh.tgu_imei_no, vh.engineno, vh.fueltype, vh.retailssaledate, vh.action, vh.updatedat, u.displayname as updatedby, vh.previousstate, vh.currentstate 
@@ -489,10 +486,7 @@ export default class PlatformSvcDB {
       JOIN users as u ON vh.updatedby = u.userid
       WHERE vh.updatedat >= $1 AND vh.updatedat <= $2
       ORDER BY vh.updatedat DESC`;
-      let result = await this.pgPoolI.Query(query, [
-        new Date(starttime),
-        new Date(endtime),
-      ]);
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
       return result.rows;
     } catch (error) {
       throw new Error(`Failed to get vehicle history: ${error.message}`);
@@ -545,10 +539,7 @@ export default class PlatformSvcDB {
 
   async checkVehicleSubscriptionAssociations(vinno) {
     try {
-      let query = `SELECT accountid 
-                    FROM account_vehicle_subscription avs
-                    JOIN account_subscription_status ass ON avs.accountid = ass.accountid AND avs.subscriptionid = ass.subscriptionid
-                    WHERE avs.vinno = $1 AND avs.status = 1 AND ass.isactive = true`;
+      let query = `SELECT accountid FROM account_vehicle_subscription WHERE vinno = $1 AND state = 1`;
       let result = await this.pgPoolI.Query(query, [vinno]);
       return result.rows;
     } catch (error) {
@@ -603,7 +594,7 @@ export default class PlatformSvcDB {
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
-    }
+    } 
     try {
       let getVehicleQuery = `
         SELECT vinno, modelcode, mobile, vehicleinfo, license_plate, color, vehicle_city, dealer, 
@@ -721,6 +712,7 @@ export default class PlatformSvcDB {
     }
   }
 
+  
   async getVehicles(searchtext, offset, limit) {
     try {
       let baseQuery = `SELECT v.vinno, COALESCE(v.license_plate, v.vinno) as regno, v.modelcode, v.mobile, v.dealer, v.vehicle_city  
@@ -811,17 +803,13 @@ export default class PlatformSvcDB {
         fv.isowner,
         fv.assignedat,
         u1.displayname as assignedby,
-        CASE 
-          WHEN avs.status = 1 AND ass.isactive = true THEN 'SUBSCRIBED'
-          ELSE 'NOT_SUBSCRIBED'
-        END AS subscription_status
+        avs.state as issubscribed
       FROM fleet_vehicle fv
       JOIN account a ON fv.accountid = a.accountid
       JOIN fleet_tree ft ON fv.accountid = ft.accountid AND fv.fleetid = ft.fleetid
       JOIN users u1 ON fv.assignedby = u1.userid
-      JOIN account_subscription_status ass ON fv.accountid = ass.accountid
       LEFT JOIN account_vehicle_subscription avs
-          ON fv.accountid = avs.accountid AND avs.subscriptionid = ass.subscriptionid AND fv.vinno = avs.vinno
+          ON a.accountid = avs.accountid AND fv.vinno = avs.vinno AND avs.state = 1
       WHERE fv.vinno = $1;
     `;
     let result = await this.pgPoolI.Query(query, [vinno]);
@@ -995,18 +983,11 @@ export default class PlatformSvcDB {
     }
   }
 
-  async listPendingVehicles(
-    searchtext,
-    offset,
-    limit,
-    orderbyfield,
-    orderbydirection,
-    download
-  ) {
+  async listPendingVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
     try {
-      orderbyfield = orderbyfield || "createdat";
-      orderbydirection = orderbydirection || "desc";
-      searchtext = searchtext || "";
+      orderbyfield = orderbyfield || 'createdat';
+      orderbydirection = orderbydirection || 'desc';
+      searchtext = searchtext || '';
       offset = offset || 0;
       limit = limit || 1000;
       let limitquery = "";
@@ -1074,11 +1055,7 @@ export default class PlatformSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        result = await this.pgPoolI.Query(baseQuery, [
-          searchtext,
-          offset,
-          limit,
-        ]);
+        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
         const countcquery = `WITH vin_list AS (
           SELECT r.vinno
           FROM reviewpendingvehicle r
@@ -1095,9 +1072,7 @@ export default class PlatformSvcDB {
             upper(r.engineno) LIKE '%' || upper($1) || '%'
           )
         ) SELECT COUNT(*) FROM vin_list`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [
-          searchtext,
-        ]);
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
@@ -1130,7 +1105,7 @@ export default class PlatformSvcDB {
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: limit > result.rowCount ? false : true,
+        hasmore: (limit > result.rowCount)? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };
@@ -1139,23 +1114,17 @@ export default class PlatformSvcDB {
     }
   }
 
-  async listDoneVehicles(
-    searchtext,
-    offset,
-    limit,
-    orderbyfield,
-    orderbydirection,
-    download
-  ) {
-    try {
-      orderbyfield = orderbyfield || "updatedat";
+
+  async listDoneVehicles(searchtext, offset, limit, orderbyfield, orderbydirection, download) {
+    try {  
+      orderbyfield = orderbyfield || 'updatedat';
       if (orderbyfield === "status") {
         orderbyfield = "original_status";
-      } else if (orderbyfield === "reason") {
+      }else if (orderbyfield === "reason") {
         orderbyfield = "resolution_reason";
       }
-      orderbydirection = orderbydirection || "desc";
-      searchtext = searchtext || "";
+      orderbydirection = orderbydirection || 'desc';
+      searchtext = searchtext || '';
       offset = offset || 0;
       limit = limit || 1000;
       let limitquery = "";
@@ -1223,11 +1192,7 @@ export default class PlatformSvcDB {
         result = await this.pgPoolI.Query(baseQuery, [searchtext]);
         totalcount = result.rowCount;
       } else {
-        result = await this.pgPoolI.Query(baseQuery, [
-          searchtext,
-          offset,
-          limit,
-        ]);
+        result = await this.pgPoolI.Query(baseQuery, [searchtext, offset, limit]);
         const countcquery = `WITH vin_list AS (
           SELECT r.vinno
           FROM reviewdonevehicle r
@@ -1244,9 +1209,7 @@ export default class PlatformSvcDB {
             upper(r.engineno) LIKE '%' || upper($1) || '%'
           )
         ) SELECT COUNT(*) FROM vin_list`;
-        const countcresult = await this.pgPoolI.Query(countcquery, [
-          searchtext,
-        ]);
+        const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
         totalcount = parseInt(countcresult.rows[0].count);
       }
       if (result.rowCount === 0) {
@@ -1279,7 +1242,7 @@ export default class PlatformSvcDB {
         previousoffset: previousOffset,
         nextoffset: nextOffset,
         limit: limit,
-        hasmore: limit > result.rowCount ? false : true,
+        hasmore: (limit > result.rowCount)? false : true,
         totalcount: totalcount,
         totalpages: Math.ceil(totalcount / limit),
       };
@@ -1310,7 +1273,7 @@ export default class PlatformSvcDB {
     let [txclient, err] = await this.pgPoolI.StartTransaction();
     if (err) {
       throw err;
-    }
+    } 
     try {
       let currtime = new Date();
       let alreadyExists = await txclient.query(
@@ -1547,9 +1510,7 @@ export default class PlatformSvcDB {
         this.pgPoolI.Query("SELECT COUNT(*) FROM vehicle"),
         this.pgPoolI.Query("SELECT COUNT(distinct vinno) FROM fleet_vehicle"),
         this.pgPoolI.Query(
-          `SELECT COUNT(distinct avs.vinno) FROM account_vehicle_subscription avs
-          JOIN account_subscription_status ass ON avs.accountid = ass.accountid AND avs.subscriptionid = ass.subscriptionid
-          WHERE avs.status = 1 AND ass.isactive = true`
+          "SELECT COUNT(distinct vinno) FROM account_vehicle_subscription WHERE state = 1"
         ),
         this.pgPoolI.Query("SELECT COUNT(*) FROM vehicle_model"),
         this.pgPoolI.Query("SELECT COUNT(*) FROM account"),
@@ -2060,22 +2021,19 @@ export default class PlatformSvcDB {
         }
         return result.rows[0].cityname;
       }
-
+  
       let citycode = cityname.trim();
       query = `SELECT citycode FROM city WHERE citycode = $1`;
       result = await txclient.query(query, [cityname.toUpperCase()]);
       if (result.rows.length > 0) {
         citycode = `${citycode}_${Math.floor(Math.random() * 1000000)}`;
       }
-
+  
       query = `INSERT INTO city (citycode, cityname)
         VALUES ($1, $2) ON CONFLICT (cityname) DO NOTHING
         RETURNING citycode, cityname`;
-      result = await txclient.query(query, [
-        citycode.toUpperCase(),
-        cityname.toUpperCase(),
-      ]);
-
+      result = await txclient.query(query, [citycode.toUpperCase(), cityname.toUpperCase()]);
+      
       if (result.rows.length > 0) {
         let commiterr = await this.pgPoolI.TxCommit(txclient);
         if (commiterr) {
@@ -2083,7 +2041,7 @@ export default class PlatformSvcDB {
         }
         return result.rows[0].cityname;
       }
-
+      
       // No rows returned (conflict occurred), commit anyway
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
@@ -2095,10 +2053,7 @@ export default class PlatformSvcDB {
       if (txclient) {
         let rollbackerr = await this.pgPoolI.TxRollback(txclient);
         if (rollbackerr) {
-          this.logger.error(
-            "Rollback error in checkAndCreateCity: ",
-            rollbackerr
-          );
+          this.logger.error("Rollback error in checkAndCreateCity: ", rollbackerr);
           throw rollbackerr;
         }
       }

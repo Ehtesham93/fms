@@ -115,6 +115,7 @@ export default class ModuleSvcDB {
       if (result.rowCount !== 1) {
         throw new Error("Failed to log module history");
       }
+      // await this.logModuleHistory(module, module.createdby, currtime, 'CREATE', {}, txclient);
       await this.pgPoolI.TxCommit(txclient);
       return module;
     } catch (error) {
@@ -123,6 +124,103 @@ export default class ModuleSvcDB {
     }
   }
 
+  // async logModuleHistory(module, updatedby, updatedat, action, previousstate, txclient) {
+  //   try {
+  //     const finalUpdatedBy = updatedby ?? module.updatedby;
+  //     const finalUpdatedAt = updatedat ?? module.updatedat;
+  //     const currentstate = action === 'DELETE' 
+  //       ? {} 
+  //       : {
+  //           modulename: module.modulename,
+  //           moduletype: module.moduletype,
+  //           modulecode: module.modulecode,
+  //           moduleinfo: module.moduleinfo,
+  //           creditspervehicleday: module.creditspervehicleday,
+  //           priority: module.priority,
+  //           isenabled: module.isenabled,
+  //         };
+  //     let query = 
+  //     `
+  //           INSERT INTO module_history (moduleid, modulename, moduletype, modulecode, moduleinfo, creditspervehicleday, priority, isenabled, updatedat, updatedby, action, previousstate, currentstate) 
+  //           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+  //       `;
+  //     const result = await txclient.query(query, [
+  //       module.moduleid,
+  //       module.modulename,
+  //       module.moduletype,
+  //       module.modulecode,
+  //       module.moduleinfo,
+  //       module.creditspervehicleday,
+  //       module.priority,
+  //       module.isenabled,
+  //       finalUpdatedAt,
+  //       finalUpdatedBy,
+  //       action,
+  //       JSON.stringify(previousstate),
+  //       JSON.stringify(currentstate),
+  //     ]); 
+  //     if (result.rowCount !== 1) {
+  //       throw new Error("Failed to log module history");
+  //     }
+  //     return true;
+  //   } catch (error) {
+  //     await this.pgPoolI.TxRollback(txclient);
+  //     throw error;
+  //   }
+  // }
+
+  // async logModulePermHistory(moduleid, permid, isenabled, action, updatedby, updateFields, txclient = null) {
+  //   try{
+  //     let currtime = new Date();
+      
+  //     // Get modperminfo - either from updateFields or query from database
+  //     let modperminfo = updateFields?.modperminfo || {};
+      
+  //     if (!modperminfo) {
+  //       let query = `SELECT modperminfo from module_perm where moduleid = $1 AND permid = $2`;
+  //       if (txclient) {
+  //         const {rows} = await txclient.query(query, [moduleid, permid]);
+  //         modperminfo = rows[0]?.modperminfo || {};
+  //       } else {
+  //         const {rows} = await this.pgPoolI.Query(query, [moduleid, permid]);
+  //         modperminfo = rows[0]?.modperminfo || {};
+  //       }
+  //     }
+
+  //     let query = `
+  //       INSERT INTO module_perm_history (
+  //         moduleid,
+  //         permid,
+  //         isenabled,
+  //         modperminfo,
+  //         updatedat,
+  //         updatedby,
+  //         action
+  //       )
+  //       VALUES ($1,$2,$3,$4,$5,$6,$7)
+  //     `;
+      
+  //     const queryParams = [
+  //       moduleid,
+  //       permid,
+  //       isenabled,
+  //       modperminfo,
+  //       currtime,
+  //       updatedby,
+  //       action,
+  //     ];
+      
+  //     if (txclient) {
+  //       await txclient.query(query, queryParams);
+  //     } else {
+  //       await this.pgPoolI.Query(query, queryParams);
+  //     }
+  //   }
+  //   catch(error){
+  //     this.logger.error("module history insert failed", { moduleid, permid, err: error });
+  //     throw error;
+  //   }
+  // }
 
   async getModuleHistory(starttime, endtime){
     try{

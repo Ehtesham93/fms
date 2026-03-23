@@ -40,72 +40,6 @@ export default class PackageSvc {
     return await this.packageSvcDB.getAllPackages();
   }
 
-  async GetDefaultPackagesWithModules() {
-    let pkgs = await this.packageSvcDB.getDefaultPackagesWithModules();
-    if (!pkgs) {
-      return [];
-    }
-    let pkgsMap = {};
-    for (let pkg of pkgs) {
-      if (!pkgsMap[pkg.pkgid]) {
-        pkgsMap[pkg.pkgid] = {
-          pkgid: pkg.pkgid,
-          pkgname: pkg.pkgname,
-          pkgtype: pkg.pkgtype,
-          pkginfo: pkg.pkginfo,
-          isenabled: pkg.isenabled,
-          createdat: pkg.createdat,
-          createdby: pkg.createdby,
-          updatedat: pkg.updatedat,
-          updatedby: pkg.updatedby,
-          modules: [],
-        };
-      }
-      if (pkg.moduleid) {
-        pkgsMap[pkg.pkgid].modules.push({
-          moduleid: pkg.moduleid,
-          modulename: pkg.modulename,
-          creditspervehicleday: pkg.creditspervehicleday,
-        });
-      }
-    }
-    return Object.values(pkgsMap);
-  }
-
-
-
-  async GetCustomPackagesWithModules() {
-    let pkgs = await this.packageSvcDB.getCustomPackagesWithModules();
-    if (!pkgs) {
-      return [];
-    }
-    let pkgsMap = {};
-    for (let pkg of pkgs) {
-      if (!pkgsMap[pkg.pkgid]) {
-        pkgsMap[pkg.pkgid] = {
-          pkgid: pkg.pkgid,
-          pkgname: pkg.pkgname,
-          pkgtype: pkg.pkgtype,
-          pkginfo: pkg.pkginfo,
-          isenabled: pkg.isenabled,
-          createdat: pkg.createdat,
-          createdby: pkg.createdby,
-          updatedat: pkg.updatedat,
-          updatedby: pkg.updatedby,
-          modules: [],
-        };
-      }
-      if (pkg.moduleid) {
-        pkgsMap[pkg.pkgid].modules.push({
-          moduleid: pkg.moduleid,
-          modulename: pkg.modulename,
-          creditspervehicleday: pkg.creditspervehicleday,
-        });
-      }
-    }
-    return Object.values(pkgsMap);
-  }
-
   async GetPkgInfo(pkgid) {
     return await this.packageSvcDB.getPkgInfo(pkgid);
   }
@@ -130,15 +64,6 @@ export default class PackageSvc {
       updatedby
     );
   }
-  async UpdatePkgModulesWithTxn(pkgid, selectedmodules, deselectedmodules, updatedby, txclient) {
-    return await this.packageSvcDB.updatePkgModulesWithTxn(
-      pkgid,
-      selectedmodules,
-      deselectedmodules,
-      updatedby,
-      txclient
-    );
-  }
 
   async GetAllModulesInfo() {
     return await this.packageSvcDB.getAllModulesInfo();
@@ -158,13 +83,5 @@ export default class PackageSvc {
 
   async DeletePackage(pkgid, deletedby) {
     return await this.packageSvcDB.deletePackage(pkgid, deletedby);
-  }
-
-  async CreatePackageWithTxn(pkg, createdby, txclient) {
-    return await this.packageSvcDB.createPackageWithTxn(pkg, createdby, txclient);
-  }
-
-  async CheckAccountHasCustomPackage(accountid, pkgid) {
-    return await this.packageSvcDB.checkAccountHasCustomPackage(accountid, pkgid);
   }
 }

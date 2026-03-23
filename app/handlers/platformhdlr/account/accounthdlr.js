@@ -102,7 +102,7 @@ export default class AccountHdlr {
     router.post("/:accountid/pkg", this.AddCustomPkgToAccount);
     router.get("/:accountid/pkgs/unassigned", this.GetUnassignedCustomPkgs);
     router.delete("/:accountid/pkg/:pkgid", this.RemoveCustomPkgFromAccount);
-    router.get("/:accountid/subscription/status", this.GetSubscriptionStatus);
+
     // subscriptions
     router.get(
       "/:accountid/subscription/pkgs",
@@ -208,24 +208,19 @@ export default class AccountHdlr {
             errorMap: () => ({ message: "Invalid Account Category" }),
           })
           .default("individual"),
+        
       });
 
       let createdby = req.userid;
-      const {
-        accountname,
-        isenabled,
-        mobile,
-        accountinfo,
-        accountid,
-        accountcategory,
-      } = validateAllInputs(schema, {
-        accountname: req.body.accountname,
-        isenabled: req.body.isenabled,
-        mobile: req.body.mobile,
-        accountinfo: req.body.accountinfo,
-        accountid: req.body.accountid,
-        accountcategory: req.body.accountcategory,
-      });
+      const { accountname, isenabled, mobile, accountinfo, accountid, accountcategory } =
+        validateAllInputs(schema, {
+          accountname: req.body.accountname,
+          isenabled: req.body.isenabled,
+          mobile: req.body.mobile,
+          accountinfo: req.body.accountinfo,
+          accountid: req.body.accountid,
+          accountcategory: req.body.accountcategory,
+        });
 
       let result = await this.accountHdlrImpl.CreateAccountLogic(
         accountname,
@@ -289,9 +284,10 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine((val) => !val || val.length === 0 || val.length >= 3, {
-            message: "Search text must be at least 3 characters long",
-          }),
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -300,29 +296,24 @@ export default class AccountHdlr {
           .number({ message: "Limit must be a number" })
           .optional()
           .default(1000),
-        type: z
-        .string({ message: "Type must be a string" })
-        .optional()
-        .nullable()
-        .default(""), 
       });
-      let { searchtext, offset, limit, type } = validateAllInputs(schema, {
+      let { searchtext, offset, limit } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
-        type: req.query.type,
       });
-      let result = await this.accountHdlrImpl.ListAccountsLogic(
-        searchtext,
-        offset,
-        limit,
-        type
-      );
+      let result = await this.accountHdlrImpl.ListAccountsLogic(searchtext, offset, limit);
       APIResponseOK(req, res, result, "Accounts fetched successfully");
     } catch (e) {
       this.logger.error("ListAccounts error: ", e);
-      if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      if(e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          e.errcode,
+          e.errdata,
+          e.message
+        );
       } else {
         APIResponseInternalErr(
           req,
@@ -379,9 +370,10 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine((val) => !val || val.length === 0 || val.length >= 3, {
-            message: "Search text must be at least 3 characters long",
-          }),
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -404,14 +396,7 @@ export default class AccountHdlr {
           .nullable(),
       });
       const parseDownload = req.query.download === "true";
-      const {
-        searchtext,
-        offset,
-        limit,
-        download,
-        orderbyfield,
-        orderbydirection,
-      } = validateAllInputs(schema, {
+      const { searchtext, offset, limit, download, orderbyfield, orderbydirection } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
@@ -419,14 +404,7 @@ export default class AccountHdlr {
         orderbyfield: req.query.orderbyfield,
         orderbydirection: req.query.orderbydirection,
       });
-      let result = await this.accountHdlrImpl.GetAccountSummaryLogic(
-        searchtext,
-        offset,
-        limit,
-        download,
-        orderbyfield,
-        orderbydirection
-      );
+      let result = await this.accountHdlrImpl.GetAccountSummaryLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
       APIResponseOK(req, res, result, "Account summary fetched successfully");
     } catch (error) {
       this.logger.error("GetAccountSummary error: ", error);
@@ -458,9 +436,10 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine((val) => !val || val.length === 0 || val.length >= 3, {
-            message: "Search text must be at least 3 characters long",
-          }),
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -475,21 +454,13 @@ export default class AccountHdlr {
           .default(false),
       });
       const parseDownload = req.query.download === "true";
-      const { searchtext, offset, limit, download } = validateAllInputs(
-        schema,
-        {
-          searchtext: req.query.searchtext,
-          offset: parseQueryInt(req.query.offset),
-          limit: parseQueryInt(req.query.limit),
-          download: parseDownload,
-        }
-      );
-      let result = await this.accountHdlrImpl.GetAllAccountUsersLogic(
-        searchtext,
-        offset,
-        limit,
-        download
-      );
+      const { searchtext, offset, limit, download } = validateAllInputs(schema, {
+        searchtext: req.query.searchtext,
+        offset: parseQueryInt(req.query.offset),
+        limit: parseQueryInt(req.query.limit),
+        download: parseDownload,
+      });
+      let result = await this.accountHdlrImpl.GetAllAccountUsersLogic(searchtext, offset, limit, download);
       APIResponseOK(req, res, result, "All account users fetched successfully");
     } catch (error) {
       this.logger.error("GetAllAccountUsers error: ", error);
@@ -521,9 +492,10 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine((val) => !val || val.length === 0 || val.length >= 3, {
-            message: "Search text must be at least 3 characters long",
-          }),
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -546,14 +518,7 @@ export default class AccountHdlr {
           .nullable(),
       });
       const parseDownload = req.query.download === "true";
-      const {
-        searchtext,
-        offset,
-        limit,
-        download,
-        orderbyfield,
-        orderbydirection,
-      } = validateAllInputs(schema, {
+      const { searchtext, offset, limit, download, orderbyfield, orderbydirection } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
@@ -561,20 +526,8 @@ export default class AccountHdlr {
         orderbyfield: req.query.orderbyfield,
         orderbydirection: req.query.orderbydirection,
       });
-      let result = await this.accountHdlrImpl.GetAllLoggedInAccountUsersLogic(
-        searchtext,
-        offset,
-        limit,
-        download,
-        orderbyfield,
-        orderbydirection
-      );
-      APIResponseOK(
-        req,
-        res,
-        result,
-        "All logged in account users fetched successfully"
-      );
+      let result = await this.accountHdlrImpl.GetAllLoggedInAccountUsersLogic(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+      APIResponseOK(req, res, result, "All logged in account users fetched successfully");
     } catch (error) {
       this.logger.error("GetAllLoggedInAccountUsers error: ", error);
       if (error.errcode === "INPUT_ERROR") {
@@ -1313,7 +1266,7 @@ export default class AccountHdlr {
           roles,
           headerReferer
         );
-      } else if (isEmail) {
+      }else if (isEmail) {
         result = await this.accountHdlrImpl.EmailInviteToRootFleetLogic(
           accountid,
           validatedContact,
@@ -1321,7 +1274,7 @@ export default class AccountHdlr {
           roles,
           headerReferer
         );
-      } else {
+      }else {
         result = await this.accountHdlrImpl.MobileInviteToRootFleetLogic(
           accountid,
           validatedContact,
@@ -2657,9 +2610,10 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine((val) => !val || val.length === 0 || val.length >= 3, {
-            message: "Search text must be at least 3 characters long",
-          }),
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -2684,14 +2638,8 @@ export default class AccountHdlr {
           .default(false),
       });
       const parsedownload = req.query.download === "true";
-      let {
-        searchtext,
-        offset,
-        limit,
-        orderbyfield,
-        orderbydirection,
-        download,
-      } = validateAllInputs(schema, {
+      let { searchtext, offset, limit, orderbyfield, orderbydirection, download } =
+        validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
@@ -2746,9 +2694,10 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine((val) => !val || val.length === 0 || val.length >= 3, {
-            message: "Search text must be at least 3 characters long",
-          }),
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -2773,14 +2722,7 @@ export default class AccountHdlr {
           .default(false),
       });
       const parsedownload = req.query.download === "true";
-      let {
-        searchtext,
-        offset,
-        limit,
-        orderbyfield,
-        orderbydirection,
-        download,
-      } = validateAllInputs(schema, {
+      let { searchtext, offset, limit, orderbyfield, orderbydirection, download } = validateAllInputs(schema, {
         searchtext: req.query.searchtext,
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
@@ -2919,24 +2861,18 @@ export default class AccountHdlr {
           .enum(["individual", "corporate", "aggregator", "financier"], {
             errorMap: () => ({ message: "Invalid Account Category" }),
           })
-          .default("individual"),
+          .default("individual"),        
       });
 
-      const {
-        accountname,
-        isenabled,
-        mobile,
-        email,
-        createdby,
-        accountcategory,
-      } = validateAllInputs(schema, {
-        accountname: req.body.accountname,
-        isenabled: req.body.isenabled,
-        mobile: req.body.mobile,
-        email: req.body.email,
-        createdby: req.userid,
-        accountcategory: req.body.accountcategory,
-      });
+      const { accountname, isenabled, mobile, email, createdby, accountcategory } =
+        validateAllInputs(schema, {
+          accountname: req.body.accountname,
+          isenabled: req.body.isenabled,
+          mobile: req.body.mobile,
+          email: req.body.email,
+          createdby: req.userid,
+          accountcategory: req.body.accountcategory,
+        });
 
       let result = await this.accountHdlrImpl.CreateCorporateAccountLogic(
         accountname,
@@ -3013,9 +2949,10 @@ export default class AccountHdlr {
           .optional()
           .nullable()
           .default("")
-          .refine((val) => !val || val.length === 0 || val.length >= 3, {
-            message: "Search text must be at least 3 characters long",
-          }),
+          .refine(
+            (val) => !val || val.length === 0 || val.length >= 3,
+            { message: "Search text must be at least 3 characters long" }
+          ),
         offset: z
           .number({ message: "Offset must be a number" })
           .optional()
@@ -3031,22 +2968,18 @@ export default class AccountHdlr {
         offset: parseQueryInt(req.query.offset),
         limit: parseQueryInt(req.query.limit),
       });
-      let result = await this.accountHdlrImpl.AccountsAvailableForTaggingLogic(
-        vinno,
-        searchtext,
-        offset,
-        limit
-      );
-      APIResponseOK(
-        req,
-        res,
-        result,
-        "Accounts available for tagging fetched successfully"
-      );
+      let result = await this.accountHdlrImpl.AccountsAvailableForTaggingLogic(vinno, searchtext, offset, limit);
+      APIResponseOK(req, res, result, "Accounts available for tagging fetched successfully");
     } catch (e) {
       this.logger.error("AccountsAvailableForTagging error: ", e);
-      if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
+      if(e.errcode === "INPUT_ERROR") {
+        APIResponseBadRequest(
+          req,
+          res,
+          e.errcode,
+          e.errdata,
+          e.message
+        );
       } else {
         APIResponseInternalErr(
           req,
@@ -3066,41 +2999,6 @@ export default class AccountHdlr {
     } catch (e) {
       this.logger.error("GetAccountCategory error: ", e);
       APIResponseInternalErr(req, res, e);
-    }
-  };
-
-  GetSubscriptionStatus = async (req, res, next) => {
-    try {
-      let schema = z.object({
-        accountid: z
-          .string({ message: "Account ID is required" })
-          .uuid({ message: "Account ID must be a valid UUID" }),
-      });
-      let { accountid } = validateAllInputs(schema, {
-        accountid: req.params.accountid,
-      });
-      let result = await this.accountHdlrImpl.GetSubscriptionStatusLogic(
-        accountid
-      );
-      APIResponseOK(
-        req,
-        res,
-        result,
-        "Subscription status fetched successfully"
-      );
-    } catch (e) {
-      this.logger.error("GetSubscriptionStatus error: ", e);
-      if (e.errcode === "INPUT_ERROR") {
-        APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
-      } else {
-        APIResponseInternalErr(
-          req,
-          res,
-          "GET_SUBSCRIPTION_STATUS_ERR",
-          null,
-          "Get subscription status failed"
-        );
-      }
     }
   };
 }

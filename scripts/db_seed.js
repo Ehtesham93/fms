@@ -113,7 +113,6 @@ async function main() {
   try {
     let userid = await seedUser(tx);
     await seedAllPermId(tx, userid);
-    await seedAccountCategory(tx, userid);
     let commiterr = await pgPoolI.TxCommit(tx);
     if (commiterr) {
       throw commiterr;
@@ -129,6 +128,7 @@ async function main() {
     await seedPackageTypesAndCategories(platformHdlrI, userid);
     await seedPackages(platformHdlrI, userid);
     await seedPackageModule(platformHdlrI, tx, userid);
+    await seedAccountCategory(tx, userid);
     await seedConsoleAccount(platformHdlrI, userid);
     await seedSuperAdmin(platformHdlrI, userid);
     await seedFleetUserRole(tx, userid);

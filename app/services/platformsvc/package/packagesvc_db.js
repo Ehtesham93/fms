@@ -64,7 +64,11 @@ export default class PackageSvcDB {
     }
   }
 
-  async createPackageWithTxn(pkg, createdby, txclient) {
+  async createPackage(pkg, createdby) {
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     try {
       let currtime = new Date();
       let pkginfo = { ...DEFAULT_PACKAGE_INFO };
@@ -108,6 +112,7 @@ export default class PackageSvcDB {
         createdby,
       ]);
       if (result.rowCount !== 1) {
+        await this.pgPoolI.TxRollback(txclient);
         throw new Error("Failed to create package");
       }
 
@@ -120,7 +125,7 @@ export default class PackageSvcDB {
         pkg.isenabled,
         currtime,
         createdby,
-        "CREATED",
+        'CREATED',
         JSON.stringify({}),
         JSON.stringify({
           pkgname: pkg.pkgname,
@@ -133,33 +138,10 @@ export default class PackageSvcDB {
         throw new Error("Failed to log package history");
       }
       // await this.logPackageHistory(pkg, createdby, currtime, 'CREATED', {}, txclient);
+      await this.pgPoolI.TxCommit(txclient);
       return true;
     } catch (error) {
-      throw error;
-    }
-  }
-
-  async createPackage(pkg, createdby) {
-    let [txclient, err] = await this.pgPoolI.StartTransaction();
-    if (err) {
-      throw err;
-    }
-    try {
-      let result = await this.createPackageWithTxn(pkg, createdby, txclient);
-      if (!result) {
-        throw new Error("Failed to create package");
-      }
-      let commitResult = await this.pgPoolI.TxCommit(txclient);
-      if (commitResult) {
-        throw commitResult;
-      }
-      return true;
-    } catch (error) {
-      this.logger.error("Failed to create package", error);
-      let rollbackResult = await this.pgPoolI.TxRollback(txclient);
-      if (rollbackResult) {
-        throw rollbackResult;
-      }
+      await this.pgPoolI.TxRollback(txclient);
       throw error;
     }
   }
@@ -168,8 +150,8 @@ export default class PackageSvcDB {
   //   try{
   //     const finalUpdatedBy = updatedby ?? pkg.updatedby;
   //     const finalUpdatedAt = updatedat ?? pkg.updatedat;
-  //     const currentstate = action === 'DELETE'
-  //       ? {}
+  //     const currentstate = action === 'DELETE' 
+  //       ? {} 
   //       : {
   //           pkgname: pkg.pkgname,
   //           pkgtype: pkg.pkgtype,
@@ -203,8 +185,8 @@ export default class PackageSvcDB {
   //   }
   // }
 
-  async getPackageHistory(starttime, endtime) {
-    try {
+  async getPackageHistory(starttime, endtime){
+    try{
       let query = `
         SELECT ph.pkgid, ph.pkgname, ph.pkgtype, ph.pkginfo, ph.isenabled, ph.updatedat, ph.action, u.displayname as updatedby, ph.previousstate, ph.currentstate 
         FROM package_history as ph 
@@ -212,12 +194,10 @@ export default class PackageSvcDB {
         WHERE ph.updatedat >= $1 AND ph.updatedat <= $2 
         ORDER BY ph.updatedat DESC
       `;
-      let result = await this.pgPoolI.Query(query, [
-        new Date(starttime),
-        new Date(endtime),
-      ]);
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
       return result.rows;
-    } catch (error) {
+    }
+    catch(error){
       throw new Error("Failed to retrieve package history");
     }
   }
@@ -234,7 +214,7 @@ export default class PackageSvcDB {
   //       updatedby,
   //       action,
   //     ];
-
+      
   //     let result = await txclient.query(query, queryParams);
   //     if (result.rowCount !== 1) {
   //       throw new Error("Failed to log package module history");
@@ -248,8 +228,8 @@ export default class PackageSvcDB {
   //   }
   // }
 
-  async getPackageModHistory(starttime, endtime) {
-    try {
+  async getPackageModHistory(starttime, endtime){
+    try{
       let query = `
         SELECT ph.pkgid, p.pkgname, m.modulename, ph.updatedat, u.displayname as updatedby, ph.action 
         FROM package_module_history as ph 
@@ -258,12 +238,10 @@ export default class PackageSvcDB {
         JOIN package as p ON ph.pkgid = p.pkgid
         WHERE ph.updatedat >= $1 AND ph.updatedat <= $2 ORDER BY ph.updatedat DESC
       `;
-      let result = await this.pgPoolI.Query(query, [
-        new Date(starttime),
-        new Date(endtime),
-      ]);
+      let result = await this.pgPoolI.Query(query, [new Date(starttime), new Date(endtime)]);
       return result.rows;
-    } catch (error) {
+    }
+    catch(error){
       throw new Error("Failed to retrieve package module history");
     }
   }
@@ -280,9 +258,7 @@ export default class PackageSvcDB {
         FROM package
         WHERE pkgid = $1
       `;
-      let previousStateResult = await txclient.query(previousStateQuery, [
-        pkgid,
-      ]);
+      let previousStateResult = await txclient.query(previousStateQuery, [pkgid]);
       if (previousStateResult.rowCount === 0) {
         throw new Error("Package not found");
       }
@@ -372,7 +348,7 @@ export default class PackageSvcDB {
         pkg.isenabled,
         currentState.updatedat,
         currentState.updatedby,
-        "UPDATE",
+        'UPDATE',
         JSON.stringify(previousStateJson),
         JSON.stringify(currentStateJson),
       ]);
@@ -405,44 +381,6 @@ export default class PackageSvcDB {
       return result.rows;
     } catch (error) {
       throw new Error(`Failed to retrieve all packages`);
-    }
-  }
-
-  async getDefaultPackagesWithModules() {
-    try {
-      let query = `
-        SELECT p.pkgid, p.pkgname, p.pkgtype, p.pkginfo, p.isenabled, p.createdat, p.createdby, p.updatedat, p.updatedby, m.moduleid, m.modulename, m.creditspervehicleday 
-        FROM package p
-        JOIN package_module pm ON p.pkgid = pm.pkgid
-        JOIN module m ON pm.moduleid = m.moduleid
-        WHERE p.pkgtype = 'standard' AND m.isenabled = true AND p.isenabled = true
-      `;
-      let result = await this.pgPoolI.Query(query);
-      if (result.rowCount === 0) {
-        return null;
-      }
-      return result.rows;
-    } catch (error) {
-      throw new Error(`Failed to retrieve all packages with modules`);
-    }
-  }
-
-  async getCustomPackagesWithModules() {
-    try {
-      let query = `
-        SELECT p.pkgid, p.pkgname, p.pkgtype, p.pkginfo, p.isenabled, p.createdat, p.createdby, p.updatedat, p.updatedby, m.moduleid, m.modulename, m.creditspervehicleday 
-        FROM package p
-        JOIN package_module pm ON p.pkgid = pm.pkgid
-        JOIN module m ON pm.moduleid = m.moduleid
-        WHERE p.pkgtype = 'custom' AND m.isenabled = true AND p.isenabled = true
-      `;
-      let result = await this.pgPoolI.Query(query);
-      if (result.rowCount === 0) {
-        return null;
-      }
-      return result.rows;
-    } catch (error) {
-      throw new Error(`Failed to retrieve custom packages with modules`);
     }
   }
 
@@ -499,8 +437,12 @@ export default class PackageSvcDB {
     }
   }
 
-  async updatePkgModulesWithTxn(pkgid, selectedmodules, deselectedmodules, updatedby, txclient) {
+  async updatePkgModules(pkgid, selectedmodules, deselectedmodules, updatedby) {
     let currtime = new Date();
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
     const pkgExists = await txclient.query(
       `SELECT 1 FROM package WHERE pkgid = $1`,
       [pkgid]
@@ -512,10 +454,10 @@ export default class PackageSvcDB {
       SELECT * FROM package_module WHERE pkgid = $1
     `;
     let stateResult = await txclient.query(stateQuery, [pkgid]);
-
+    
     // If no rows, just start with empty previous state
-    let previousState = stateResult.rows; // [] when none
-    let previousModuleIds = previousState.map((r) => r.moduleid);
+    let previousState = stateResult.rows;          // [] when none
+    let previousModuleIds = previousState.map(r => r.moduleid);
 
     try {
       if (selectedmodules.length > 0) {
@@ -530,7 +472,7 @@ export default class PackageSvcDB {
           })
           .join(",");
 
-        let query = `
+      let query = `
         INSERT INTO package_module (pkgid, moduleid, createdat, createdby) VALUES ${placeholders}
         ON CONFLICT (pkgid, moduleid) DO NOTHING
       `;
@@ -546,7 +488,8 @@ export default class PackageSvcDB {
       }
 
       if (deselectedmodules.length > 0) {
-        let query = `
+        
+      let query = `
         DELETE FROM package_module WHERE pkgid = $1 AND moduleid = ANY($2)
       `;
         let result = await txclient.query(query, [pkgid, deselectedmodules]);
@@ -584,17 +527,15 @@ export default class PackageSvcDB {
         await txclient.query(updateQuery, values);
       }
 
+      
       let stateResult = await txclient.query(stateQuery, [pkgid]);
       let currentState = stateResult.rows;
-      let currentModuleIds = currentState.map((row) => row.moduleid);
-      let removedModules = previousModuleIds.filter(
-        (id) => !currentModuleIds.includes(id)
-      );
-      let addedModules = currentModuleIds.filter(
-        (id) => !previousModuleIds.includes(id)
-      );
+      let currentModuleIds = currentState.map(row => row.moduleid);
+      let removedModules = previousModuleIds.filter(id => !currentModuleIds.includes(id));
+      let addedModules = currentModuleIds.filter(id => !previousModuleIds.includes(id));
       // Log only changed modules
 
+      
       for (const moduleid of removedModules) {
         let query = `INSERT INTO package_module_history (pkgid, moduleid, updatedat, updatedby, action) VALUES ($1, $2, $3, $4, $5)`;
         let result = await txclient.query(query, [
@@ -602,7 +543,7 @@ export default class PackageSvcDB {
           moduleid,
           currtime,
           updatedby,
-          "REMOVE",
+          'REMOVE',
         ]);
       }
       for (const moduleid of addedModules) {
@@ -612,38 +553,21 @@ export default class PackageSvcDB {
           moduleid,
           currtime,
           updatedby,
-          "ADD",
+          'ADD',
         ]);
       }
 
-      return true;
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  async updatePkgModules(pkgid, selectedmodules, deselectedmodules, updatedby) {
-    let [txclient, err] = await this.pgPoolI.StartTransaction();
-    if (err) {
-      throw err;
-    }
-    try {
-      let result = await this.updatePkgModulesWithTxn(pkgid, selectedmodules, deselectedmodules, updatedby, txclient);
-      if (!result) {
-        throw new Error("Failed to update package modules");
-      }
-      let commitResult = await this.pgPoolI.TxCommit(txclient);
-      if (commitResult) {
-        throw commitResult;
+      let commiterr = await this.pgPoolI.TxCommit(txclient);
+      if (commiterr) {
+        throw commiterr;
       }
       return true;
-    } catch (error) {
-      this.logger.error("Failed to update package modules", error);
-      let rollbackResult = await this.pgPoolI.TxRollback(txclient);
-      if (rollbackResult) {
-        throw rollbackResult;
+    } catch (e) {
+      let rollbackerr = await this.pgPoolI.TxRollback(txclient);
+      if (rollbackerr) {
+        throw rollbackerr;
       }
-      throw error;
+      throw e;
     }
   }
 
@@ -763,7 +687,7 @@ export default class PackageSvcDB {
         pkgForHistory.isenabled,
         pkgForHistory.updatedat,
         pkgForHistory.updatedby,
-        "DELETE",
+        'DELETE',
         JSON.stringify(previousStateJson),
         JSON.stringify(currentStateJson),
       ]);
@@ -790,34 +714,6 @@ export default class PackageSvcDB {
     } catch (e) {
       await this.pgPoolI.TxRollback(txclient);
       throw e;
-    }
-  }
-
-  async getPkgByName(pkgname) {
-    try {
-      let query = `
-        SELECT * FROM package WHERE pkgname = $1
-      `;
-      let result = await this.pgPoolI.Query(query, [pkgname]);
-      if (result.rowCount === 0) {
-        return null;
-      }
-      return result.rows[0];
-    } catch (error) {
-      this.logger.error("Failed to retrieve package by name", error);
-      throw new Error("Failed to retrieve package by name");
-    }
-  }
-
-  async checkAccountHasCustomPackage(accountid, pkgid) {
-    try {
-      let query = `
-        SELECT COUNT(*) as count FROM account_custom_package_options WHERE accountid = $1 AND pkgid = $2
-      `;
-      let result = await this.pgPoolI.Query(query, [accountid, pkgid]);
-      return result.rows[0].count > 0;
-    } catch (error) {
-      throw new Error("Failed to check account has custom package");
     }
   }
 }

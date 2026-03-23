@@ -1612,49 +1612,22 @@ export default class VehicleHdlr {
           "You don't have permission to get vehicle CAN+GPS data."
         );
       }
-      let baseSchema = z.object({
+      let schema = z.object({
+        value: z
+          .array(
+            z
+              .string({ message: "Invalid Value format" })
+              .nonempty({ message: "Value cannot be empty" })
+              .regex(/^[A-Za-z0-9](?:[A-Za-z0-9 ]*[A-Za-z0-9])?$/, {
+                message: "Value must be a valid VIN or Registration number",
+              })
+              .max(128, { message: "Value must not exceed 128 characters" })
+          )
+          .min(1, { message: "At least one value is required" }),
         type: z.enum(["vinno", "regno"], {
           message: "Type must be either vinno or regno",
         }),
       });
-
-      let schema = null;
-      if(req.body.type === "vinno") {
-        schema = z.object({
-          value: z
-            .array(
-              z
-                .string({ message: "Invalid Value format" })
-                .nonempty({ message: "Value cannot be empty" })
-                .regex(/^M[AB][A-HJ-NPR-Z0-9]{15}$/, {
-                  message: "Please enter a valid Indian VIN number starting with MA",
-                }),
-            )
-            .min(1, { message: "At least one value is required" }),
-        }).merge(baseSchema);
-      } else if(req.body.type === "regno") {
-        schema = z.object({
-          value: z
-            .array(
-              z
-                .string({ message: "Invalid Value format" })
-                .nonempty({ message: "Value cannot be empty" })
-                .regex(/^[A-Za-z][A-Za-z0-9 ]*[A-Za-z0-9]$/, {
-                  message: "Value must be a valid Registration number",
-                })
-                .max(18, { message: "Value must not exceed 18 characters" })
-            )
-            .min(1, { message: "At least one value is required" }),
-        }).merge(baseSchema);
-      } else {
-        return APIResponseBadRequest(
-          req,
-          res,
-          "INVALID_TYPE",
-          null,
-          "Type must be either vinno or regno"
-        );
-      }
 
       let { value, type } = validateAllInputs(schema, {
         value: req.body.value,

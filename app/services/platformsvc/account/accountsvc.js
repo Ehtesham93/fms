@@ -12,13 +12,12 @@ export default class AccountSvc {
     return await this.accountSvcDB.createAccount(account);
   }
 
-  async GetAllAccounts(platformAccountId, offset, limit, searchtext, type) {
+  async GetAllAccounts(platformAccountId, offset, limit, searchtext) {
     return await this.accountSvcDB.getAllAccounts(
       platformAccountId,
       offset,
       limit,
-      searchtext,
-      type
+      searchtext
     );
   }
 
@@ -169,15 +168,6 @@ export default class AccountSvc {
       accountid,
       pkgids,
       updatedby
-    );
-  }
-
-  async AddCustomPkgToAccountWithTxn(accountid, pkgids, updatedby, txclient) {
-    return await this.accountSvcDB.addCustomPkgToAccountWithTxn(
-      accountid,
-      pkgids,
-      updatedby,
-      txclient
     );
   }
 
@@ -587,9 +577,5 @@ export default class AccountSvc {
 
   async GetAccountCategory() {
     return await this.accountSvcDB.getAccountCategory();
-  }
-
-  async GetSubscriptionStatus(accountid) {
-    return await this.accountSvcDB.getSubscriptionStatus(accountid);
   }
 }

@@ -209,7 +209,6 @@ export default class FmsSvcDB {
         }
         return {
           isvalid: false,
-          firstsignin: false,
           email: emailForInvalidReason,
           invalidreason: "Invalid invite id",
           isdifferentuser: isdifferentuser,
@@ -223,7 +222,7 @@ export default class FmsSvcDB {
       const mahindrassoemailregex = /^[a-zA-Z0-9._%+-]+@mahindra\.com$/;
       let isuseralreadyexists = false;
       let inviteuserid = null;
-      let firstsignin = false;
+      let firstlogin = false;
       if (mahindrassoemailregex.test(inviteemail.toLowerCase())) {
         query = `
           SELECT u.userid, u.isemailverified FROM mahindra_sso ms JOIN users u ON ms.userid = u.userid WHERE ms.ssoid = $1 or ms.secondaryssoid = $1
@@ -236,7 +235,7 @@ export default class FmsSvcDB {
             isdifferentuser = true;
           }
           if (!result.rows[0].isemailverified) {
-            firstsignin = true;
+            firstlogin = true;
           }
         }
       } else {
@@ -249,7 +248,7 @@ export default class FmsSvcDB {
           isuseralreadyexists = true;
           inviteuserid = result.rows[0].userid;
           if (!result.rows[0].isemailverified) {
-            firstsignin = true;
+            firstlogin = true;
           }
         }
         if (userid) {
@@ -270,7 +269,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Invite is no longer valid state",
           isdifferentuser: isdifferentuser,
-          firstsignin: firstsignin,
+          firstlogin: firstlogin,
         };
       }
 
@@ -287,7 +286,7 @@ export default class FmsSvcDB {
           invalidreason:
             "Invite is not an email invite. currently only email invites are supported",
           isdifferentuser: isdifferentuser,
-          firstsignin: firstsignin,
+          firstlogin: firstlogin,
         };
       }
 
@@ -315,7 +314,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Invite has expired",
           isdifferentuser: isdifferentuser,
-          firstsignin: firstsignin,
+          firstlogin: firstlogin,
         };
       }
 
@@ -335,7 +334,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Invited account not found",
           isdifferentuser: isdifferentuser,
-          firstsignin: firstsignin,
+          firstlogin: firstlogin,
         };
       }
       const accountname = result.rows[0].accountname;
@@ -355,7 +354,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Invited fleet not found",
           isdifferentuser: isdifferentuser,
-          firstsignin: firstsignin,
+          firstlogin: firstlogin,
         };
       }
 
@@ -369,7 +368,7 @@ export default class FmsSvcDB {
           email: emailForInvalidReason,
           invalidreason: "Something went wrong",
           isdifferentuser: isdifferentuser,
-          firstsignin: firstsignin,
+          firstlogin: firstlogin,
         };
       }
 
@@ -385,7 +384,7 @@ export default class FmsSvcDB {
         isuseralreadyexists: isuseralreadyexists,
         isvalid: true,
         isdifferentuser: isdifferentuser,
-        firstsignin: firstsignin,
+        firstlogin: firstlogin,
       };
     } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
@@ -398,7 +397,7 @@ export default class FmsSvcDB {
         email: emailForInvalidReason,
         invalidreason: "Unknown error",
         isdifferentuser: isdifferentuser,
-        firstsignin: false,
+        firstlogin: firstlogin,
       };
     }
   }

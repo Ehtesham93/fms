@@ -1121,11 +1121,6 @@ paths:
                   description: "Whether the account is enabled"
                   default: true
                   example: true
-                accountcategory:
-                  type: string
-                  enum: ["individual", "corporate", "aggregator", "financier"]
-                  description: "Account category"
-                  example: "individual"
       responses:
         '200':
           description: Successful response - Account created or already exists

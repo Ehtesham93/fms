@@ -830,79 +830,43 @@ CREATE TABLE IF NOT EXISTS
     );
 
 CREATE TABLE IF NOT EXISTS
-    subscription (
-       subscriptionid uuid NOT NULL,
-       subscriptioninfo jsonb NOT NULL, -- discountpercent, billablecredits, billablecost
-       startdate timestamptz NOT NULL,
-       enddate timestamptz NOT NULL,
-       createdat timestamptz NOT NULL,
-       createdby uuid NOT NULL,
-       updatedat timestamptz NOT NULL,
-       updatedby uuid NOT NULL,
-       PRIMARY KEY (subscriptionid)
-   );
+    account_vehicle_subscription (
+        accountid uuid NOT NULL,
+        vinno text NOT NULL,
+        startsat timestamptz NOT NULL,
+        endsat timestamptz NULL,
+        lockedtill timestamptz NULL,
+        subscriptioninfo jsonb NOT NULL,
+        state smallint NOT NULL, -- 0: pending, 1: active, 2: staged_for_disable, 3: disabled
+        createdat timestamptz NOT NULL,
+        createdby uuid NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        PRIMARY KEY (accountid, vinno),
+        FOREIGN KEY (accountid, vinno) REFERENCES fleet_vehicle (accountid, vinno),
+        FOREIGN KEY (createdby) REFERENCES users (userid),
+        FOREIGN KEY (updatedby) REFERENCES users (userid)
+    );
 
 CREATE TABLE IF NOT EXISTS
-   account_subscription_status (
-       accountid uuid NOT NULL,
-       subscriptionid uuid NOT NULL,
-       isactive boolean NOT NULL DEFAULT false,
-       statusdescription text NOT NULL, -- ACTIVE, CREDITS_EXPIRED, PAYMENT_PENDING, PAYMENT_FAILED, PAYMENT_CANCELLED, CANCELLED, etc.
-       createdat timestamptz NOT NULL,
-       createdby uuid NOT NULL,
-       updatedat timestamptz NOT NULL,
-       updatedby uuid NOT NULL,
-       PRIMARY KEY (accountid, subscriptionid),
-       FOREIGN KEY (accountid) REFERENCES account (accountid),
-       FOREIGN KEY (subscriptionid) REFERENCES subscription (subscriptionid)
-   );
-
-    
-
-CREATE TABLE IF NOT EXISTS
-   account_subscription_status_history (
-       accountid uuid NOT NULL,
-       subscriptionid uuid NOT NULL,
-       updatedat timestamptz NOT NULL,
-       isactive boolean NOT NULL DEFAULT false,
-       statusdescription text NOT NULL, -- ACTIVE, CREDITS_EXPIRED, PAYMENT_PENDING, PAYMENT_FAILED, PAYMENT_CANCELLED, CANCELLED, etc.
-       createdat timestamptz NOT NULL,
-       createdby uuid NOT NULL,
-       updatedby uuid NOT NULL,
-       PRIMARY KEY (accountid, subscriptionid, updatedat),
-       FOREIGN KEY (accountid, subscriptionid) REFERENCES account_subscription_status (accountid, subscriptionid)
-   );
-
-CREATE TABLE IF NOT EXISTS
-   account_vehicle_subscription (
-       accountid uuid NOT NULL,
-       subscriptionid uuid NOT NULL,
-       vinno text NOT NULL,
-       status smallint NOT NULL, -- 1: active, 2: staged_for_unsubscribe, 3: unsubscribed
-       lockedtill timestamptz NULL,
-       createdat timestamptz NOT NULL,
-       createdby uuid NOT NULL,
-       updatedat timestamptz NOT NULL,
-       updatedby uuid NOT NULL,
-       PRIMARY KEY (accountid, subscriptionid, vinno),
-       FOREIGN KEY (accountid, subscriptionid) REFERENCES account_subscription_status (accountid, subscriptionid),
-       FOREIGN KEY (accountid, vinno) REFERENCES fleet_vehicle (accountid, vinno)
-   );
-
-CREATE TABLE IF NOT EXISTS
-   account_vehicle_subscription_history (
-       accountid uuid NOT NULL,
-       subscriptionid uuid NOT NULL,
-       vinno text NOT NULL,
-       updatedat timestamptz NOT NULL,
-       sstatus smallint NOT NULL, -- 1: subscribed, 2: staged_for_unsubscribe, 3: unsubscribed
-       lockedtill timestamptz NULL,
-       createdat timestamptz NOT NULL,
-       createdby uuid NOT NULL,
-       updatedby uuid NOT NULL,
-       PRIMARY KEY (accountid, subscriptionid, vinno, updatedat),
-       FOREIGN KEY (accountid, subscriptionid, vinno) REFERENCES account_vehicle_subscription (accountid, subscriptionid, vinno)
-   );
+    account_vehicle_subscription_history (
+        accountid uuid NOT NULL,
+        vinno text NOT NULL,
+        isowner boolean NOT NULL DEFAULT false,
+        startsat timestamptz NOT NULL,
+        endsat timestamptz NULL,
+        subscriptioninfo jsonb NOT NULL,
+        state smallint NOT NULL, -- 0: pending, 1: active, 2: staged_for_disable, 3: disabled
+        createdat timestamptz NOT NULL,
+        createdby uuid NOT NULL,
+        updatedat timestamptz NOT NULL,
+        updatedby uuid NOT NULL,
+        PRIMARY KEY (accountid, vinno, updatedat),
+        FOREIGN KEY (accountid) REFERENCES account (accountid),
+        FOREIGN KEY (vinno) REFERENCES vehicle (vinno),
+        FOREIGN KEY (createdby) REFERENCES users (userid),
+        FOREIGN KEY (updatedby) REFERENCES users (userid)
+    );
 
 CREATE TABLE IF NOT EXISTS
     account_credits (
@@ -991,26 +955,6 @@ CREATE TABLE IF NOT EXISTS
         UNIQUE (secondaryssoid),
         FOREIGN KEY (userid) REFERENCES users (userid)
     );
-
-CREATE TABLE IF NOT EXISTS
-    alert(
-        alertid text NOT NULL,
-        faultid text NOT NULL,
-
-        category text NOT NULL,
-        alerttype text NOT NULL,
-        severity text NOT NULL,
-        cta text NOT NULL,
-        alertsubject text NOT NULL,
-        notification_subject text NOT NULL,
-        description text ,
-        notifyapp boolean NOT NULL,
-        notifyfms boolean NOT NULL,
-        notifyvmc boolean NOT NULL,
-
-        PRIMARY KEY (alertid,faultid)
-    );
-
 
 CREATE SEQUENCE pending_email_id_seq START
 WITH
@@ -1661,6 +1605,12 @@ ON account_package_subscription (createdat DESC);
 -- Indexes for account_fleet table
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_account_fleet_createdat_desc 
 ON account_fleet (createdat DESC);
+
+
+-- GIN Trigram indexes for text search on users table (displayname/username)
+CREATE INDEX CONCURRENTLY idx_users_displayname_trgm 
+ON users USING gin (upper(displayname) public.gin_trgm_ops)
+WHERE isdeleted = false;
 
 -- GIN Trigram indexes for text search on email_pwd_sso table (email)
 CREATE INDEX CONCURRENTLY idx_email_pwd_sso_ssoid_trgm 

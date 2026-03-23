@@ -320,13 +320,9 @@ export default class AccountSvcDB {
     }
   }
 
-  async getAllAccounts(platformAccountId, offset, limit, searchtext, type) {
+  async getAllAccounts(platformAccountId, offset, limit, searchtext) {
     try {
       // TODO: ideally we should not return platform account
-      let notincludeclause = "";
-      if (type === "subscription") {
-        notincludeclause = `AND a.accountcategory != 'individual'`;
-      }
       let baseQuery = `
             SELECT DISTINCT a.accountid, a.accountname, a.updatedat
             FROM account a
@@ -345,7 +341,6 @@ export default class AccountSvcDB {
             UPPER(fv.vinno) LIKE '%' || $1 || '%' OR
             UPPER(us.ssoid) LIKE '%' || $1 || '%' OR
             CAST(ac.credits AS TEXT) LIKE '%' || $1 || '%')
-            ${notincludeclause}
             ORDER BY a.updatedat DESC
             OFFSET $2 LIMIT $3`;
       let params = [searchtext, offset, limit];
@@ -380,9 +375,7 @@ export default class AccountSvcDB {
             UPPER(u.displayname) LIKE '%' || $1 || '%' OR
             UPPER(fv.vinno) LIKE '%' || $1 || '%' OR
             UPPER(us.ssoid) LIKE '%' || $1 || '%' OR
-            CAST(ac.credits AS TEXT) LIKE '%' || $1 || '%')
-            ${notincludeclause}
-            `;
+            CAST(ac.credits AS TEXT) LIKE '%' || $1 || '%')`;
       const countcresult = await this.pgPoolI.Query(countcquery, [searchtext]);
       const totalcount = parseInt(countcresult.rows[0].count);
       return {
@@ -1505,8 +1498,13 @@ export default class AccountSvcDB {
     }
   }
 
-  async addCustomPkgToAccountWithTxn(accountid, pkgids, updatedby, txclient) {
+  async addCustomPkgToAccount(accountid, pkgids, updatedby) {
     let currtime = new Date();
+
+    let [txclient, err] = await this.pgPoolI.StartTransaction();
+    if (err) {
+      throw err;
+    }
 
     try {
       // check if all pkgids are custom packages
@@ -1536,30 +1534,13 @@ export default class AccountSvcDB {
       if (result.rowCount !== pkgids.length) {
         throw new Error("Failed to add custom package to account");
       }
-      return true;
-    } catch (e) {
-      throw e;
-    }
-  }
 
-  async addCustomPkgToAccount(accountid, pkgids, updatedby) {
-    let [txclient, err] = await this.pgPoolI.StartTransaction();
-    if (err) {
-      throw err;
-    }
-    try {
-      let result = await this.addCustomPkgToAccountWithTxn(accountid, pkgids, updatedby, txclient);
-      if (!result) {
-        throw new Error("Failed to add custom package to account");
-      }
       let commiterr = await this.pgPoolI.TxCommit(txclient);
       if (commiterr) {
         throw commiterr;
       }
       return true;
-    }
-    catch (e) {
-      this.logger.error("Failed to add custom package to account", e);
+    } catch (e) {
       let rollbackerr = await this.pgPoolI.TxRollback(txclient);
       if (rollbackerr) {
         throw rollbackerr;
@@ -1930,14 +1911,14 @@ export default class AccountSvcDB {
                     COALESCE(uab.displayname, 'Unknown User') AS assignedby, 
                     fv.updatedat, 
                     COALESCE(uub.displayname, 'Unknown User') AS updatedby, 
-                    s.startdate        AS subscriptionstartsat,
-                    s.enddate          AS subscriptionendsat,
-                    s.subscriptioninfo AS subscriptioninfo,
-                    avs.status         AS subscriptionstate,
-                    avs.createdat      AS subscriptioncreatedat, 
-                    avs.createdby      AS subscriptioncreatedby, 
-                    avs.updatedat      AS subscriptionupdatedat, 
-                    avs.updatedby      AS subscriptionupdatedby,
+                    avs.startsat AS subscriptionstartsat, 
+                    avs.endsat AS subscriptionendsat, 
+                    avs.subscriptioninfo, 
+                    avs.state AS subscriptionstate, 
+                    avs.createdat AS subscriptioncreatedat, 
+                    avs.createdby AS subscriptioncreatedby, 
+                    avs.updatedat AS subscriptionupdatedat, 
+                    avs.updatedby AS subscriptionupdatedby,
                     CASE 
                         WHEN fv.isowner = true THEN fv.accountid
                         ELSE tv.srcaccountid
@@ -1961,22 +1942,16 @@ export default class AccountSvcDB {
                     ON tv.srcaccountid = a.accountid
                 LEFT JOIN account owner_acc
                     ON fv.accountid = owner_acc.accountid
-                LEFT JOIN account_subscription_status ass
-                    ON ass.accountid = fv.accountid
-                  AND ass.isactive = true
                 LEFT JOIN account_vehicle_subscription avs 
-                    ON avs.accountid = ass.accountid 
-                  AND avs.subscriptionid = ass.subscriptionid
-                  AND avs.vinno = fv.vinno
-                LEFT JOIN subscription s
-                    ON s.subscriptionid = ass.subscriptionid
+                    ON fv.accountid = avs.accountid 
+                    AND fv.vinno = avs.vinno
                 LEFT JOIN users uab 
                     ON fv.assignedby = uab.userid
                 LEFT JOIN users uub 
                     ON fv.updatedby = uub.userid
                 LEFT JOIN vehicle_model vm 
                     ON v.modelcode = vm.modelcode
-                WHERE fv.accountid = $1
+                WHERE fv.accountid = $1;
         `;
       let result = await this.pgPoolI.Query(query, [accountid]);
       if (result.rowCount === 0) {
@@ -2283,8 +2258,7 @@ export default class AccountSvcDB {
       // get number of vehicles currently subscribed
       query = `
         SELECT count(*) FROM account_vehicle_subscription avs
-        JOIN account_subscription_status ass ON avs.accountid = ass.accountid AND avs.subscriptionid = ass.subscriptionid
-        WHERE avs.accountid = $1 AND avs.status = $2 AND ass.isactive = true
+        WHERE avs.accountid = $1 AND avs.state = $2
       `;
       result = await txclient.query(query, [accountid, 1]);
       const numvehicles = parseInt(result.rows[0].count);
@@ -2616,8 +2590,7 @@ export default class AccountSvcDB {
       // get number of vehicles currently subscribed
       query = `
                 SELECT count(*) FROM account_vehicle_subscription avs
-                JOIN account_subscription_status ass ON avs.accountid = ass.accountid AND avs.subscriptionid = ass.subscriptionid
-                WHERE avs.accountid = $1 AND avs.status = $2 AND ass.isactive = true
+                WHERE avs.accountid = $1 AND avs.state = $2
             `;
       result = await txclient.query(query, [
         accountid,
@@ -4068,24 +4041,6 @@ export default class AccountSvcDB {
       return result.rows;
     } catch (error) {
       this.logger.error("getAccountCategory error:", error);
-      throw error;
-    }
-  }
-  async getSubscriptionStatus(accountid) {
-    try {
-      let query = `SELECT a.accountid, a.accountname, a.accountcategory, fv.isowner, count(distinct fv.vinno) as noofvehicles, ass.isactive as issubscribed
-      FROM account a 
-      LEFT JOIN fleet_vehicle fv ON fv.accountid = a.accountid
-      LEFT JOIN account_subscription_status ass ON ass.accountid = a.accountid
-      WHERE a.accountid = $1 AND a.isdeleted = false AND a.isenabled = true 
-      GROUP BY a.accountid, a.accountname, a.accountcategory, fv.isowner, fv.vinno, ass.isactive`;
-      let result = await this.pgPoolI.Query(query, [accountid]);
-      if (result.rowCount === 0) {
-        return [];
-      }
-      return result.rows[0];
-    } catch (error) {
-      this.logger.error("getSubscriptionStatus error:", error);
       throw error;
     }
   }

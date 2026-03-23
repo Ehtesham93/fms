@@ -66,9 +66,8 @@ export default class LivetrackingsvcDB {
       const vinNumbers = allVehicles.map((vehicle) => vehicle.vinno);
 
       const subscribedQuery = `
-        SELECT avs.vinno FROM account_vehicle_subscription avs
-        JOIN account_subscription_status ass ON avs.accountid = ass.accountid AND avs.subscriptionid = ass.subscriptionid
-        WHERE avs.accountid = $1 AND avs.vinno = ANY($2) AND avs.status = 1 AND ass.isactive = true
+        SELECT vinno FROM account_vehicle_subscription 
+        WHERE accountid = $1 AND vinno = ANY($2) AND state = 1
       `;
       const subscribedResult = await this.pgPoolI.Query(subscribedQuery, [
         accountid,

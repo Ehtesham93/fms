@@ -91,12 +91,12 @@ export default class AccountHdlrImpl {
     };
   };
 
-  ListAccountsLogic = async (searchtext, offset, limit, type) => {
+  ListAccountsLogic = async (searchtext, offset, limit) => {
     const emailregex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailregex.test(searchtext)) {
       searchtext = preprocessingText(searchtext);
     }
-    let accounts = await this.accountSvcI.GetAllAccounts(PLATFORM_ACCOUNT_ID, offset, limit, searchtext.toUpperCase(), type);
+    let accounts = await this.accountSvcI.GetAllAccounts(PLATFORM_ACCOUNT_ID, offset, limit, searchtext.toUpperCase());
     return accounts;
   };
 
@@ -1245,10 +1245,5 @@ export default class AccountHdlrImpl {
   GetAccountCategoryLogic = async () => {
     let accountcategories = await this.accountSvcI.GetAccountCategory();
     return accountcategories;
-  };
-
-  GetSubscriptionStatusLogic = async (accountid) => {
-    let subscriptionstatus = await this.accountSvcI.GetSubscriptionStatus(accountid);
-    return subscriptionstatus;
   };
 }

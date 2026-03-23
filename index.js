@@ -80,8 +80,7 @@ let platformHdlrI = new PlatformHdlr(
   historyDataSvcI,
   inMemCacheI,
   redisSvc,
-  servicelogger,
-  pgPoolI
+  servicelogger
 );
 let userHdlrI = new UserHdlr(
   userSvcI,

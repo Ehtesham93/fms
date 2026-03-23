@@ -23,9 +23,7 @@ pipeline {
         stage('Git Checkout') {
             steps {
                 echo 'Checking out the code...'
-                git branch: 'main', 
-                    url: 'https://github.com/lmm-intellicar/nemo3-api-fms-svc.git', 
-                    credentialsId: 'github_token'
+                checkout scm
             }
         }
 

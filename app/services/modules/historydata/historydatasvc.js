@@ -201,13 +201,4 @@ export default class HistoryDataSvc {
       throw new Error("Failed to fetch vehicle last connected data");
     }
   }
-
-  async ValidateVins(value, type, accountid) {
-    try {
-      return await this.historyDataSvcDB.validateVins(value, type, accountid);
-    } catch (error) {
-      this.logger.error("Error validating VINs:", error);
-      throw new Error("Failed to validate VINs");
-    }
-  }
 }

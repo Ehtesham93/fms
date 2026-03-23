@@ -45,7 +45,7 @@ export default class UserHdlr {
     userTokenGroup.get("/invites", this.ListInvitesOfUser);
     userTokenGroup.get("/account/:accountid/token", this.GetAccountToken);
     userTokenGroup.put("/displayname", this.UpdateDisplayName);
-    userTokenGroup.post("/signout", this.Logout);
+    userTokenGroup.post("/logout", this.Logout);
     userTokenGroup.get("/csrftoken", this.GetCSRFToken);
 
     userTokenGroup.put("/setdefaults", this.SetDefaults);

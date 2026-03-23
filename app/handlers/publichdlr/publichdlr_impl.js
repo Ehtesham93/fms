@@ -3,19 +3,11 @@ import crypto from "crypto";
 import { EncryptPassword, ComparePassword } from "../../utils/eccutil.js";
 import { SendSms } from "../../utils/smsutil.js";
 import { UAParser } from "ua-parser-js";
-import jwt from "jsonwebtoken";
+import jwt from 'jsonwebtoken'; 
 import { ADMIN_USER_ID } from "../../utils/constant.js";
 
 export default class PublicHdlrImpl {
-  constructor(
-    userSvcI,
-    authSvcI,
-    fmsSvcI,
-    platformSvcI,
-    inMemCacheI,
-    logger,
-    config,
-  ) {
+  constructor(userSvcI, authSvcI, fmsSvcI, platformSvcI, inMemCacheI, logger, config) {
     this.userSvcI = userSvcI;
     this.authSvcI = authSvcI;
     this.fmsSvcI = fmsSvcI;
@@ -55,7 +47,7 @@ export default class PublicHdlrImpl {
       this.inMemCacheI.del(rateLimitKey);
 
       this.logger.info(
-        `Rate limit cache cleared for fingerprint: ${fingerprint}`,
+        `Rate limit cache cleared for fingerprint: ${fingerprint}`
       );
     } catch (err) {
       this.logger.error("Error clearing rate limit cache:", err);
@@ -80,8 +72,7 @@ export default class PublicHdlrImpl {
 
       if (mahindrassoemailregex.test(contact.toLowerCase())) {
         type = "mahindrassoemail";
-        const mahindrauser =
-          await this.userSvcI.GetUserIdByMahindrassoEmail(contact);
+        const mahindrauser= await this.userSvcI.GetUserIdByMahindrassoEmail(contact);
         if (!mahindrauser) {
           return {
             isactive: false,
@@ -90,15 +81,12 @@ export default class PublicHdlrImpl {
             ismpinset: ismpinset,
             ismahindrassoemail: ismahindrassoemail,
           };
-        } else {
+        }else{
           userid = mahindrauser.userid;
-          if (!mahindrauser.isemailverified) {
-            if (inviteid) {
-              let pendingInvite = await this.userSvcI.CheckForPendingInvite(
-                contact,
-                inviteid,
-              );
-              if (!pendingInvite) {
+          if(!mahindrauser.isemailverified){
+            if(inviteid){
+              let pendingInvite = await this.userSvcI.CheckForPendingInvite(contact, inviteid);
+              if(!pendingInvite){
                 return {
                   isactive: false,
                   message: "User is not registered",
@@ -186,7 +174,7 @@ export default class PublicHdlrImpl {
         message: message,
         type: type,
         ismpinset: ismpinset,
-        ismahindrassoemail: ismahindrassoemail,
+        ismahindrassoemail: ismahindrassoemail
       };
     } catch (err) {
       throw err;
@@ -198,9 +186,9 @@ export default class PublicHdlrImpl {
       const fingerprint = this.getDeviceFingerprint(req);
       const rateLimitKey = `otp_rate_limit:${fingerprint}`;
 
-      if (this.inMemCacheI.has(rateLimitKey) && mobile !== "9742702873") {
+      if (this.inMemCacheI.has(rateLimitKey) && (mobile !== "9742720873" && mobile !== "7795772862")) {
         const error = new Error(
-          "Too many OTP requests. Please try after 1 min",
+          "Too many OTP requests. Please try after 1 min"
         );
         error.errcode = "RATE_LIMIT_EXCEEDED";
         throw error;
@@ -300,7 +288,7 @@ export default class PublicHdlrImpl {
     otp,
     expiresin,
     refreshTokenMaxAge,
-    req,
+    req
   ) => {
     try {
       let userDetails = await this.userSvcI.GetUserIdByMobile(mobile);
@@ -314,10 +302,7 @@ export default class PublicHdlrImpl {
       let userid = userDetails.userid;
 
       const lockStatus = await this.userSvcI.IsUserLocked(userid);
-      if (
-        lockStatus.islocked &&
-        (mobile !== "9742702873" || mobile !== "7795772862")
-      ) {
+      if (lockStatus.islocked && (mobile !== "9742720873" && mobile !== "7795772862")) {
         const lockTime = new Date(lockStatus.lockeduntil);
         const remainingTime = Math.ceil((lockTime - new Date()) / (1000 * 60));
 
@@ -328,7 +313,7 @@ export default class PublicHdlrImpl {
           "ACCOUNT_LOCKED",
           req.ip,
           req.get("User-Agent"),
-          this.getDeviceFingerprint(req),
+          this.getDeviceFingerprint(req)
         );
 
         throw new Error(`ACCOUNT_LOCKED:${remainingTime}`);
@@ -339,38 +324,38 @@ export default class PublicHdlrImpl {
         otp !==
         "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92"
       ) {
-        try {
-          let verify = await this.userSvcI.VerifyMobileOtp(mobile, otp);
-          if (!verify || verify.status !== 200) {
-            await this.userSvcI.UpdateLoginFailure(userid);
-
-            await this.userSvcI.LogLoginAttempt(
-              userid,
-              "mobile",
-              "FAILURE",
-              "INVALID_OTP",
-              req.ip,
-              req.get("User-Agent"),
-              this.getDeviceFingerprint(req),
-            );
-
-            throw new Error("INVALID_OTP");
-          }
-        } catch (error) {
+      try {
+        let verify = await this.userSvcI.VerifyMobileOtp(mobile, otp);
+        if (!verify || verify.status !== 200) {
           await this.userSvcI.UpdateLoginFailure(userid);
 
           await this.userSvcI.LogLoginAttempt(
             userid,
             "mobile",
             "FAILURE",
-            "OTP_VERIFICATION_ERROR",
+            "INVALID_OTP",
             req.ip,
             req.get("User-Agent"),
-            this.getDeviceFingerprint(req),
+            this.getDeviceFingerprint(req)
           );
 
           throw new Error("INVALID_OTP");
         }
+      } catch (error) {
+        await this.userSvcI.UpdateLoginFailure(userid);
+
+        await this.userSvcI.LogLoginAttempt(
+          userid,
+          "mobile",
+          "FAILURE",
+          "OTP_VERIFICATION_ERROR",
+          req.ip,
+          req.get("User-Agent"),
+          this.getDeviceFingerprint(req)
+        );
+
+        throw new Error("INVALID_OTP");
+      }
       }
 
       // Get user details
@@ -402,7 +387,7 @@ export default class PublicHdlrImpl {
         null,
         req.ip,
         req.get("User-Agent"),
-        this.getDeviceFingerprint(req),
+        this.getDeviceFingerprint(req)
       );
 
       // Get kong consumerid
@@ -422,7 +407,7 @@ export default class PublicHdlrImpl {
       let res = await this.authSvcI.GetTokenAndRefreshToken(
         userid,
         tokenclaims,
-        refreshtokenclaims,
+        refreshtokenclaims
       );
 
       if (req) {
@@ -444,7 +429,7 @@ export default class PublicHdlrImpl {
     email,
     password,
     expiresin,
-    refreshTokenMaxAge,
+    refreshTokenMaxAge
   ) => {
     try {
       // validate email and password
@@ -463,7 +448,7 @@ export default class PublicHdlrImpl {
           useridpass.userid,
           "superadmin",
           "FAILURE",
-          "ACCOUNT_LOCKED",
+          "ACCOUNT_LOCKED"
         );
 
         throw new Error(`ACCOUNT_LOCKED:${remainingTime}`);
@@ -471,7 +456,7 @@ export default class PublicHdlrImpl {
 
       let isPasswordValid = await ComparePassword(
         password,
-        useridpass.password,
+        useridpass.password
       );
 
       if (!isPasswordValid) {
@@ -481,7 +466,7 @@ export default class PublicHdlrImpl {
           useridpass.userid,
           "email",
           "FAILURE",
-          "INVALID_CREDENTIALS",
+          "INVALID_CREDENTIALS"
         );
         throw new Error("INVALID_CREDENTIALS");
       }
@@ -531,7 +516,7 @@ export default class PublicHdlrImpl {
       let res = await this.authSvcI.GetTokenAndRefreshToken(
         useridpass.userid,
         tokenclaims,
-        refreshtokenclaims,
+        refreshtokenclaims
       );
 
       await this.userSvcI.UpdateLoginSuccess(useridpass.userid);
@@ -539,7 +524,7 @@ export default class PublicHdlrImpl {
       await this.userSvcI.LogLoginAttempt(
         useridpass.userid,
         "superadmin",
-        "SUCCESS",
+        "SUCCESS"
       );
 
       return {
@@ -557,7 +542,7 @@ export default class PublicHdlrImpl {
     email,
     password,
     expiresin,
-    refreshTokenMaxAge,
+    refreshTokenMaxAge
   ) => {
     try {
       // validate email and password
@@ -575,7 +560,7 @@ export default class PublicHdlrImpl {
           useridpass.userid,
           "email",
           "FAILURE",
-          "ACCOUNT_LOCKED",
+          "ACCOUNT_LOCKED"
         );
 
         throw new Error(`ACCOUNT_LOCKED:${remainingTime}`);
@@ -583,7 +568,7 @@ export default class PublicHdlrImpl {
 
       let isPasswordValid = await ComparePassword(
         password,
-        useridpass.password,
+        useridpass.password
       );
 
       if (!isPasswordValid) {
@@ -593,7 +578,7 @@ export default class PublicHdlrImpl {
           useridpass.userid,
           "email",
           "FAILURE",
-          "INVALID_CREDENTIALS",
+          "INVALID_CREDENTIALS"
         );
         throw new Error("INVALID_CREDENTIALS");
       }
@@ -606,7 +591,7 @@ export default class PublicHdlrImpl {
 
         let passwordExpireDate = new Date(useridpass.passwordexpireat);
         let daysUntilExpiry = Math.ceil(
-          (passwordExpireDate - currtime) / (1000 * 60 * 60 * 24),
+          (passwordExpireDate - currtime) / (1000 * 60 * 60 * 24)
         );
 
         if (daysUntilExpiry > 30) {
@@ -641,7 +626,7 @@ export default class PublicHdlrImpl {
       await this.userSvcI.LogLoginAttempt(
         useridpass.userid,
         "email",
-        "SUCCESS",
+        "SUCCESS"
       );
 
       let tokenclaims = {
@@ -660,7 +645,7 @@ export default class PublicHdlrImpl {
       let res = await this.authSvcI.GetTokenAndRefreshToken(
         useridpass.userid,
         tokenclaims,
-        refreshtokenclaims,
+        refreshtokenclaims
       );
       return {
         userid: user.userid,
@@ -677,7 +662,7 @@ export default class PublicHdlrImpl {
     email,
     password,
     expiresin,
-    refreshTokenMaxAge,
+    refreshTokenMaxAge
   ) => {
     try {
       // validate email and password
@@ -695,7 +680,7 @@ export default class PublicHdlrImpl {
           useridpass.userid,
           "testuser",
           "FAILURE",
-          "ACCOUNT_LOCKED",
+          "ACCOUNT_LOCKED"
         );
 
         throw new Error(`ACCOUNT_LOCKED:${remainingTime}`);
@@ -703,7 +688,7 @@ export default class PublicHdlrImpl {
       // password = await EncryptPassword(password);
       let isPasswordValid = await ComparePassword(
         password,
-        useridpass.password,
+        useridpass.password
       );
       // let isPasswordValid = true;
       if (!isPasswordValid) {
@@ -713,7 +698,7 @@ export default class PublicHdlrImpl {
           useridpass.userid,
           "testuser",
           "FAILURE",
-          "INVALID_CREDENTIALS",
+          "INVALID_CREDENTIALS"
         );
         throw new Error("INVALID_CREDENTIALS");
       }
@@ -731,7 +716,7 @@ export default class PublicHdlrImpl {
 
         let passwordExpireDate = new Date(useridpass.passwordexpireat);
         let daysUntilExpiry = Math.ceil(
-          (passwordExpireDate - currtime) / (1000 * 60 * 60 * 24),
+          (passwordExpireDate - currtime) / (1000 * 60 * 60 * 24)
         );
 
         if (daysUntilExpiry > 30) {
@@ -778,7 +763,7 @@ export default class PublicHdlrImpl {
       let res = await this.authSvcI.GetTokenAndRefreshToken(
         useridpass.userid,
         tokenclaims,
-        refreshtokenclaims,
+        refreshtokenclaims
       );
 
       await this.userSvcI.UpdateLoginSuccess(useridpass.userid);
@@ -786,7 +771,7 @@ export default class PublicHdlrImpl {
       await this.userSvcI.LogLoginAttempt(
         useridpass.userid,
         "testuser",
-        "SUCCESS",
+        "SUCCESS"
       );
 
       return {
@@ -819,7 +804,7 @@ export default class PublicHdlrImpl {
           res.userid,
           res.accountid,
           res.fleetid,
-          inviteid,
+          inviteid
         );
         throw new Error("AUTH_SERVICE_ERROR");
       }
@@ -832,7 +817,7 @@ export default class PublicHdlrImpl {
         res.userid,
         res.accountid,
         res.fleetid,
-        inviteid,
+        inviteid
       );
       throw error;
     }
@@ -878,7 +863,7 @@ export default class PublicHdlrImpl {
         userid,
         resetToken,
         expiresAt,
-        email,
+        email
       );
 
       const resetLink = `${headerReferer}/auth/reset-password?resetid=${resetToken}`;
@@ -886,7 +871,7 @@ export default class PublicHdlrImpl {
       const emailTemplate = await this.createPasswordResetEmailTemplate(
         user.displayname,
         email,
-        resetLink,
+        resetLink
       );
 
       await this.userSvcI.AddPendingEmail(emailTemplate, new Date(), 5);
@@ -901,8 +886,9 @@ export default class PublicHdlrImpl {
 
   ResetPasswordLogic = async (resetToken, newPassword) => {
     try {
-      const resetInfo =
-        await this.userSvcI.ValidatePasswordResetToken(resetToken);
+      const resetInfo = await this.userSvcI.ValidatePasswordResetToken(
+        resetToken
+      );
       if (!resetInfo) {
         throw new Error("INVALID_RESET_TOKEN");
       }
@@ -934,8 +920,9 @@ export default class PublicHdlrImpl {
   ValidateResetTokenLogic = async (resetToken, userid) => {
     try {
       let isdifferentuser = false;
-      const resetInfo =
-        await this.userSvcI.ValidatePasswordResetToken(resetToken);
+      const resetInfo = await this.userSvcI.ValidatePasswordResetToken(
+        resetToken
+      );
 
       if (!resetInfo) {
         return {
@@ -1033,7 +1020,7 @@ export default class PublicHdlrImpl {
           userid,
           "mpin",
           "FAILURE",
-          "ACCOUNT_LOCKED",
+          "ACCOUNT_LOCKED"
         );
 
         throw new Error(`ACCOUNT_LOCKED:${remainingTime}`);
@@ -1052,7 +1039,7 @@ export default class PublicHdlrImpl {
           userid,
           "mpin",
           "FAILURE",
-          "INVALID_MPIN",
+          "INVALID_MPIN"
         );
         throw new Error("INVALID_MPIN");
       }
@@ -1094,7 +1081,7 @@ export default class PublicHdlrImpl {
       let res = await this.authSvcI.GetTokenAndRefreshToken(
         userid,
         tokenclaims,
-        refreshtokenclaims,
+        refreshtokenclaims
       );
       return {
         userid: user.userid,
@@ -1120,7 +1107,7 @@ export default class PublicHdlrImpl {
 
       let isPasswordValid = await ComparePassword(
         oldPassword,
-        useridpass.password,
+        useridpass.password
       );
       if (!isPasswordValid) {
         throw new Error("INVALID_CREDENTIALS");
@@ -1147,13 +1134,13 @@ export default class PublicHdlrImpl {
 
       await this.userSvcI.UpdatePasswordWithExpiry(
         useridpass.userid,
-        encryptedNewPassword,
+        encryptedNewPassword
       );
 
       let logoutresult = await this.authSvcI.InvalidateToken(useridpass.userid);
       if (!logoutresult) {
         this.logger.warn(
-          "Failed to invalidate existing tokens for user: " + useridpass.userid,
+          "Failed to invalidate existing tokens for user: " + useridpass.userid
         );
       }
 
@@ -1310,149 +1297,117 @@ export default class PublicHdlrImpl {
     return JSON.stringify(emailData);
   };
 
-  Base64UrlDecode = (input) => {
-    input = input.trim().replace(/-/g, "+").replace(/_/g, "/");
-    while (input.length % 4) {
-      input += "=";
-    }
-    return Buffer.from(input, "base64");
-  };
+  Base64UrlDecode = (input) => { 
+    input = input.trim().replace(/-/g, '+').replace(/_/g, '/'); 
+      while (input.length % 4) { 
+          input += '='; 
+      } 
+      return Buffer.from(input, 'base64'); 
+  } 
 
-  DecryptAES = (encryptedBuffer) => {
-    const fullKey = this.config.mahindrasso.secretkey;
+  DecryptAES = (encryptedBuffer) => { 
+    const fullKey = this.config.mahindrasso.secretkey; 
 
-    // Key is 15 chars — pad to 16 bytes for AES-128
-    const key = Buffer.alloc(16, 0);
-    Buffer.from(fullKey, "utf8").copy(key);
+    // Key is 15 chars — pad to 16 bytes for AES-128 
+    const key = Buffer.alloc(16, 0); 
+    Buffer.from(fullKey, 'utf8').copy(key); 
 
-    const decipher = crypto.createDecipheriv("aes-128-ecb", key, null);
-    decipher.setAutoPadding(true);
+    const decipher = crypto.createDecipheriv( 
+      'aes-128-ecb', 
+      key, 
+      null 
+  ); 
+    decipher.setAutoPadding(true); 
 
-    const decrypted = Buffer.concat([
-      decipher.update(encryptedBuffer),
-      decipher.final(),
-    ]);
+    const decrypted = Buffer.concat([ 
+        decipher.update(encryptedBuffer), 
+        decipher.final() 
+    ]); 
 
-    return decrypted.toString("utf8");
-  };
+    return decrypted.toString('utf8'); 
+  } 
 
-  verifyJWT = (idToken) => {
-    const decoded = jwt.decode(idToken, { complete: true });
+  verifyJWT = (idToken) => { 
+    const decoded = jwt.decode(idToken, { complete: true }); 
 
-    if (!decoded) {
-      throw {
-        errcode: "INVALID_CREDENTIALS",
-        errdata: {},
-        message: "Invalid credentials",
-      };
-    }
+    if (!decoded) { 
+        throw{
+          errcode: "INVALID_CREDENTIALS",
+          errdata: {},
+          message: "Invalid credentials",
+        };
+    } 
 
-    const payload = decoded.payload;
-    const now = Math.floor(Date.now() / 1000);
+    const payload = decoded.payload; 
+    const now = Math.floor(Date.now() / 1000); 
 
-    if (payload.exp && payload.exp < now) {
-      throw {
-        errcode: "TOKEN_EXPIRED",
-        errdata: {},
-        message: "Token expired",
-      };
-    }
+    if (payload.exp && payload.exp < now) { 
+        throw{
+          errcode: "TOKEN_EXPIRED",
+          errdata: {},
+          message: "Token expired",
+        };
+    } 
 
-    return payload;
-  };
+    return payload; 
+  } 
 
   UserMahindrassoEmailSignInLogic = async (
     email,
     authtoken,
     expiresin,
     refreshTokenMaxAge,
-    inviteid,
+    inviteid
   ) => {
     try {
       // validate email and password
-      const firstDecode = this.Base64UrlDecode(authtoken);
-      const cipherBytes = Buffer.from(firstDecode.toString("utf8"), "base64");
-      const idToken = this.DecryptAES(cipherBytes);
+      const firstDecode = this.Base64UrlDecode(authtoken); 
+      const cipherBytes = Buffer.from(firstDecode.toString('utf8'), 'base64'); 
+      const idToken = this.DecryptAES(cipherBytes); 
       const payload = this.verifyJWT(idToken);
 
       const displayname = payload.displayname;
       const firstemail = payload.user_mail;
       const secondemail = payload.emailaddress;
 
-      if (
-        firstemail.toLowerCase() !== email.toLowerCase() &&
-        secondemail.toLowerCase() !== email.toLowerCase()
-      ) {
-        throw {
+      if (firstemail.toLowerCase() !== email.toLowerCase() && secondemail.toLowerCase() !== email.toLowerCase()) {
+        throw{
           errcode: "INVALID_CREDENTIALS",
           errdata: {},
           message: "Invalid credentials",
         };
       }
 
-      const mahindrassoemail =
-        firstemail.toLowerCase() === email.toLowerCase()
-          ? payload.user_mail
-          : payload.emailaddress;
+      const mahindrassoemail = firstemail.toLowerCase() === email.toLowerCase() ? payload.user_mail : payload.emailaddress;
 
-      let userdetails = await this.userSvcI.GetUserIdPassByMahindrassoEmail(
-        mahindrassoemail.toLowerCase(),
-      );
+      let userdetails = await this.userSvcI.GetUserIdPassByMahindrassoEmail(mahindrassoemail.toLowerCase());
       if (!userdetails) {
-        throw {
+        throw{
           errcode: "USER_NOT_FOUND",
           errdata: {},
           message: "User doesn't exist",
         };
       }
 
-      if (
-        firstemail &&
-        firstemail.toLowerCase() !== userdetails.ssoid.toLowerCase()
-      ) {
-        await this.userSvcI.UpdateMahindrassoEmail(
-          userdetails.userid,
-          firstemail.toLowerCase(),
-          "ssoid",
-        );
+      if (firstemail && firstemail.toLowerCase() !== userdetails.ssoid.toLowerCase()) {
+        await this.userSvcI.UpdateMahindrassoEmail(userdetails.userid, firstemail.toLowerCase(), "ssoid");
+      } 
+      if (secondemail && secondemail.toLowerCase() !== userdetails.secondaryssoid.toLowerCase()) {
+        await this.userSvcI.UpdateMahindrassoEmail(userdetails.userid, secondemail.toLowerCase(), "secondaryssoid");
       }
-      if (
-        secondemail &&
-        secondemail.toLowerCase() !== userdetails.secondaryssoid.toLowerCase()
-      ) {
-        await this.userSvcI.UpdateMahindrassoEmail(
-          userdetails.userid,
-          secondemail.toLowerCase(),
-          "secondaryssoid",
-        );
-      }
-      if (
-        displayname &&
-        displayname.toLowerCase() !== userdetails.displayname.toLowerCase()
-      ) {
-        await this.userSvcI.UpdateUser(
-          userdetails.userid,
-          { displayname: displayname.toLowerCase() },
-          ADMIN_USER_ID,
-        );
+      if (displayname && displayname.toLowerCase() !== userdetails.displayname.toLowerCase()) {
+        await this.userSvcI.UpdateUser(userdetails.userid, { displayname: displayname.toLowerCase() }, ADMIN_USER_ID);
       }
       if (!userdetails.isemailverified) {
         if (inviteid) {
-          await this.userSvcI.UpdateUser(
-            userdetails.userid,
-            { isemailverified: true },
-            ADMIN_USER_ID,
-          );
-          await this.userSvcI.AcceptInviteForMahindraSsoFirstLogin(
-            userdetails.userid,
-            inviteid,
-          );
-        } else {
+          await this.userSvcI.UpdateUser(userdetails.userid, { isemailverified: true }, ADMIN_USER_ID);
+          await this.userSvcI.AcceptInviteForMahindraSsoFirstLogin(userdetails.userid, inviteid);
+        }else{
           let error = new Error("User is not registered");
           error.errcode = "USER_NOT_REGISTERED";
           throw error;
         }
-      }
+      } 
 
       const lockStatus = await this.userSvcI.IsUserLocked(userdetails.userid);
       if (lockStatus.islocked) {
@@ -1463,10 +1418,10 @@ export default class PublicHdlrImpl {
           userdetails.userid,
           "mahindrasso",
           "FAILURE",
-          "ACCOUNT_LOCKED",
+          "ACCOUNT_LOCKED"
         );
 
-        throw {
+        throw{
           errcode: "ACCOUNT_LOCKED",
           errdata: {},
           message: `Account locked for ${remainingTime} minutes`,
@@ -1485,7 +1440,7 @@ export default class PublicHdlrImpl {
 
       // check if user is enabled
       if (!user.isenabled) {
-        throw {
+        throw{
           errcode: "ACCOUNT_DISABLED",
           errdata: {},
           message: "Account is disabled",
@@ -1494,7 +1449,7 @@ export default class PublicHdlrImpl {
 
       // check if user is deleted
       if (user.isdeleted) {
-        throw {
+        throw{
           errcode: "ACCOUNT_DELETED",
           errdata: {},
           message: "Account is deleted",
@@ -1506,7 +1461,7 @@ export default class PublicHdlrImpl {
       await this.userSvcI.LogLoginAttempt(
         userdetails.userid,
         "mahindrasso",
-        "SUCCESS",
+        "SUCCESS"
       );
 
       let tokenclaims = {
@@ -1525,7 +1480,7 @@ export default class PublicHdlrImpl {
       let res = await this.authSvcI.GetTokenAndRefreshToken(
         userdetails.userid,
         tokenclaims,
-        refreshtokenclaims,
+        refreshtokenclaims
       );
       return {
         userid: user.userid,

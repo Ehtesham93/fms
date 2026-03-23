@@ -1380,7 +1380,7 @@ export default class fmsAccountHdlrImpl {
       regno: r.regno,
       vin: r.vinno,
       isowner: r.isowner,
-      status: (statusMap[r.status] ?? String(r.status)).toUpperCase(),
+      status: (statusMap[r.state] ?? String(r.state)).toUpperCase(),
     }));
 
     return history;
