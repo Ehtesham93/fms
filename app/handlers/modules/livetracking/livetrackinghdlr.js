@@ -368,6 +368,18 @@ export default class Livetrackinghdlr {
           message: "Invalid latitude or longitude format",
         };
       }
+      
+      const version = req.headers["x-version"] || "";
+      console.log("Version: ", version);
+      const lastPart = version.split("_").pop();
+      console.log("Last part: ", lastPart);
+      const buildNumber = Number(lastPart);
+      console.log("Build number: ", buildNumber);
+      if (req.headers["x-platform"] === "Nemo3-Android" && buildNumber < 51 ){
+        let result = `${latFloat.toString()},${lngFloat.toString()}`;
+        APIResponseOK(req, res, result, "Geocode fetched successfully");
+        return;
+      }
 
       if (!GEOCODE_ALLOWED_LOCALES.includes(locale)) {
         this.logger.warn("Invalid locale format, using default locale: ", {
