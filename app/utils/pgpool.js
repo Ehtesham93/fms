@@ -22,9 +22,7 @@ export default class PgPool {
       min: 30,
       max: 50,
       statement_timeout: 60 * 1000,
-      ssl: {
-        rejectUnauthorized: false,
-      },
+      ssl: false
     });
     this.activeQueries = 0;
     this.Pool.on("connect", (client) => {

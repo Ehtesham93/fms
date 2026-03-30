@@ -44,10 +44,10 @@ import { Logger } from "../lib/nemo3-lib-observability/index.js";
 main();
 
 async function main() {
-  if (process.env.SEED_DB !== "true") {
-    console.log("SEED_DB is not true. Skipping seeding.");
-    return;
-  }
+  // if (process.env.SEED_DB !== "true") {
+  //   console.log("SEED_DB is not true. Skipping seeding.");
+  //   return;
+  // }
 
   // setup logger
   const logger = new Logger({

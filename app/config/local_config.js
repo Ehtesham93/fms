@@ -1,22 +1,22 @@
 export default {
   pgdb: {
-    host: "mahindra-tunnel.intellicar.io",
-    port: 22041,
+    host: "localhost",
+    port: 5432,
     database: "lmmintellicar",
     schema: "devfmscoresch",
-    user: "lmmintellicar_admin",
-    password: "Z52DWfsAZIBtnOK",
+    user: "postgres",
+    password: "Classic@73093",
   },
   redis: {
-    host: "lmm-intellicar-cluster.t9kbdt.clustercfg.aps1.cache.amazonaws.com",
+    host: "localhost",
     port: 6379,
   },
   apiserver: {
-    port: 10005,
+    port: 10004,
   },
   authsvc: {
     // url: "https://stg-nemo.mahindraelectric.com:2083",
-    url: "http://localhost:10004",
+    url: "http://localhost:10005",
     createConsumerPath: "/api/v1/consumer",
     getUserTokenPath: "/api/v1/token",
     getAccountTokenPath: "/api/v1/account/token",

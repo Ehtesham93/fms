@@ -833,4 +833,127 @@ export default class UserHdlrImpl {
       throw err;
     }
   };
+    // ===========================
+  // ⭐ Rating Feature Logic
+  // ===========================
+
+GetUserRatingStatusLogic = async (userid) => {
+  try {
+    // Call DB/service to check latest rating
+    let ratingData = await this.userSvcI.GetUserRating(userid);
+
+    // 🟢 Case 1: No record → show popup
+    if (!ratingData) {
+      return {
+        isRated: false,
+      };
+    }
+
+    // 🟢 Case 2: User already gave rating (1–5) → never show popup again
+    if (ratingData.rating > 0) {
+      return {
+        isRated: true,
+        rating: ratingData.rating,
+        comment: ratingData.comment,
+      };
+    }
+
+    // 🔴 Case 3: User clicked "Later" (rating = 0)
+    if (ratingData.rating === 0) {
+      let createdAt = new Date(ratingData.createdat);
+      let now = new Date();
+
+      // Calculate difference in days
+      let diffInDays = (now - createdAt) / (1000 * 60 * 60 * 24);
+
+      // ✅ If 30 days passed → show popup again
+      if (diffInDays >= 30) {
+        return {
+          isRated: false,
+        };
+      }
+
+      // ❌ If less than 30 days → don't show popup
+      return {
+        isRated: true,
+      };
+    }
+
+    // Default fallback
+    return {
+      isRated: true,
+    };
+  } catch (error) {
+    throw error;
+  }
+};
+
+  PutUserRatingLogic = async (
+  userid,
+  rating,
+  comment,
+  type,
+  reference
+) => {
+  try {
+    // Normalize type
+    const actionType = type ? type.toUpperCase() : "RATING";
+
+    // 🔴 Case 1: User clicked "Later"
+    if (actionType === "LATER") {
+      await this.userSvcI.SaveUserRating({
+        id: uuidv4(),
+        userid: userid,
+        rating: 0,
+        comment: "",
+        reference: reference || "APP",
+        type: "LATER",
+        createdat: new Date(),
+      });
+
+      return {
+        success: true,
+        message: "User chose to rate later",
+      };
+    }
+
+    // 🟢 Case 2: User submitted rating
+
+    // ✅ VALIDATION
+    if (rating === undefined || rating === null) {
+      const error = new Error("Rating is required");
+      error.errcode = "RATING_REQUIRED";
+      throw error;
+    }
+
+    if (!Number.isInteger(rating)) {
+      const error = new Error("Rating must be an integer");
+      error.errcode = "INVALID_RATING";
+      throw error;
+    }
+
+    if (rating < 1 || rating > 5) {
+      const error = new Error("Rating must be between 1 and 5");
+      error.errcode = "INVALID_RATING";
+      throw error;
+    }
+
+    await this.userSvcI.SaveUserRating({
+      id: uuidv4(),
+      userid: userid,
+      rating: rating,
+      comment: comment || "",
+      reference: reference || "APP",
+      type: "RATING",
+      createdat: new Date(),
+    });
+
+    return {
+      success: true,
+      message: "Rating submitted successfully",
+    };
+  } catch (error) {
+    throw error;
+  }
+};
 }

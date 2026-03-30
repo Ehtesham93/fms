@@ -1,21 +1,21 @@
 export default {
   pgdb: {
-    host: "lmm.stgdb.nemo3",
+    host: "localhost",
     port: 5432,
     database: "lmmintellicar",
     schema: "devfmscoresch",
-    user: "lmmintellicar_admin",
-    password: "Z52DWfsAZIBtnOK",
+    user: "postgres",
+    password: "Classic@73093",
   },
   redis: {
-    host: "lmm-intellicar-cluster.t9kbdt.clustercfg.aps1.cache.amazonaws.com",
+    host: "localhost",
     port: 6379,
   },
   apiserver: {
     port: 10004,
   },
   authsvc: {
-    url: "http://dev-nemo3-api-auth-svc.intellicar-frontend1:10004",
+    url: "http://localhost:10005",
     createConsumerPath: "/api/v1/consumer",
     getUserTokenPath: "/api/v1/token",
     getAccountTokenPath: "/api/v1/account/token",
@@ -29,7 +29,7 @@ export default {
   //   apikey: "EB_25F98EB56D926AFDEE768417F1A1CD712B40E632FCD9B91501BBD5C3571D66B4",
   // },
   emailsvc: {
-    url: "http://dev-nemo3-api-email-svc.intellicar-frontend1:10004",
+    url: "http://localhost:10009",
     sendEmailPath: "/api/v1/email/sendemail",
   },
   geocodesvc: {
@@ -77,7 +77,7 @@ export default {
       "69f9f7c745883a32502dc7d9d67b16aaa09ea9d0b19de202555cf8e1b42be693",
   },
   CDN_BASE_URL: "https://d15u4dbb8gfonu.cloudfront.net",
-  logToConsole: false,
+  logToConsole: true,
   seedConfig: {
     BASE_URL: "https://stg-nemo.mahindralastmilemobility.com:2083",
   },

@@ -122,12 +122,12 @@ export default class PublicRateLimiter {
 
       // Contact/validation limiters
       contactCheckLimiter: rateLimit({
-        windowMs: rateLimitConfig.contactCheck.perMinute.windowMs,
-        max: rateLimitConfig.contactCheck.perMinute.max,
-        message: "Too many contact verification requests. Try again later.",
-        handler: createLimiterHandler("Contact check per-minute"),
-        standardHeaders: true,
-        legacyHeaders: false,
+        windowMs: rateLimitConfig.contactCheck.perMinute.windowMs, //define the time of window contact check per Ms
+        max: rateLimitConfig.contactCheck.perMinute.max, //Per minute max limit allow 
+        message: "Too many contact verification requests. Try again later.", // per minute max limit allowed 
+        handler: createLimiterHandler("Contact check per-minute"), // its handle logs or alers when limit exeed
+        standardHeaders: true, //send ratelimit to users on header like popup
+        legacyHeaders: false, // desable the reset limit 
       }),
 
       // Signup/invite limiters

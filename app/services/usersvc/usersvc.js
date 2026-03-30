@@ -395,6 +395,63 @@ export default class UserSvc {
   async UpdatePasswordWithExpiry(userid, newPassword) {
     return await this.userSvcDB.updatePasswordWithExpiry(userid, newPassword);
   }
+  
+  // ===========================
+// ⭐ Rating Feature - Service Layer
+// ===========================
+
+GetUserRating = async (userid) => {
+  try {
+    const query = `
+      SELECT rating, comment
+      FROM user_rating
+      WHERE userid = $1
+      ORDER BY createdat DESC
+      LIMIT 1
+    `;
+
+    const result = await this.db.query(query, [userid]);
+
+    if (!result.rows || result.rows.length === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+SaveUserRating = async (data) => {
+  try {
+    const query = `
+      INSERT INTO user_rating (
+        id,
+        userid,
+        rating,
+        comment,
+        reference,
+        type,
+        createdat
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `;
+
+    await this.db.query(query, [
+      data.id,
+      data.userid,
+      data.rating,
+      data.comment || "",
+      data.reference,
+      data.type,
+      data.createdat,
+    ]);
+
+    return true;
+  } catch (error) {
+    throw error;
+  }
+};
 
   async CheckUserLoginSecurity(userid) {
     return await this.userSvcDB.checkUserLoginSecurity(userid);

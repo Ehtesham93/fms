@@ -158,7 +158,7 @@ export async function seedFleetUserRole(pgPoolTx, createdby) {
 export async function seedPackages(platformHdlrI, createdby) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // // "scripts",
     "seed_csv_files",
     "package.csv"
   );
@@ -229,7 +229,7 @@ export async function seedPackages(platformHdlrI, createdby) {
 export async function seedPackageModule(platformHdlrI, pgPoolTx, createdby) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // // "scripts",
     "seed_csv_files",
     "package_module_mapping.json"
   );
@@ -353,7 +353,7 @@ export async function seedModule(platformHdlrI, createdby) {
     // Read modules from CSV file and insert them
     const jsonFilePath = path.join(
       process.cwd(),
-      "scripts",
+      // "scripts",
       "seed_csv_files",
       "module_data_with_permissions.json"
     );
@@ -443,7 +443,7 @@ export async function seedModule(platformHdlrI, createdby) {
 export async function seedVehicleModelFamily(platformHdlrI, createdby) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "vehicle_modelfamily.csv"
   );
@@ -520,7 +520,7 @@ export async function seedOldVehicleModel(platformHdlrI, createdby) {
   try {
     const jsonFilePath = path.join(
       process.cwd(),
-      "scripts",
+      // "scripts",
       "seed_csv_files",
       "vehicle_model_data.json"
     );
@@ -576,7 +576,7 @@ export async function seedVehicleModel(platformHdlrI, createdby, pgPoolTx) {
   try {
     const csvFilePath = path.join(
       process.cwd(),
-      "scripts",
+      // "scripts",
       "seed_csv_files",
       "vehicle_models_updated.csv"
     );
@@ -685,7 +685,7 @@ export async function seedParamFamily(pgPoolTx, createdby) {
   const currtime = new Date();
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "paramfamily.csv"
   );
@@ -739,7 +739,7 @@ export async function seedParamFamilyParam(pgPoolTx, createdby) {
   const currtime = new Date();
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "paramfamily_param.csv"
   );
@@ -801,7 +801,7 @@ export async function seedVehicleModelFamilyParam(pgPoolTx, createdby) {
   const currtime = new Date();
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "vehicle_modelfamily_param.csv"
   );
@@ -868,7 +868,7 @@ export async function seedVehicleModelFamilyParam(pgPoolTx, createdby) {
 export async function seedPackageTypesAndCategories(platformHdlrI, createdby) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "package_type.csv"
   );
@@ -908,7 +908,7 @@ export async function seedPackageTypesAndCategories(platformHdlrI, createdby) {
 export async function seedChargeDeviation(pgPoolTx) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "charge_deviation.csv"
   );
@@ -959,7 +959,7 @@ export async function seedDocuments(pgPoolTx) {
   const currtime = new Date();
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "documents.csv"
   );
@@ -1014,7 +1014,7 @@ export async function seedBanners(pgPoolTx) {
   const currtime = new Date();
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "banners.csv"
   );
@@ -1068,7 +1068,7 @@ export async function seedBanners(pgPoolTx) {
 export async function seedSOSContacts(pgPoolTx) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "sos_contacts.csv"
   );
@@ -1206,7 +1206,7 @@ export async function seedApiKeys(pgPoolTx) {
 export async function seedCity(pgPoolTx) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "city.csv"
   );
@@ -1246,7 +1246,7 @@ export async function seedCity(pgPoolTx) {
 export async function seedDealer(pgPoolTx) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "dealer.csv"
   );
@@ -1286,7 +1286,7 @@ export async function seedDealer(pgPoolTx) {
 export async function seedColour(pgPoolTx) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "colour.csv"
   );
@@ -1326,7 +1326,7 @@ export async function seedColour(pgPoolTx) {
 export async function seedFuelType(pgPoolTx) {
   const csvFilePath = path.join(
     process.cwd(),
-    "scripts",
+    // "scripts",
     "seed_csv_files",
     "fueltype.csv"
   );

@@ -7,10 +7,10 @@ main();
 
 async function main() {
 
-  if (process.env.SEED_DB !== "true") {
-    console.log("SEED_DB is not true. Skipping seeding.");
-    return;
-  }
+  // if (process.env.SEED_DB !== "true") {
+  //   console.log("SEED_DB is not true. Skipping seeding.");
+  //   return;
+  // }
 
     // pgpool config
     let pgDBCfg = configdata.pgdb;

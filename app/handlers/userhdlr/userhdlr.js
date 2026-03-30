@@ -42,6 +42,11 @@ export default class UserHdlr {
     userTokenGroup.post("/invite/accept", this.AcceptInvite);
     userTokenGroup.post("/invite/reject", this.RejectInvite);
     userTokenGroup.get("/accounts", this.GetUserAccounts);
+
+    // NEW RATING APIS
+    userTokenGroup.get("/rating-status", this.GetUserRatingStatus);
+    userTokenGroup.put("/rating", this.PutUserRating);
+
     userTokenGroup.get("/invites", this.ListInvitesOfUser);
     userTokenGroup.get("/account/:accountid/token", this.GetAccountToken);
     userTokenGroup.put("/displayname", this.UpdateDisplayName);
@@ -215,6 +220,103 @@ export default class UserHdlr {
           "GET_USER_ACCOUNTS_ERR",
           error.toString(),
           "Get user accounts failed"
+        );
+      }
+    }
+  };
+
+  // NEW API
+  GetUserRatingStatus = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        userid: z
+          .string({ message: "User ID is required" })
+          .uuid({ message: "Invalid User ID format" }),
+      });
+
+      let { userid } = validateAllInputs(schema, {
+        userid: req.userid,
+      });
+
+      let result = await this.userHdlrImpl.GetUserRatingStatusLogic(userid);
+
+      APIResponseOK(req, res, result, "Rating status fetched successfully");
+    } catch (e) {
+      this.logger.error("GetUserRatingStatus error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
+      } else {
+        return APIResponseInternalErr(
+          req,
+          res,
+          "GET_USER_RATING_STATUS_ERR",
+          e.toString(),
+          "Get user rating status failed"
+        );
+      }
+    }
+  };
+
+  // NEW API
+  PutUserRating = async (req, res, next) => {
+    try {
+      let schema = z.object({
+        userid: z
+          .string({ message: "User ID is required" })
+          .uuid({ message: "Invalid User ID format" }),
+        type: z.literal("rating"),
+        reference: z
+          .number({ message: "Reference is required" })
+          .int({ message: "Reference must be an integer" })
+          .min(0, { message: "Reference must be between 0 and 5" })
+          .max(5, { message: "Reference must be between 0 and 5" }),
+        comment: z
+          .string({ message: "Comment must be a string" })
+          .max(1000, { message: "Comment must be at most 1000 characters" })
+          .optional()
+          .nullable(),
+      });
+
+      let { userid, type, reference, comment } = validateAllInputs(schema, {
+        userid: req.userid,
+        type: req.body.type,
+        reference: Number(req.body.reference),
+        comment: req.body.comment,
+      });
+
+      let payload = {
+        type,
+        reference,
+        comment,
+        file: null,
+      };
+
+      let result = await this.userHdlrImpl.PutUserRatingLogic(userid, payload);
+
+      APIResponseOK(req, res, result, "Rating saved successfully");
+    } catch (e) {
+      this.logger.error("PutUserRating error: ", e);
+      if (e.errcode === "INPUT_ERROR") {
+        return APIResponseBadRequest(
+          req,
+          res,
+          "INPUT_ERROR",
+          e.errdata,
+          e.message
+        );
+      } else {
+        return APIResponseInternalErr(
+          req,
+          res,
+          "PUT_USER_RATING_ERR",
+          e.toString(),
+          "Put user rating failed"
         );
       }
     }
@@ -630,8 +732,6 @@ export default class UserHdlr {
         e.errcode === "INVALID_MOBILE"
       ) {
         return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
-      } else if (e.errcode === "MAHINDRA_SSO_USER") {
-        return APIResponseBadRequest(req, res, e.errcode, {}, e.message);
       } else {
         return APIResponseInternalErr(
           req,
@@ -652,19 +752,8 @@ export default class UserHdlr {
           .regex(/^[6-9]\d{9}$/, {
             message: "Mobile must be a valid 10-digit Indian mobile number",
           }),
-        // TODO: Uncomment OTP validation after new Android build
-        // otp: z
-        //   .string({ message: "Invalid OTP format" })
-        //   .nonempty({ message: "OTP cannot be empty" }),
       });
 
-      //TODO: uncomment this after new Android build
-      // let { mobile, otp } = validateAllInputs(schema, {
-      //   mobile: req.body.mobile,
-      //   otp: req.body.otp,
-      // });
-
-      //TODO: remove this after new Android build
       let { mobile } = validateAllInputs(schema, {
         mobile: req.body.mobile,
       });

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Default values
-DEFAULT_SCHEMA="fmsauthsch"
-DEFAULT_OUTPUT_FILE="scripts/consolemgmt_permissions.csv"
+DEFAULT_SCHEMA="devfmsscoresch"
+DEFAULT_OUTPUT_FILE="./consolemgmt_permissions.csv"
 DEFAULT_PREFIX="consolemgmt"
 
 # Check if schema name is provided as argument
@@ -43,7 +43,7 @@ echo "Exporting permissions from schema: $SCHEMA_NAME with prefix: $PREFIX to fi
 
 # Method 1: Using COPY command (most efficient)
 echo "Method 1: Using COPY command..."
-PGPASSWORD=Z52DWfsAZIBtnOK psql -p 22011 -U lmmintellicar_admin -h mahindra-tunnel.intellicar.io lmmintellicar -c "\copy (SELECT permid FROM $SCHEMA_NAME.perm WHERE permid LIKE '$PREFIX%' ORDER BY permid) TO '$OUTPUT_FILE';"
+PGPASSWORD=Classic@73093 psql -p 5432 -U postgres -h localhost lmmintellicar -c "\copy (SELECT permid FROM $SCHEMA_NAME.perm WHERE permid LIKE '$PREFIX%' ORDER BY permid) TO '$OUTPUT_FILE';"
 
 if [ $? -eq 0 ]; then
     echo "Successfully exported to $OUTPUT_FILE"
@@ -56,7 +56,7 @@ else
     
     # Method 2: Using psql output redirection
     echo "Method 2: Using psql output redirection..."
-    PGPASSWORD=Z52DWfsAZIBtnOK psql -p 22011 -U lmmintellicar_admin -h mahindra-tunnel.intellicar.io lmmintellicar -c "SELECT permid FROM $SCHEMA_NAME.perm WHERE permid LIKE '$PREFIX%' ORDER BY permid;" -A -t > "$OUTPUT_FILE"
+    PGPASSWORD=Classic@73093 psql -p 5432 -U postgres -h localhost lmmintellicar -c "SELECT permid FROM $SCHEMA_NAME.perm WHERE permid LIKE '$PREFIX%' ORDER BY permid;" -A -t > "$OUTPUT_FILE"
     
     if [ $? -eq 0 ]; then
         echo "Successfully exported to $OUTPUT_FILE"

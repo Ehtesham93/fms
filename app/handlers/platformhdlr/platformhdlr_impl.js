@@ -22,6 +22,8 @@ export default class PlatformHdlrImpl {
       if (!module.moduleinfo) {
         module.moduleinfo = {};
       }
+      console.log(module.moduleinfo, "-=-=-=-=-=-=-=-==-")
+      module.moduleinfo.moduleurl = 'https://localhost:10007/remoteEntry.js'
       modules.push({
         moduleid: module.moduleid,
         moduleinfo: module,

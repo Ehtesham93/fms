@@ -340,9 +340,9 @@ export default class PublicHdlr {
     }
   };
 
-  CheckContact = async (req, res, next) => {
+  CheckContact = async (req, res, next) => { // its handle api req & res and pass control to next middleware 
     try {
-      const captchaToken = req.body["g-recaptcha-response"];
+      const captchaToken = req.body["g-recaptcha-response"]; //catch captchaToken error 
       const remoteIp = req.ip;
       const referer = req.headers.referer;
       let inviteid = null;
@@ -358,45 +358,44 @@ export default class PublicHdlr {
           }
       }
 
-      if (captchaToken) {
-        const isValidCaptcha = await ValidateCaptcha(
-          captchaToken,
-          remoteIp,
-          this.config
-        );
+      // if (captchaToken) { //check is captchaToken is valid ??
+      //   const isValidCaptcha = await ValidateCaptcha(
+      //     captchaToken,
+      //     remoteIp,
+      //     this.config
+      //   );
 
-        if (!isValidCaptcha) {
-          throw {
-            errcode: "CAPTCHA_FAILED",
-            errdata: {},
-            message: "Security verification failed. Please try again.",
-          };
-        }
-      }
+      //   if (!isValidCaptcha) { //if captcha is not valid then through the error CAPTCHA failed 
+      //       errcode: "CAPTCHA_FAILED",
+      //       errdata: {},
+      //       message: "Security verification failed. Please try again.",
+      //     };
+      //   }
+      // }
 
-      let schema = z.object({
+      let schema = z.object({ //create a validation schema using ZOD z.object
         contact: z
-          .string({
+          .string({ // contact must be string
             message: "Please provide a valid contact (email or mobile number)",
           })
-          .nonempty({ message: "Contact information is required" })
-          .max(128, {
+          .nonempty({ message: "Contact information is required" }) //can not be empty
+          .max(128, { // it can be maximum 128 character
             message: "Contact must be at most 128 characters long",
           }),
       });
 
-      let { contact } = validateAllInputs(schema, {
+      let { contact } = validateAllInputs(schema, { // validate the contact field from the req body if invalid throw error
         contact: req.body.contact,
       });
 
-      let result = await this.publicHdlrImpl.CheckContactLogic(contact, inviteid);
+      let result = await this.publicHdlrImpl.CheckContactLogic(contact);
       APIResponseOK(req, res, result, "Contact verified successfully");
     } catch (error) {
       return this.handleError(
         error,
         req,
         res,
-        "CHECK_CONTACT_ERR",
+        "CHECK_CONTACT_ERR", //Sends error response with code "CHECK_CONTACT_ERR" and message "User with this contact doesn't exist".
         "User with this contact doesn't exist"
       );
     }
@@ -599,21 +598,21 @@ export default class PublicHdlr {
       const captchaToken = req.body["g-recaptcha-response"];
       const remoteIp = req.ip;
 
-      if (captchaToken) {
-        const isValidCaptcha = await ValidateCaptcha(
-          captchaToken,
-          remoteIp,
-          this.config
-        );
+      // if (captchaToken) {
+      //   const isValidCaptcha = await ValidateCaptcha(
+      //     captchaToken,
+      //     remoteIp,
+      //     this.config
+      //   );
 
-        if (!isValidCaptcha) {
-          throw {
-            errcode: "CAPTCHA_FAILED",
-            errdata: {},
-            message: "Security verification failed. Please try again.",
-          };
-        }
-      }
+      //   if (!isValidCaptcha) {
+      //     throw {
+      //       errcode: "CAPTCHA_FAILED",
+      //       errdata: {},
+      //       message: "Security verification failed. Please try again.",
+      //     };
+      //   }
+      // }
 
       let schema = z.object({
         email: z
