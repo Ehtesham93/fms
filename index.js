@@ -31,7 +31,7 @@ import UserSvc from "./app/services/usersvc/usersvc.js";
 import GeocodeSvc from "./app/services/external/geocodesvc/geocodesvc.js";
 import { Logger } from "./lib/nemo3-lib-observability/index.js";
 
-//setup logger
+// setup logger
 const logger = new Logger({
   environment: process.env.APP_ENV || "LOCAL",
   service: process.env.SERVICE_NAME || "nemo3-api-fms-svc",
@@ -54,6 +54,16 @@ let servicelogger = logger;
 let pgPoolI = new PgPool(config.pgdb, servicelogger);
 let inMemCacheI = new NodeCache(config.inMemCache);
 let redisSvc = new RedisSvc(config.redis, servicelogger);
+
+// Make Redis available to services that only receive config
+// This is needed for rating prompt Redis + PostgreSQL hybrid flow
+config.redisClient = redisSvc;
+
+// Optional alternate path for code that reads config.redis.client
+if (!config.redis) {
+  config.redis = {};
+}
+config.redis.client = redisSvc;
 
 let healthSvcI = new HealthSvc();
 let authSvcI = new AuthSvc(config, servicelogger);

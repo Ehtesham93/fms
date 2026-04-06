@@ -1,6 +1,6 @@
 import UserSvcDB from "./usersvc_db.js";
-import axios from "axios"; //used for request and verify otp
-import config from "../../config/config.js"; //used for request and verify otp
+import axios from "axios";
+import config from "../../config/config.js";
 
 export default class UserSvc {
   constructor(pgPoolI, config, logger) {
@@ -68,25 +68,79 @@ export default class UserSvc {
   }
 
   async CreateFmsUser(user, userssoinfo, createdby, accountid) {
-    return await this.userSvcDB.createFmsUser(user, userssoinfo, createdby, accountid);
+    return await this.userSvcDB.createFmsUser(
+      user,
+      userssoinfo,
+      createdby,
+      accountid
+    );
   }
 
   async AddUserToAccountWithRole(userid, accountid, role, createdbyuserid) {
-    return await this.userSvcDB.addUserToAccountWithRole(userid, accountid, role, createdbyuserid);
+    return await this.userSvcDB.addUserToAccountWithRole(
+      userid,
+      accountid,
+      role,
+      createdbyuserid
+    );
   }
 
-  async GetAllUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
-    return await this.userSvcDB.getAllUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection);
+  async GetAllUsers(
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
+    return await this.userSvcDB.getAllUsers(
+      searchtext,
+      offset,
+      limit,
+      download,
+      orderbyfield,
+      orderbydirection
+    );
   }
 
-  async GetPlatformUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
+  async GetPlatformUsers(
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
     let accountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    return await this.userSvcDB.getAccountFleetUsers(accountid, searchtext, offset, limit, download, orderbyfield, orderbydirection);
+    return await this.userSvcDB.getAccountFleetUsers(
+      accountid,
+      searchtext,
+      offset,
+      limit,
+      download,
+      orderbyfield,
+      orderbydirection
+    );
   }
 
-  async GetAccountUsers(searchtext, offset, limit, download, orderbyfield, orderbydirection) {
+  async GetAccountUsers(
+    searchtext,
+    offset,
+    limit,
+    download,
+    orderbyfield,
+    orderbydirection
+  ) {
     let platformaccountid = "ffffffff-ffff-ffff-ffff-ffffffffffff";
-    return await this.userSvcDB.getNonPlatformUsers(platformaccountid, searchtext, offset, limit, download, orderbyfield, orderbydirection);
+    return await this.userSvcDB.getNonPlatformUsers(
+      platformaccountid,
+      searchtext,
+      offset,
+      limit,
+      download,
+      orderbyfield,
+      orderbydirection
+    );
   }
 
   async GetUserAccounts(userid) {
@@ -167,7 +221,6 @@ export default class UserSvc {
     return await this.userSvcDB.deleteUserRecordsByUserid(userid, deletedby);
   }
 
-  // mobile
   async GetUserIdByMobile(mobile) {
     return await this.userSvcDB.getUserIdByMobile(mobile);
   }
@@ -182,7 +235,6 @@ export default class UserSvc {
     );
   }
 
-  // TODO: uncomment this after testing is done for mobile otp verification through fms-otp-svc
   async VerifyMobileOtp(mobile, otp) {
     const otpVerifyUrl = `${config.mobileotpsvc.rooturl}${config.mobileotpsvc.verifyotppath}`;
     const otpVerifyHeaders = {
@@ -227,6 +279,7 @@ export default class UserSvc {
     ) {
       throw new Error("INVALID_OTP");
     }
+
     return verifyRes;
   }
 
@@ -332,6 +385,7 @@ export default class UserSvc {
       error.errcode = "INVALID_OTP";
       throw error;
     }
+
     return await this.userSvcDB.verifyAndAddMobile(userid, otp, mobile);
   }
 
@@ -395,63 +449,39 @@ export default class UserSvc {
   async UpdatePasswordWithExpiry(userid, newPassword) {
     return await this.userSvcDB.updatePasswordWithExpiry(userid, newPassword);
   }
-  
-  // ===========================
-// ⭐ Rating Feature - Service Layer
-// ===========================
 
-GetUserRating = async (userid) => {
-  try {
-    const query = `
-      SELECT rating, comment
-      FROM user_rating
-      WHERE userid = $1
-      ORDER BY createdat DESC
-      LIMIT 1
-    `;
+  // ==========================================
+  // Feedback / Rating Feature - Service Layer
+  // New Redis + PostgreSQL scheduling model
+  // ==========================================
 
-    const result = await this.db.query(query, [userid]);
-
-    if (!result.rows || result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0];
-  } catch (error) {
-    throw error;
+  async GetLatestRatingFeedback(userid, appName) {
+    return await this.userSvcDB.getLatestRatingFeedback(userid, appName);
   }
-};
 
-SaveUserRating = async (data) => {
-  try {
-    const query = `
-      INSERT INTO user_rating (
-        id,
-        userid,
-        rating,
-        comment,
-        reference,
-        type,
-        createdat
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `;
-
-    await this.db.query(query, [
-      data.id,
-      data.userid,
-      data.rating,
-      data.comment || "",
-      data.reference,
-      data.type,
-      data.createdat,
-    ]);
-
-    return true;
-  } catch (error) {
-    throw error;
+  async GetLatestRatingFeedbackSchedule(userid, appName) {
+    return await this.userSvcDB.getLatestRatingFeedbackSchedule(userid, appName);
   }
-};
+
+  async AddUserFeedback(data) {
+    return await this.userSvcDB.addUserFeedback(data);
+  }
+
+  async GetRatingPromptCache(cacheKey) {
+    return await this.userSvcDB.getRatingPromptCache(cacheKey);
+  }
+
+  async SetRatingPromptCache(cacheKey, value, ttlSeconds) {
+    return await this.userSvcDB.setRatingPromptCache(
+      cacheKey,
+      value,
+      ttlSeconds
+    );
+  }
+
+  async DeleteRatingPromptCache(cacheKey) {
+    return await this.userSvcDB.deleteRatingPromptCache(cacheKey);
+  }
 
   async CheckUserLoginSecurity(userid) {
     return await this.userSvcDB.checkUserLoginSecurity(userid);
@@ -516,7 +546,7 @@ SaveUserRating = async (data) => {
   async UpdateMahindrassoEmail(userid, email, column) {
     return await this.userSvcDB.updateMahindrassoEmail(userid, email, column);
   }
-  
+
   async CheckForMahindraSsoUser(userid) {
     return await this.userSvcDB.checkForMahindraSsoUser(userid);
   }
@@ -526,6 +556,9 @@ SaveUserRating = async (data) => {
   }
 
   async AcceptInviteForMahindraSsoFirstLogin(userid, inviteid) {
-    return await this.userSvcDB.acceptInviteForMahindraSsoFirstLogin(userid, inviteid);
+    return await this.userSvcDB.acceptInviteForMahindraSsoFirstLogin(
+      userid,
+      inviteid
+    );
   }
 }

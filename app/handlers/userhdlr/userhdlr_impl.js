@@ -39,12 +39,11 @@ export default class UserHdlrImpl {
   };
 
   GetHomePageLogic = async (userid) => {
-    // get roles for this userid
     let consolePerms = await this.userSvcI.GetConsolePerms(userid);
     let showConsole = false;
     let showImpersonate = false;
     let showFms = true;
-    // check if user has impersonate permission
+
     if (consolePerms && consolePerms.length > 0) {
       showConsole = true;
       if (
@@ -78,7 +77,6 @@ export default class UserHdlrImpl {
   };
 
   GetAccountTokenLogic = async (userid, accountid, expiresin) => {
-    // Check if account exists and is valid
     let account = await this.platformSvcI
       .getAccountSvc()
       .GetAccountInfo(accountid);
@@ -105,10 +103,12 @@ export default class UserHdlrImpl {
       },
       validity: expiresin,
     };
+
     let token = await this.authSvcI.GetToken(userid, tokenclaims);
     if (!token) {
       throw new Error("Failed to get account token");
     }
+
     return {
       userid: userid,
       accountid: accountid,
@@ -117,11 +117,6 @@ export default class UserHdlrImpl {
   };
 
   LogoutLogic = async (userid) => {
-    // TODO: invalidate token commented out for now
-    // let result = await this.authSvcI.InvalidateToken(userid);
-    // if (!result) {
-    //   throw new Error("Failed to logout");
-    // }
     return {
       userid: userid,
     };
@@ -140,6 +135,7 @@ export default class UserHdlrImpl {
     if (!invites) {
       invites = [];
     }
+
     const currentTime = new Date();
 
     for (let invite of invites) {
@@ -150,6 +146,7 @@ export default class UserHdlrImpl {
         }
       }
     }
+
     return invites;
   };
 
@@ -169,9 +166,11 @@ export default class UserHdlrImpl {
       lng,
       mapzoom
     );
+
     if (!result) {
       throw new Error("Failed to set user defaults");
     }
+
     return {
       userid: userid,
       defaults: {
@@ -230,6 +229,7 @@ export default class UserHdlrImpl {
         error.errcode = "MAHINDRA_SSO_USER";
         throw error;
       }
+
       let existingUserId = await this.userSvcI.CheckMobileExists(mobile);
       if (existingUserId) {
         const error = new Error("Mobile number is already in use");
@@ -255,11 +255,7 @@ export default class UserHdlrImpl {
       });
 
       const message = `Verify_OTP_for_Mahindra_Nemo at ${otp} , please check - Intellicar`;
-      try {
-        await SendSms(mobile, message);
-      } catch (err) {
-        throw err;
-      }
+      await SendSms(mobile, message);
 
       return {
         message: "OTP sent to your mobile number",
@@ -309,7 +305,6 @@ export default class UserHdlrImpl {
       await this.userSvcI.CreateEmailVerify(verifyid, userid, email, expiresat);
 
       const verificationLink = `${headerReferer}/auth/verify-email?verifyid=${verifyid}`;
-
       const user = await this.userSvcI.GetUserDetails(userid);
 
       const emailTemplate = await this.createEmailVerificationTemplate(
@@ -386,7 +381,6 @@ export default class UserHdlrImpl {
                       font-family: "Georama", sans-serif;
                       background-color: #ffffff;
                     }
-                    
                     .verify-button {
                       display: inline-block;
                       padding: 12px 24px;
@@ -397,11 +391,9 @@ export default class UserHdlrImpl {
                       font-weight: 600;
                       font-size: 16px;
                     }
-                    
                     .verify-button:hover {
                       background-color: #0056b3;
                     }
-                    
                     @media (max-width: 520px) {
                       .row-content {
                         width: 100% !important;
@@ -409,7 +401,6 @@ export default class UserHdlrImpl {
                     }
                   </style>
                 </head>
-                
                 <body>
                   <table
                     width="100%"
@@ -430,15 +421,12 @@ export default class UserHdlrImpl {
                             <td style="padding: 30px 10px 10px">
                               <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
                                 <img src="https://nemo.intellicar.io/nemo3/vehicle/model/img/mahindra_logo.png" alt="Nemo Logo" style="width: 100px;" />
-                                <p
-                                  style="font-size: 29px; font-weight: 600; line-height: 35px"
-                                >
+                                <p style="font-size: 29px; font-weight: 600; line-height: 35px">
                                   Add Email to Account
                                 </p>
                               </div>
                             </td>
                           </tr>
-                          
                           <tr>
                             <td style="padding: 10px">
                               <p style="text-align: center; font-size: 14px">
@@ -446,7 +434,6 @@ export default class UserHdlrImpl {
                               </p>
                             </td>
                           </tr>
-                          
                           <tr>
                             <td style="padding: 10px">
                               <p style="text-align: center; font-size: 14px">
@@ -454,13 +441,11 @@ export default class UserHdlrImpl {
                               </p>
                             </td>
                           </tr>
-                          
                           <tr>
                             <td style="padding: 10px; text-align: center;">
                               <a href="${verificationLink}" class="verify-button" style="color: #ffffff !important;">Verify Email Address</a>
                             </td>
                           </tr>
-                          
                           <tr>
                             <td style="padding: 10px">
                               <p style="text-align: center; font-size: 14px">
@@ -471,7 +456,6 @@ export default class UserHdlrImpl {
                               </p>
                             </td>
                           </tr>
-                          
                           <tr>
                             <td style="padding: 10px">
                               <p style="text-align: center; font-size: 14px">
@@ -479,7 +463,6 @@ export default class UserHdlrImpl {
                               </p>
                             </td>
                           </tr>
-                          
                           <tr>
                             <td style="padding: 10px">
                               <p style="text-align: center; font-size: 13px">
@@ -487,7 +470,6 @@ export default class UserHdlrImpl {
                               </p>
                             </td>
                           </tr>
-                          
                           <tr>
                             <td style="padding: 18px">
                               <p style="text-align: center; font-size: 13px; color: #000000">
@@ -725,7 +707,6 @@ export default class UserHdlrImpl {
 
     let validity = TOKEN_EXPIRY_TIME;
 
-    // TODO: Remove this once we have a proper token verification implementation
     if (mainClaims.userid === "45f49d41-1180-4fd2-9e24-ae09c18f0f52") {
       validity = 30;
     }
@@ -833,127 +814,174 @@ export default class UserHdlrImpl {
       throw err;
     }
   };
-    // ===========================
-  // ⭐ Rating Feature Logic
-  // ===========================
 
-GetUserRatingStatusLogic = async (userid) => {
-  try {
-    // Call DB/service to check latest rating
-    let ratingData = await this.userSvcI.GetUserRating(userid);
+  // ==========================================
+  // Feedback / Rating Feature Logic
+  // New Redis + PostgreSQL scheduling model
+  // ==========================================
 
-    // 🟢 Case 1: No record → show popup
-    if (!ratingData) {
-      return {
-        isRated: false,
-      };
+  getRatingPromptCacheKey = (userid, appName = "Nemo3.0") => {
+    return `rating_prompt:${appName}:${userid}`;
+  };
+
+  getDaysForRating = (ratingValue) => {
+    return String(ratingValue) === "0" ? 30 : 60;
+  };
+
+  getTtlSecondsFromDate = (targetDate) => {
+    if (!targetDate) {
+      return 0;
     }
 
-    // 🟢 Case 2: User already gave rating (1–5) → never show popup again
-    if (ratingData.rating > 0) {
-      return {
-        isRated: true,
-        rating: ratingData.rating,
-        comment: ratingData.comment,
-      };
+    const target = new Date(targetDate);
+    if (Number.isNaN(target.getTime())) {
+      return 0;
     }
 
-    // 🔴 Case 3: User clicked "Later" (rating = 0)
-    if (ratingData.rating === 0) {
-      let createdAt = new Date(ratingData.createdat);
-      let now = new Date();
+    const diffMs = target.getTime() - Date.now();
+    if (diffMs <= 0) {
+      return 0;
+    }
 
-      // Calculate difference in days
-      let diffInDays = (now - createdAt) / (1000 * 60 * 60 * 24);
+    return Math.ceil(diffMs / 1000);
+  };
 
-      // ✅ If 30 days passed → show popup again
-      if (diffInDays >= 30) {
+  GetUserFeedbackStatusLogic = async (userid) => {
+    try {
+      const appName = "Nemo3.0";
+      const cacheKey = this.getRatingPromptCacheKey(userid, appName);
+
+      // Step 1: Check Redis first
+      const cacheValue = await this.userSvcI.GetRatingPromptCache(cacheKey);
+
+      if (cacheValue !== null && cacheValue !== undefined) {
         return {
-          isRated: false,
+          show_popup: false,
         };
       }
 
-      // ❌ If less than 30 days → don't show popup
+      // Step 2: Redis miss, check PostgreSQL
+      const feedbackData = await this.userSvcI.GetLatestRatingFeedbackSchedule(
+        userid,
+        appName
+      );
+
+      // Scenario 1: no DB record + no Redis record
+      if (!feedbackData) {
+        return {
+          show_popup: true,
+        };
+      }
+
+      const nextPromptDate = feedbackData.next_prompt_date
+        ? new Date(feedbackData.next_prompt_date)
+        : null;
+
+      if (!nextPromptDate || Number.isNaN(nextPromptDate.getTime())) {
+        return {
+          show_popup: true,
+        };
+      }
+
+      const now = new Date();
+
+      // Scenario 5:
+      // DB record exists and currentDate < next_prompt_date
+      // rebuild Redis with remaining TTL and return false
+      if (now < nextPromptDate) {
+        const ttlSeconds = this.getTtlSecondsFromDate(nextPromptDate);
+
+        if (ttlSeconds > 0) {
+          await this.userSvcI.SetRatingPromptCache(
+            cacheKey,
+            "false",
+            ttlSeconds
+          );
+        }
+
+        return {
+          show_popup: false,
+        };
+      }
+
+      // Scenario 4:
+      // DB record exists and currentDate >= next_prompt_date
       return {
-        isRated: true,
+        show_popup: true,
       };
+    } catch (error) {
+      throw error;
     }
+  };
 
-    // Default fallback
-    return {
-      isRated: true,
-    };
-  } catch (error) {
-    throw error;
-  }
-};
+  AddUserFeedbackLogic = async (userid, type, payload) => {
+    try {
+      const normalizedType = type ? type.toLowerCase() : "";
 
-  PutUserRatingLogic = async (
-  userid,
-  rating,
-  comment,
-  type,
-  reference
-) => {
-  try {
-    // Normalize type
-    const actionType = type ? type.toUpperCase() : "RATING";
+      if (!normalizedType) {
+        const error = new Error("Invalid feedback type");
+        error.errcode = "INVALID_FEEDBACK_TYPE";
+        throw error;
+      }
 
-    // 🔴 Case 1: User clicked "Later"
-    if (actionType === "LATER") {
-      await this.userSvcI.SaveUserRating({
-        id: uuidv4(),
-        userid: userid,
-        rating: 0,
-        comment: "",
-        reference: reference || "APP",
-        type: "LATER",
-        createdat: new Date(),
-      });
+      if (normalizedType !== "ratings") {
+        const error = new Error("Invalid feedback type");
+        error.errcode = "INVALID_FEEDBACK_TYPE";
+        throw error;
+      }
+
+      const ratingValue =
+        payload.rating === undefined || payload.rating === null
+          ? null
+          : String(payload.rating);
+
+      if (!["0", "1", "2", "3", "4", "5"].includes(ratingValue)) {
+        const error = new Error("Rating must be a string value between 0 and 5");
+        error.errcode = "INVALID_RATING_REFERENCE";
+        throw error;
+      }
+
+      // Scenario 2:
+      // 0 -> ignore -> 30 days
+      // 1..5 -> rated -> 60 days
+      const daysToAdd = this.getDaysForRating(ratingValue);
+      const now = new Date();
+      const nextPromptDate = new Date(now.getTime());
+      nextPromptDate.setDate(nextPromptDate.getDate() + daysToAdd);
+
+      const feedbackPayload = {
+        user_id: userid,
+        feedback_category: normalizedType,
+        comments: payload.comments || "",
+        rating: ratingValue,
+        platform: payload.platform || null,
+        app_name: payload.app_name || "Nemo3.0",
+        app_version: payload.app_version || null,
+        build_number: payload.build_number || null,
+        status: true,
+        rating_date: now,
+        next_prompt_date: nextPromptDate,
+      };
+
+      await this.userSvcI.AddUserFeedback(feedbackPayload);
+
+      // write suppression key to Redis
+      const cacheKey = this.getRatingPromptCacheKey(
+        userid,
+        feedbackPayload.app_name
+      );
+      const ttlSeconds = this.getTtlSecondsFromDate(nextPromptDate);
+
+      if (ttlSeconds > 0) {
+        await this.userSvcI.SetRatingPromptCache(cacheKey, "false", ttlSeconds);
+      }
 
       return {
-        success: true,
-        message: "User chose to rate later",
+        message: "Thank you for your feedback !",
+        next_prompt_date: nextPromptDate,
       };
-    }
-
-    // 🟢 Case 2: User submitted rating
-
-    // ✅ VALIDATION
-    if (rating === undefined || rating === null) {
-      const error = new Error("Rating is required");
-      error.errcode = "RATING_REQUIRED";
+    } catch (error) {
       throw error;
     }
-
-    if (!Number.isInteger(rating)) {
-      const error = new Error("Rating must be an integer");
-      error.errcode = "INVALID_RATING";
-      throw error;
-    }
-
-    if (rating < 1 || rating > 5) {
-      const error = new Error("Rating must be between 1 and 5");
-      error.errcode = "INVALID_RATING";
-      throw error;
-    }
-
-    await this.userSvcI.SaveUserRating({
-      id: uuidv4(),
-      userid: userid,
-      rating: rating,
-      comment: comment || "",
-      reference: reference || "APP",
-      type: "RATING",
-      createdat: new Date(),
-    });
-
-    return {
-      success: true,
-      message: "Rating submitted successfully",
-    };
-  } catch (error) {
-    throw error;
-  }
-};
+  };
 }

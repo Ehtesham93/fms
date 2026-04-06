@@ -19,10 +19,234 @@ export default class UserSvcDB {
    *
    * @param {PgPool} pgPoolI
    */
-  constructor(pgPoolI, config) {
-    this.pgPoolI = pgPoolI;
-    this.config = config;
+  constructor(pgPoolI, config, logger) {
+  this.pgPoolI = pgPoolI;
+  this.config = config;
+  this.logger = logger;
+}
+
+// ===========================
+// Feedback / Rating Feature - DB Layer
+// New Redis + PostgreSQL scheduling model
+// ===========================
+
+
+//this tries to find Redis client from config.
+getRedisClient() {
+  return (
+    this.config?.redisClient ||
+    this.config?.redis?.client ||
+    this.pgPoolI?.redisClient ||
+    null
+  );
+}
+
+
+//This reads Radis value for user key ex-> if exists: popup hidden,  if key not exists: Redis Miss
+async getRatingPromptCache(cacheKey) {
+  try {
+    const redisClient = this.getRedisClient();
+    if (!redisClient) {
+      return null;
+    }
+
+    if (typeof redisClient.get === "function") {
+      return await redisClient.get(cacheKey);
+    }
+
+    return null;
+  } catch (error) {
+    if (this.logger) {
+      this.logger.error("Failed to get rating prompt cache", error);
+    }
+    return null;
   }
+}
+
+ 
+async setRatingPromptCache(cacheKey, value, ttlSeconds) {
+  try {
+    //fetch redis client first -> if client is missing → function quietly return  (true) 
+    const redisClient = this.getRedisClient();
+    if (!redisClient) {
+      return true;
+    }
+
+    //if ttlSeconds (time-to-live) missing or less than 0 then → no meaning to set cache  → return true.
+    if (!ttlSeconds || ttlSeconds <= 0) {
+      return true;
+    }
+
+    const normalizedValue =
+      //if value is null/undefined  → "false"  .Otherwise value will be  string.
+      value === null || value === undefined ? "false" : String(value);
+
+    
+    //if client has .set() method  (node-redis v4 style) → cache set with expiry (EX)--> means (redis set will node-redis v4 style)
+    if (typeof redisClient.set === "function") {
+      // node-redis v4 style
+      await redisClient.set(cacheKey, normalizedValue, {
+        EX: ttlSeconds,
+      });
+      return true;
+    }
+
+
+    //if client has .setEx() method  (older/alternative style) → cache set with expiry. --> means (redis set will alternative redis client style)
+    if (typeof redisClient.setEx === "function") {
+      // alternative redis client style
+      await redisClient.setEx(cacheKey, ttlSeconds, normalizedValue);
+      return true;
+    }
+
+    return true;
+  } catch (error) { //if any error comes then → inside logger  error will print and return false return.
+    if (this.logger) {
+      this.logger.error("Failed to set rating prompt cache", error);
+    }
+    return false;
+  }
+}
+
+//when want to delete suppression key manually --> if require 
+async deleteRatingPromptCache(cacheKey) {
+  try {
+    const redisClient = this.getRedisClient();
+    if (!redisClient) {
+      return true;
+    }
+
+    if (typeof redisClient.del === "function") {
+      await redisClient.del(cacheKey);
+      return true;
+    }
+
+    return true;
+  } catch (error) {
+    if (this.logger) {
+      this.logger.error("Failed to delete rating prompt cache", error);
+    }
+    return false;
+  }
+}
+
+async getLatestRatingFeedback(userid, appName) {
+  try {
+    const query = `
+      SELECT
+        feedback_id,
+        user_id,
+        feedback_category,
+        comments,
+        rating,
+        platform,
+        app_name,
+        app_version,
+        build_number,
+        status,
+        rating_date,
+        next_prompt_date
+      FROM devfmscoresch.user_feedback
+      WHERE user_id = $1
+        AND app_name = $2
+        AND feedback_category = 'ratings'
+        AND status = true
+      ORDER BY rating_date DESC
+      LIMIT 1
+    `;
+
+    const result = await this.pgPoolI.Query(query, [userid, appName]);
+
+    if (!result || result.rowCount === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    throw new Error("Failed to fetch latest rating feedback");
+  }
+}
+
+//this query fetches latest row from db -> same user, same app name, feedback_catogery.....
+async getLatestRatingFeedbackSchedule(userid, appName) {
+  try {
+    const query = `
+      SELECT
+        feedback_id,
+        user_id,
+        feedback_category,
+        comments,
+        rating,
+        platform,
+        app_name,
+        app_version,
+        build_number,
+        status,
+        rating_date,
+        next_prompt_date
+      FROM devfmscoresch.user_feedback
+      WHERE user_id = $1
+        AND app_name = $2
+        AND feedback_category = 'ratings'
+        AND status = true
+      ORDER BY rating_date DESC
+      LIMIT 1
+    `;
+
+    const result = await this.pgPoolI.Query(query, [userid, appName]);
+
+    if (!result || result.rowCount === 0) {
+      return null;
+    }
+
+    return result.rows[0];
+  } catch (error) {
+    throw new Error("Failed to fetch latest rating feedback schedule");
+  }
+}
+
+//this inserts new row , this is where our post actually stores data 
+async addUserFeedback(data) {
+  try {
+    const query = `
+      INSERT INTO devfmscoresch.user_feedback (
+        user_id,
+        feedback_category,
+        comments,
+        rating,
+        platform,
+        app_name,
+        app_version,
+        build_number,
+        status,
+        rating_date,
+        next_prompt_date
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `;
+
+    const currtime = new Date();
+
+    const result = await this.pgPoolI.Query(query, [
+    data.user_id,
+    data.feedback_category,
+    data.comments || "",
+    data.rating,
+    data.platform,
+    data.app_name || "Nemo3.0",
+    data.app_version,
+    data.build_number,
+    data.status ?? true,
+    data.rating_date || currtime,
+    data.next_prompt_date || null,
+  ]);
+
+    return result.rowCount === 1;
+  } catch (error) {
+    this.logger?.error("addUserFeedback DB error:", error);
+    throw new Error("Failed to add user feedback");
+  }
+}
 
   async isValidUser(userid) {
     try {
@@ -227,40 +451,52 @@ export default class UserSvcDB {
     }
   }
 
-  async getUserDetails(userid) {
-    try {
-      let query = `
-            SELECT u.userid, u.displayname, u.usertype, u.userinfo, u.isenabled, u.isdeleted, u.isemailverified, u.ismobileverified, u1.createdat, u1.displayname as createdby, u1.updatedat, u2.displayname as updatedby FROM users u 
-            LEFT JOIN users u1 ON u.createdby = u1.userid
-            LEFT JOIN users u2 ON u.updatedby = u2.userid
-            WHERE u.userid = $1 AND u.isdeleted = false
-        `;
-      let result = await this.pgPoolI.Query(query, [userid]);
-      if (result.rowCount === 0) {
-        return null;
-      }
-      let user = result.rows[0];
-
-      // get email, mobile number
-      query = `
-            SELECT ssoid, ssotype FROM user_sso WHERE userid = $1
-        `;
-      result = await this.pgPoolI.Query(query, [userid]);
-
-      for (let row of result.rows) {
-        if (row.ssotype === EMAIL_PWD_SSO) {
-          user.email = row.ssoid;
-        } else if (row.ssotype === MOBILE_SSO) {
-          user.mobile = row.ssoid;
-        } else if (row.ssotype === MAHINDRA_SSO) {
-          user.email = row.ssoid;
-        }
-      }
-      return user;
-    } catch (error) {
-      throw new Error("Failed to fetch user details");
+async getUserDetails(userid) {
+  try {
+    let query = `
+      SELECT
+        u.userid,
+        u.displayname,
+        u.usertype,
+        u.userinfo,
+        u.isenabled,
+        u.isdeleted,
+        u.isemailverified,
+        u.ismobileverified,
+        u.createdat,
+        u1.displayname as createdby,
+        u.updatedat,
+        u2.displayname as updatedby
+      FROM users u
+      LEFT JOIN users u1 ON u.createdby = u1.userid
+      LEFT JOIN users u2 ON u.updatedby = u2.userid
+      WHERE u.userid = $1 AND u.isdeleted = false
+    `;
+    let result = await this.pgPoolI.Query(query, [userid]);
+    if (result.rowCount === 0) {
+      return null;
     }
+    let user = result.rows[0];
+
+    query = `
+      SELECT ssoid, ssotype FROM user_sso WHERE userid = $1
+    `;
+    result = await this.pgPoolI.Query(query, [userid]);
+
+    for (let row of result.rows) {
+      if (row.ssotype === EMAIL_PWD_SSO) {
+        user.email = row.ssoid;
+      } else if (row.ssotype === MOBILE_SSO) {
+        user.mobile = row.ssoid;
+      } else if (row.ssotype === MAHINDRA_SSO) {
+        user.email = row.ssoid;
+      }
+    }
+    return user;
+  } catch (error) {
+    throw new Error("Failed to fetch user details");
   }
+}
 
   async getRolePermsForAcc(accountid, userid) {
     try {

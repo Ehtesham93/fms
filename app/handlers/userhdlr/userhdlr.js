@@ -43,9 +43,9 @@ export default class UserHdlr {
     userTokenGroup.post("/invite/reject", this.RejectInvite);
     userTokenGroup.get("/accounts", this.GetUserAccounts);
 
-    // NEW RATING APIS
-    userTokenGroup.get("/rating-status", this.GetUserRatingStatus);
-    userTokenGroup.put("/rating", this.PutUserRating);
+    // Feedback / Rating APIs
+    userTokenGroup.get("/feedback/status", this.GetUserFeedbackStatus);
+    userTokenGroup.post("/feedback/:type", this.PostUserFeedback);
 
     userTokenGroup.get("/invites", this.ListInvitesOfUser);
     userTokenGroup.get("/account/:accountid/token", this.GetAccountToken);
@@ -225,8 +225,7 @@ export default class UserHdlr {
     }
   };
 
-  // NEW API
-  GetUserRatingStatus = async (req, res, next) => {
+  GetUserFeedbackStatus = async (req, res, next) => {
     try {
       let schema = z.object({
         userid: z
@@ -238,11 +237,11 @@ export default class UserHdlr {
         userid: req.userid,
       });
 
-      let result = await this.userHdlrImpl.GetUserRatingStatusLogic(userid);
+      let result = await this.userHdlrImpl.GetUserFeedbackStatusLogic(userid);
 
-      APIResponseOK(req, res, result, "Rating status fetched successfully");
+      APIResponseOK(req, res, result, "Feedback status fetched successfully");
     } catch (e) {
-      this.logger.error("GetUserRatingStatus error: ", e);
+      this.logger.error("GetUserFeedbackStatus error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(
           req,
@@ -255,53 +254,130 @@ export default class UserHdlr {
         return APIResponseInternalErr(
           req,
           res,
-          "GET_USER_RATING_STATUS_ERR",
+          "GET_USER_FEEDBACK_STATUS_ERR",
           e.toString(),
-          "Get user rating status failed"
+          "Get user feedback status failed"
         );
       }
     }
   };
 
-  // NEW API
-  PutUserRating = async (req, res, next) => {
+  PostUserFeedback = async (req, res, next) => {
     try {
-      let schema = z.object({
-        userid: z
-          .string({ message: "User ID is required" })
-          .uuid({ message: "Invalid User ID format" }),
-        type: z.literal("rating"),
-        reference: z
-          .number({ message: "Reference is required" })
-          .int({ message: "Reference must be an integer" })
-          .min(0, { message: "Reference must be between 0 and 5" })
-          .max(5, { message: "Reference must be between 0 and 5" }),
-        comment: z
-          .string({ message: "Comment must be a string" })
-          .max(1000, { message: "Comment must be at most 1000 characters" })
-          .optional()
-          .nullable(),
-      });
+      const schema = z
+        .object({
+          userid: z
+            .string({ message: "User ID is required" })
+            .uuid({ message: "Invalid User ID format" }),
 
-      let { userid, type, reference, comment } = validateAllInputs(schema, {
+          type: z
+            .string({ message: "Feedback type is required" })
+            .trim()
+            .min(1, { message: "Feedback type is required" })
+            .max(50, { message: "Feedback type must be at most 50 characters" })
+            .regex(/^[a-zA-Z_]+$/, {
+              message:
+                "Feedback type can only contain letters and underscores",
+            }),
+
+          comments: z
+            .string({ message: "Comments must be a string" })
+            .max(1000, { message: "Comments must be at most 1000 characters" })
+            .optional()
+            .nullable(),
+
+          platform: z
+            .string({ message: "Platform must be a string" })
+            .max(50, { message: "Platform must be at most 50 characters" })
+            .optional()
+            .nullable(),
+
+          rating: z
+            .union([
+              z.string().regex(/^[0-5]$/, {
+                message:
+                  "Rating must be a string value between 0 and 5 for ratings",
+              }),
+              z.null(),
+              z.undefined(),
+            ])
+            .optional(),
+
+          app_version: z
+            .string({ message: "App version must be a string" })
+            .max(50, { message: "App version must be at most 50 characters" })
+            .optional()
+            .nullable(),
+
+          build_number: z
+            .string({ message: "Build number must be a string" })
+            .max(50, { message: "Build number must be at most 50 characters" })
+            .optional()
+            .nullable(),
+
+          app_name: z
+            .string({ message: "App name must be a string" })
+            .max(100, { message: "App name must be at most 100 characters" })
+            .optional()
+            .nullable(),
+        })
+        .superRefine((data, ctx) => {
+          const normalizedType = data.type?.toLowerCase();
+
+          if (normalizedType === "ratings") {
+            if (
+              data.rating === undefined ||
+              data.rating === null ||
+              data.rating === ""
+            ) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["rating"],
+                message:
+                  "Rating is required for ratings and must be between 0 and 5",
+              });
+            }
+          }
+        });
+
+      let {
+        userid,
+        type,
+        comments,
+        platform,
+        rating,
+        app_version,
+        build_number,
+        app_name,
+      } = validateAllInputs(schema, {
         userid: req.userid,
-        type: req.body.type,
-        reference: Number(req.body.reference),
-        comment: req.body.comment,
+        type: req.params.type,
+        comments: req.body.comments,
+        platform: req.body.platform,
+        rating: req.body.rating,
+        app_version: req.body.app_version,
+        build_number: req.body.build_number,
+        app_name: req.body.app_name ?? "Nemo3.0",
       });
 
       let payload = {
-        type,
-        reference,
-        comment,
-        file: null,
+        comments: comments ?? null,
+        platform: platform ?? null,
+        rating: rating ?? null,
+        app_version: app_version ?? null,
+        build_number: build_number ?? null,
+        app_name: app_name ?? "Nemo3.0",
       };
 
-      let result = await this.userHdlrImpl.PutUserRatingLogic(userid, payload);
+      let result = await this.userHdlrImpl.AddUserFeedbackLogic(
+        userid,
+        type,
+        payload
+      );
 
-      APIResponseOK(req, res, result, "Rating saved successfully");
+      APIResponseOK(req, res, result, "Thank you for your feedback !");
     } catch (e) {
-      this.logger.error("PutUserRating error: ", e);
+      this.logger.error("PostUserFeedback error: ", e);
       if (e.errcode === "INPUT_ERROR") {
         return APIResponseBadRequest(
           req,
@@ -310,13 +386,19 @@ export default class UserHdlr {
           e.errdata,
           e.message
         );
+      } else if (
+        e.errcode === "INVALID_FEEDBACK_TYPE" ||
+        e.errcode === "INVALID_RATING" ||
+        e.errcode === "INVALID_RATING_REFERENCE"
+      ) {
+        return APIResponseBadRequest(req, res, e.errcode, e.errdata, e.message);
       } else {
         return APIResponseInternalErr(
           req,
           res,
-          "PUT_USER_RATING_ERR",
+          "POST_USER_FEEDBACK_ERR",
           e.toString(),
-          "Put user rating failed"
+          "Post user feedback failed"
         );
       }
     }
@@ -341,7 +423,6 @@ export default class UserHdlr {
       let validityMs = req.body.validity;
       let expiresin = TOKEN_EXPIRY_TIME;
 
-      // TODO: Remove this once we have a proper token verification implementation
       if (
         userid === "45f49d41-1180-4fd2-9e24-ae09c18f0f52" ||
         userid === "7c8a6d0c-5878-4774-b678-1c779afdb4c5"
